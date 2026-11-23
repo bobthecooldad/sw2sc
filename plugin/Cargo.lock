@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "sw2sc-core"
-version = "0.1.0"
+version = "0.17.3"
 dependencies = [
  "crc32fast",
  "indexmap",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "sw2sc-plugin"
-version = "0.1.0"
+version = "0.17.3"
 dependencies = [
  "serde_json",
  "sw2sc-core",

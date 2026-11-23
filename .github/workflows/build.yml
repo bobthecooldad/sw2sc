@@ -1,0 +1,99 @@
+# Builds and tests on every push and pull request. A push to main whose VERSION has no release
+# yet tags it v<VERSION> and publishes a release with the plugin zip: bump VERSION to release.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python tests
+        run: python3 -m unittest discover -s tests
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugin
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-tools
+
+      - name: Version
+        id: version
+        run: echo "version=$(python3 plugin/stamp_version.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Rust tests
+        working-directory: plugin
+        run: cargo test --release -p sw2sc-core
+
+      - name: Build the plugin
+        working-directory: plugin
+        run: |
+          cargo build --release --target wasm32-unknown-unknown -p sw2sc-plugin
+          wasm-tools component new target/wasm32-unknown-unknown/release/sw2sc_plugin.wasm -o package/sw2sc/sw2sc.wasm
+          cd package/sw2sc
+          zip -X ../../sw2sc-${{ steps.version.outputs.version }}.zip plugin.json sw2sc.wasm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sw2sc-${{ steps.version.outputs.version }}
+          path: plugin/sw2sc-${{ steps.version.outputs.version }}.zip
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Already released?
+        id: check
+        run: |
+          if git rev-parse -q --verify "refs/tags/v${{ needs.build.outputs.version }}" >/dev/null; then
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.check.outputs.new == 'true'
+        with:
+          name: sw2sc-${{ needs.build.outputs.version }}
+
+      - name: Release notes
+        if: steps.check.outputs.new == 'true'
+        run: |
+          v="${{ needs.build.outputs.version }}"
+          # the CHANGELOG section for this version, if there is one
+          awk -v v="$v" '$0 ~ "^## \[" v "\]" {on=1; next} /^## \[/ {if (on) exit} on' CHANGELOG.md > notes.md
+          printf '\n## Install\n\nIn SolidCraft: Preferences > Plugins > Install plugin..., choose `sw2sc-%s.zip` and allow the memory it asks for.\n' "$v" >> notes.md
+
+      - uses: softprops/action-gh-release@v2
+        if: steps.check.outputs.new == 'true'
+        with:
+          tag_name: v${{ needs.build.outputs.version }}
+          name: sw2sc ${{ needs.build.outputs.version }}
+          body_path: notes.md
+          files: sw2sc-${{ needs.build.outputs.version }}.zip
+          make_latest: true
