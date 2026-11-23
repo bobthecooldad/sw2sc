@@ -1,0 +1,156 @@
+import math
+import os
+import unittest
+
+from sw2sc import features
+
+DOCS = os.path.expanduser(r"~\Documents")
+SLIPPAD = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "..", "..", "samples",
+                       "slippad-solidworks")
+if not os.path.isdir(SLIPPAD):
+    SLIPPAD = r"samples\slippad-solidworks"
+
+
+def sketch(points, lines=(), arcs=(), circles=()):
+    s = features.Sketch("S", 0)
+    s.points = {k: (x / 1000, y / 1000) for k, (x, y) in points.items()}
+    s.lines, s.arcs, s.circles = list(lines), list(arcs), list(circles)
+    s.add_plane((features.FRONT, (0.0, 0.0, 0.0)), "test")
+    return s
+
+
+class RegionTests(unittest.TestCase):
+    TAGS = {100: "sgLineHandle", 102: "sgArcHandle"}
+
+    def region(self, *entries):
+        import struct
+        body = b""
+        for tag, cid in entries:
+            body += struct.pack("<4H", tag, cid, 0xFFFF, 0xFFFF) + bytes(4)
+        return b"\x00moSketchRegion_c" + body + b"\x00moSketchChain_c" + bytes(8)
+
+    def test_the_region_names_its_curves_and_their_kind(self):
+        b = self.region((100, 4), (102, 2))
+        self.assertEqual(features._region_curves(b, 0, len(b), self.TAGS), [("line", 4), ("arc", 2)])
+
+    def test_a_tag_that_is_not_a_handle_is_not_a_curve(self):
+        b = self.region((555, 4))
+        self.assertEqual(features._region_curves(b, 0, len(b), self.TAGS), [])
+
+    def test_a_sketch_without_a_region_has_none(self):
+        self.assertEqual(features._region_curves(b"nothing here", 0, 12, self.TAGS), [])
+
+
+class ChainTests(unittest.TestCase):
+    def chain(self, ids, n=None):
+        import struct
+        head = struct.pack("<H", len(ids) if n is None else n)
+        body = b"".join(struct.pack("<I", i) for i in ids)
+        return b"\x00moSketchChain_c" + head + body + struct.pack("<3H", 1, 0, 6)
+
+    def test_the_chain_names_its_points_in_order(self):
+        b = self.chain([8, 7, 6, 4, 5, 11])
+        self.assertEqual(features._chain_points(b, 0, len(b)), [8, 7, 6, 4, 5, 11])
+
+    def test_a_count_that_runs_past_the_ids_is_not_trusted(self):
+        self.assertEqual(features._chain_points(self.chain([8, 7], n=99), 0, 64), [])
+
+    def test_a_sentinel_stops_the_list(self):
+        self.assertEqual(features._chain_points(self.chain([8, 0xFFFFFFFF, 7]), 0, 64), [8])
+
+    def test_no_chain_record(self):
+        self.assertEqual(features._chain_points(b"nothing here", 0, 12), [])
+
+
+class ProfileTests(unittest.TestCase):
+    def test_nested_loops_are_holes_and_touching_loops_are_not(self):
+        # a 30 x 20 outline, a 10 x 6 tab sharing part of its top edge, a hole inside
+        pts = {1: (0, 0), 2: (30, 0), 3: (30, 20), 4: (0, 20),
+               5: (5, 20), 6: (15, 20), 7: (15, 26), 8: (5, 26),
+               9: (10, 5), 10: (20, 5), 11: (20, 15), 12: (10, 15)}
+        s = sketch(pts, lines=[(1, 2), (2, 3), (3, 4), (4, 1), (5, 6), (6, 7), (7, 8), (8, 5),
+                               (9, 10), (10, 11), (11, 12), (12, 9)])
+        loops = features.profile_loops(s)
+        self.assertEqual(len(loops), 2)  # outline and tab; the inner loop is a hole
+        self.assertNotIn(["l9", "l10", "l11", "l12"], loops)
+
+    def test_arc_runs_on_with_the_line_it_meets(self):
+        # a slot end: line along +x into (10, 0), half circle about (10, 5) to (10, 10)
+        s = sketch({1: (0, 0), 2: (10, 0), 3: (10, 10), 4: (10, 5)}, lines=[(1, 2)], arcs=[(3, 2, 4)])
+        a, c = features._arc_ends(s, 3, 2, 4)
+        self.assertEqual((a, c), (2, 3))  # anticlockwise from (10, 0) carries the line on
+
+    def test_short_way_without_a_line(self):
+        s = sketch({1: (5, 0), 2: (0, 5), 3: (0, 0)}, arcs=[(2, 1, 3)])
+        self.assertEqual(features._arc_ends(s, 2, 1, 3), (1, 2))
+
+
+class RealPartTests(unittest.TestCase):
+    def read(self, path):
+        if not os.path.isfile(path):
+            self.skipTest("sample part not on this PC")
+        from sw2sc.swfile import SwFile
+        return features.read(SwFile(path))
+
+    def test_2015_part_with_arcs(self):
+        f = self.read(os.path.join(DOCS, "Part K.SLDPRT"))
+        sk, ex = f[0].sketch, f[1]
+        self.assertEqual((len(sk.lines) - len(sk.construction), len(sk.arcs)), (8, 8))
+        self.assertEqual(len(sk.construction), 2)   # the centre rectangle's diagonals
+        self.assertEqual(ex.kind, "boss")
+        self.assertAlmostEqual(ex.depth_mm, 20.0)
+        self.assertEqual(len(features.profile_loops(sk)), 1)  # the ring: outline with a hole
+
+    def test_pre_2015_part_on_the_top_plane(self):
+        f = self.read(os.path.join(SLIPPAD, "PCB_v1.SLDPRT"))
+        sk = f[0].sketch
+        self.assertEqual(len(sk.lines) - len(sk.construction), 4)
+        normals = [p[0][2] for p in sk.planes]
+        self.assertIn((0.0, -1.0, 0.0), [tuple(round(c, 9) + 0.0 for c in n) for n in normals])
+        self.assertAlmostEqual(f[1].depth_mm, 1.0)
+
+    def test_sketch_dimensions_and_relations(self):
+        f = self.read(os.path.join(DOCS, "Part K.SLDPRT"))
+        d = features.design("t", f, {})
+        cons = d["features"][0]["sketch"]["constraints"]
+        kinds = [c["type"] for c in cons]
+        for k in ("radius", "horizontal", "vertical", "tangent", "equal", "point_on_curve"):
+            self.assertIn(k, kinds)
+        self.assertEqual(kinds.count("tangent"), 16)         # every corner arc meets its lines, both loops
+        # the rectangle is centred: the origin (point 0) on both construction diagonals
+        on = [c for c in cons if c["type"] == "point_on_curve" and c["p"] == 0]
+        self.assertEqual(len(on), 2)
+        # the outer loop is the inner one offset by D4, all the way round
+        off = [c for c in cons if c.get("param") == "Sketch2_D4"]
+        self.assertEqual(len(off), 4)
+        self.assertEqual(kinds.count("concentric"), 4)
+        names = {p["name"]: float(p["expr"]) for p in d["params"]}
+        self.assertEqual(names["Sketch2_D3"], 3.0)
+        self.assertEqual(names["Sketch2_D1"], 50.0)
+        self.assertEqual(names["Sketch2_D2"], 150.0)
+        self.assertEqual(names["Boss_Extrude1_D1"], 20.0)
+        self.assertEqual(names["Sketch2_D4"], 3.0)
+
+    def test_offset_becomes_a_solidcraft_offset(self):
+        path = os.path.join(DOCS, "Part K.SLDPRT")
+        if not os.path.isfile(path):
+            self.skipTest("sample part not on this PC")
+        from sw2sc import solidcraft, verify
+        if not verify.find_cli():
+            self.skipTest("solidcraft-cli not found")
+        d, _rep = solidcraft.convert(path)
+        sk = next(f for f in d["features"] if f["type"] == "sketch")["sketch"]
+        self.assertEqual(len(sk.get("offsets", [])), 1)            # one offset, as in SolidWorks
+        dims = [c for c in sk["constraints"] if c["type"] == "offset_distance"]
+        self.assertEqual([c["param"] for c in dims], ["Sketch2_D4"])
+        loop = next(f for f in d["features"] if f["type"] == "extrude")["profiles"]["loops"][0]
+        self.assertTrue(set(loop) <= set(sk["offsets"][0]["outputs"]))
+
+    def test_unconverted_features_keep_their_place(self):
+        f = self.read(os.path.join(DOCS, "Part B.SLDPRT"))
+        self.assertEqual([x.kind for x in f][:3], ["sketch", "boss", "tbd"])
+        self.assertEqual(f[2].name, "Cavity1")
+
+
+if __name__ == "__main__":
+    unittest.main()

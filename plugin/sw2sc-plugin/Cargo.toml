@@ -1,0 +1,14 @@
+[package]
+name = "sw2sc-plugin"
+description = "SolidCraft importer plugin: opens SolidWorks parts with their feature tree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+sw2sc-core = { path = "../sw2sc-core" }
+serde_json.workspace = true
+wit-bindgen = "0.63"

@@ -1,0 +1,85 @@
+# Issue log
+
+Bugs and features, tracked here and closed by version. IDs are never reused.
+Status: `open`, `in progress`, `fixed in x.y.z`, `wontfix`.
+
+## Features
+
+| ID | Title | Status | Notes |
+|---|---|---|---|
+| F-001 | Assembly structure migration | fixed in 0.1.0 | Nested tree, placements, hidden/suppressed |
+| F-002 | Custom properties → component metadata | fixed in 0.1.0 | Both containers |
+| F-003 | Feature tree recorded in metadata | fixed in 0.1.0 | Names, types, sketch use, dimensions |
+| F-004 | Geometry: read the embedded Parasolid data, write STEP into an Import feature | fixed in 0.2.0 | Open-body cases tracked as B-007 to B-010 |
+| F-005 | Mates → SolidCraft joints | open | Mate data is in `Contents/Config-0-MatesList` (binary, not yet decoded). Until then every occurrence is grounded |
+| F-006 | Bring the full feature tree across, read from the file (sketches, extrudes, cuts, revolves, fillets, holes, mirrors…) | in progress (0.13.0: sketches, extrudes, planes, imported bodies) | The tree is in `Config-N-ResolvedFeatures` (see docs/clean-room.md); sketch points decoded so far. Not by guessing from the geometry. A feature SolidCraft lacks goes in as a **TBD** placeholder at its place in the tree, with its name and settings, and is logged; it is added to SolidCraft if it causes problems |
+| F-007 | Configurations → SolidCraft configurations | open | Only names are kept now |
+| F-008 | Use a STEP file next to a part as its geometry when one exists | open | Stopgap before F-004; few samples have per-part STEP |
+| F-009 | Appearance/colour per component | open | |
+| F-010 | Virtual components (stored inside the assembly) | open | Placed and named, but their own properties and features are not read |
+| F-011 | Open the output in SolidCraft automatically to confirm it loads | in progress | SolidCraft is built at `C:\dev\solidcraft`; `tools/check_steps.py` checks STEP files. Not yet part of `survey` |
+| F-012 | Stand models up: SolidWorks is Y-up, SolidCraft Z-up | open | Models come in lying on their side. Needs one rotation applied consistently to placements and geometry |
+| F-013 | Only the first configuration's geometry is converted | open | |
+| F-014 | Body and face colours from Parasolid attributes | open | `SDL/TYSA_COLOUR` attributes are parsed but not written |
+| F-015 | GUI with folder selection: pick a folder, convert everything in it | fixed in 0.6.0 | `Vault.cmd` or `python -m sw2sc gui`: a local window in the browser with folder pickers, import progress and a vault browser (search, details, contains, where-used, import history) |
+| F-016 | Vault import into SolidCraft linked designs (PDM-style) | fixed in 0.4.0 | `sw2sc vault import`: mirrored tree, one design per file, assemblies linked to part designs, `vault.json` index, Git history, incremental re-import, `where-used` and `bom`. See `docs/vault.md` |
+| F-017 | Contribute upstream instead of a competing importer | open | Requested 2026-11-12. SolidCraft PR 11545 (open, owner intends to merge) already adds `.sldprt` import through the cadmpeg library, and the owner closed a large vendored reader (PR 5821). SolidCraft code must be Rust. Route: format findings and fixes to cadmpeg (needs DCO sign-off and its provenance declaration), then a small SolidCraft PR for `.sldasm` assemblies (issues 3419, 11805) once 11545 lands |
+| F-018 | PDM inside SolidCraft with import built in | open | Requested 2026-11-12: local vault, revisions, where-used/BOM, check-out and workflow. Upstream state: a full PDM server (PRs 3711, 3003) was closed; issue 2869 sets the direction as no vault, locks or server, with designs as text on jj/Git and branch-and-merge; versioning PRs 5647, 7602 and 9392 are on hold until the maintainers decide the "Cloud, sync and collaboration" milestone. BOM (`assembly.bom`) and linked designs already exist upstream. F-016 builds the import side in that direction |
+| F-019 | Link subassemblies as their own designs | fixed in 0.5.0 | Each subassembly links to its own design, as SolidCraft's Insert Design does: one linked component, its bodies placed by a STEP assembly of its parts. Assemblies import bottom-up |
+| F-022 | Keep a linked subassembly's parts as components in SolidCraft | open | Today SolidCraft shows a linked subassembly as one part: its parts aren't in the Browser or the SolidCraft bill of materials on their own (the vault's `bom` and `where-used` still are). Upstream PR 14860 adds this; once it lands, write links in its form |
+| F-023 | Open a design in SolidCraft from the vault window | fixed in 0.10.0 | Open in SolidCraft for the selected design, and Open for any release (pulled out to a temporary copy first). Uses the newest SolidCraft found; the `solidcraft` setting overrides |
+| F-031 | Folders in the vault | fixed in 0.12.0 | Sorting only (`folders.json`); files are not moved |
+| B-011 | An import of a non-project folder copies everything into the vault | fixed in 0.12.0 | A Documents folder was imported: 17 GB copied, and the import would have removed the vault's 40 designs from another project. Now checked first |
+| F-032 | Fillets and chamfers from the file | in progress (0.16.0) | Fillets read and matched to SolidCraft's edges; 1 part rebuilt with its fillets (PartT8). Chamfers not yet; fillets of older files whose selections aren't found |
+| F-043 | Hole Wizard holes | in progress (0.17.0) | Countersinks, counterbores, drilled holes; French/Russian parameter names not yet; SolidCraft needed no change |
+| F-044 | Faces SolidWorks merged (a later boss's coplanar side kept the earlier face's name) | open | spring_base_v1's Fillet1 |
+| F-045 | Full round fillets (no radius) | open | SolidCraft's fillet has no full round; two rounds of half the face's width would make the shape where the kernel allows it. Key Way's Fillet2 |
+| F-046 | Draft | open | SolidCraft has solid.draft (faces, angle, neutral plane); the faces and neutral plane are still to be read. Front Body |
+| F-047 | Arcs read as circles (one handle point each) | in progress (0.17.3) | PartT_7's Sketch1 (a 33.95 mm disc); Rocker Arm's two big end arcs (R16.208 through p8, R18.434 through p10). Their other end has no point record (ids 9 and 11 are absent), so the centre is taken from a point on no curve and the profile grows two discs. **The files are at `<repo>\Solidworks Example Grabcad`** (Documents' copy is gone; the slippad set has none of these records). `moSketchRegion_c` is decoded and kept on the sketch (`Sketch.region`): each curve as `(kind, id)`, its tag resolved through the file's own class table (`sgLineHandle` / `sgArcHandle`). It does **not** settle this gap: the tag names `sgArcHandle` for circles too, so "one point and an arc tag" is exactly the ambiguous case. Rocker Arm and Bucket have no region record at all, but they do carry `moSketchChain_c`, whose ids are in a numbering that does not match the sketch's curve ids yet. **0.17.3 decodes it and it does not settle this either**: `moSketchChain_c` is a `u16` count and then that many `u32` **point** ids (kept on `Sketch.chain`: Bucket 12, spring_holder_v1 10, PartT_7 18/19/20/17, Rocker Arm 5 alone), a different list from the region's curves. The points these parts are missing are the ones it names: Bucket's 3 and PartT_7's 18, and no record of either exists anywhere in the sketch (`<id> <id> FF FF 1F 00` finds none), so the file stores no position for them; Rocker Arm's 9 and 11 are absent in every shape. A one-point curve's other end cannot be read from this file, so the reading has to come from elsewhere — the solid, or the arcs' tangency |
+| F-041 | Features the record numbering misses | in progress (0.16.0) | Found by name from KeyWords; their class tags still drift (B-019) |
+| B-019 | Record numbering drifts in some 2015+ streams | open | PartT8: Fillet_c counted as class 717, the file tags it 0x85a8; objects the count doesn't see |
+| B-022 | A rebuild result could be trusted against a stale SolidCraft | fixed in 0.17.2 | SolidCraft is rebuilt almost daily, and the check tools took whichever CLI they found, in silence: the installed 0.44.1 while the checkout stood at 0.47.0. `verify.kernel_status` now compares the CLI with the checkout (version, and the binary's build time against the checkout's last commit); `feature_check`, `rebuild_triage` and every conversion record the line and warn when it is stale |
+| B-021 | A hole inside an arc's bulge is extruded as a lump | fixed in 0.17.1 | Loops were nested using each arc's chord, so Boom's fourth pin hole (inside an R2.275 round end) fell outside its outline and became an island. Arcs are now sampled along their sweep |
+| F-042 | ~~SolidCraft fillet limit~~: not SolidCraft's | closed (not a bug) | The idler arms' R1 fillet failed because sw2sc drew an outline arc bulging the wrong way (centre (0, 4.53) instead of its mirror (0, -0.53)), leaving a 0.1 mm wall beside the hole; SolidCraft was right to refuse it. See B-020 |
+| B-020 | An arc of an older file (2013) gets its centre's mirror image | open | idler_differential_arm (both), Sketch1: no point record at the true centre; the point taken is its mirror across the chord. Needs the older files' handle numbering (F-039) or the mirrored centre tried against the solid |
+| F-033 | Revolves and revolved cuts | open | 25 / 7 parts: sketch, axis, angle |
+| F-034 | Hole Wizard, mirrors, patterns, sweeps, threads, combine, move/copy, sheet metal | open | Listed as TBD in the tree |
+| F-035 | Extrudes up to a face or through all | open | No distance in the file; end condition types not decoded |
+| F-036 | Sketches whose plane isn't found, lines with one end, arcs without a centre | open | 60 / 38 / 17 parts in the sample sets |
+| F-038 | Sketch dimensions and relations | in progress (0.15.0) | Distances, radii, diameters, offsets and 15 relation types written; construction lines read; angle and point-to-line dimensions, and relations to projected model geometry not yet |
+| F-039 | Segment records' numbering in older files | open | The start/end numbers of a sketch's segment records fit "point id - 1" in 2015+ sketches only; older sketches (idler_single, spring_holder) number them otherwise, so their construction lines (revolve centrelines) aren't read |
+| F-040 | Offsets as SolidCraft offsets | fixed in 0.15.1 | User request: one offset, not a dimension per line. Made by solidcraft-cli (`sketch.offset`), side tried both ways |
+| B-018 | Part test plate's sketch floated off the origin and lost its offset (0.14.0) | fixed in 0.15.0 | Found by the user in SolidCraft: construction diagonals and the offset dimension weren't carried |
+| F-037 | Arc direction from the file | open | Arcs are drawn by tangent continuity or the short way round; the file's start/end order isn't decoded |
+| B-012 | The import check (0.12.0) only protects the vault window run from this branch | open | Vault.cmd runs the main checkout, still 0.10.0; a second Documents import into vault-roles happened from it |
+| F-029 | Open a second design in the SolidCraft window that is already open | fixed in 0.11.0 | Each Open starts a new SolidCraft window. The app's control channel (`doc.open`) could pass it to a running one |
+| F-030 | Keep the SolidCraft build up to date | open | Built from the checkout of 2026-11-12 (0.40.1). The installed copy on this PC is 0.30.1 |
+| F-024 | Package the window as a Windows app (no Python needed) | open | Today it needs Python 3.9+ |
+| F-025 | More than one approver, or approver roles | fixed in 0.9.0 | `roles.json`: admins change the roles, approvers release and reject, optional four-eyes rule. Identity is the logged-in account. A guard against mistakes, not security: anyone who can write the vault's files can edit them (Git shows it) |
+| F-027 | Stronger approvals: signed releases | open | Sign release commits and tags (Git can use GPG or SSH keys) so an approval can be checked later. Needs a key per approver |
+| F-028 | Approvals in a team vault on a server | open | Real access control needs the vault behind a server with logins (for example a Git host's protected tags). Out of scope for a local vault |
+| F-026 | Release a whole assembly in one step | fixed in 0.8.0 | Release (or submit) an assembly with everything it contains: preview first, parts before the assemblies that use them, all or nothing, one Git commit, a tag per release |
+| F-020 | Release states and approvals in the vault | fixed in 0.7.0 | In Work / In Review / Released with revisions, rules, history, a Git commit per change and a Git tag per release. Kept local to the vault: SolidCraft upstream still has to decide its versioning direction |
+| F-021 | Convert other CAD formats in the vault | open | Only SolidWorks is converted; STEP and others are copied as they are |
+
+## Bugs and known problems
+
+| ID | Title | Status | Notes |
+|---|---|---|---|
+| B-001 | Suppressed instances have no SolidCraft equivalent | open | Brought across hidden and logged. They still count in a SolidCraft bill of materials |
+| B-002 | Stored part bounding boxes sometimes off by a few mm on one axis | open | Seen in 3 of 22 assemblies; the other axes match exactly, so the boxes are probably stale. Only affects the check, not the conversion |
+| B-003 | Referenced parts are found by exact file name only | open | 49 warnings in the GrabCAD set; those files really are missing or renamed in the uploads (`~~PART2.sldprt`, `Valve.SLDPRT`) |
+| B-004 | Sitrak truck assembly parts have no bounding boxes | open | Its parts aren't in the download, so placements can't be cross-checked |
+| B-005 | Linked property values (`"SW-Mass@…"`) copied as text, not evaluated | open | |
+| B-006 | Large compressed streams were cut at 1 MiB | fixed in 0.2.0 | Chunked ZLB blocks |
+| B-007 | Thread-like faces: an edge winding many turns round a cylinder | open | SolidCraft's reader doesn't support a loop winding more than once; the solid comes in as surfaces (e.g. steam engine Base) |
+| B-008 | Fitted blend (fillet) surfaces don't always meet their edges within tolerance | fixed in 0.3.0 | Fillets are now built from the true contact points: each spine point projected onto both supporting surfaces. Worst gap in the 4-part check went from 0.41 mm to 0.016 mm |
+| B-009 | Blends of blends, and offsets of blends on some parts, left out | open | 28 faces (GRIPER and others) |
+| B-010 | Self-intersecting tori and some spun surfaces need a seam SolidCraft can find | open | "face winding around a surface with no seam frame" |
+| B-011 | The format reference swaps the two helix node numbers | fixed in 0.2.0 | Node 163 has the surface-helix layout in real files |
+| B-012 | Tyre: one cone face per body is refused ("an edge lies 1.6 mm off the face's surface") | open | Our own check puts every edge of those cones within a nanometre, so this is in how the face is trimmed or read. Blocks all 42 tyre solids |
+| B-013 | A few fillets still fall back to the fitted surface | open | Supports that are swept surfaces, degenerate cross-sections (GRIPER), and some Karman_101a fillets. Each is logged as a warning |
+| B-014 | Conversion is slow on parts with many fillets on B-spline supports | open | Karman_101a takes about 2.5 minutes; pure-Python projection |
+| B-015 | SolidCraft's own re-export loses faces of some converted parts | open | Insert Design of a vault assembly re-exports it as STEP and re-reads it; GT2_Bobbin_v2 then reports "a closed edge on an open curve" and opens. Our STEP reads closed; the loss is in the round trip. Report upstream with a public part |
+| B-016 | Hidden and suppressed instances inside a linked subassembly are left out of its geometry | open | Deliberate (suppressed means absent), but a hidden instance is no longer just hidden: it can't be shown in the parent assembly |
+| B-017 | Stopping the window's background job could leave its server running, and a second server could share its port | fixed in 0.7.0 | The server no longer allows port sharing. Found while testing; ordinary use (closing the black window) was not affected |

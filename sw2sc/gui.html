@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sw2sc Vault</title>
+<style>
+:root {
+  --bg: #f4f5f7; --panel: #ffffff; --line: #d9dde3; --text: #1d2330; --muted: #5f6b7a;
+  --accent: #2f6fd6; --accent-text: #ffffff; --bad: #b3261e; --ok: #1e7d3a; --warn: #8a5a00;
+  --sel: #e6eefc; --code: #f0f2f5;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15181d; --panel: #1d2128; --line: #323844; --text: #e6e9ee; --muted: #9aa4b2;
+    --accent: #5b93f0; --accent-text: #0d1117; --bad: #f2867f; --ok: #6fcf8a; --warn: #e3b866;
+    --sel: #263247; --code: #252a33;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header { display: flex; align-items: baseline; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); }
+header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+header span { color: var(--muted); font-size: 12px; }
+main { max-width: 1280px; margin: 0 auto; padding: 16px 20px 40px; display: grid; gap: 16px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+label.field { display: block; font-weight: 600; margin: 10px 0 4px; }
+.row { display: flex; gap: 8px; }
+.row input[type=text] { flex: 1; min-width: 0; }
+input[type=text], input[type=search] { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+button { padding: 7px 14px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+.opts { display: flex; flex-wrap: wrap; gap: 18px; margin: 12px 0; color: var(--muted); }
+.opts label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.hint { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
+#log { background: var(--code); border-radius: 6px; padding: 10px; height: 170px; overflow: auto; font: 12px/1.5 Consolas, monospace; white-space: pre-wrap; margin-top: 12px; }
+#status { margin-left: 8px; font-weight: 600; }
+.ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+.split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; }
+@media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+.toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.toolbar input[type=search] { flex: 1; min-width: 160px; }
+.summary { color: var(--muted); font-size: 12px; }
+.tablewrap { max-height: 520px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { position: sticky; top: 0; background: var(--panel); font-weight: 600; cursor: pointer; user-select: none; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--sel); }
+tbody tr.sel { background: var(--sel); outline: 2px solid var(--accent); outline-offset: -2px; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tag { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 9px; border: 1px solid var(--line); color: var(--muted); }
+#detail h3 { margin: 0 0 4px; font-size: 16px; word-break: break-word; }
+#detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 10px 0; }
+#detail dt { color: var(--muted); } #detail dd { margin: 0; word-break: break-word; }
+#detail h4 { margin: 14px 0 6px; font-size: 13px; }
+#detail ul { margin: 0; padding-left: 18px; }
+#detail a { color: var(--accent); cursor: pointer; text-decoration: none; }
+#detail a:hover { text-decoration: underline; }
+.empty { color: var(--muted); padding: 20px 0; text-align: center; }
+.history { font-size: 12px; color: var(--muted); }
+.history li { margin: 2px 0; }
+.state { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
+.s-in_work { background: #e8eefb; color: #24508f; } .s-in_review { background: #fdf0d5; color: #7a4d00; }
+.s-released { background: #dff3e4; color: #17663a; } .s-obsolete { background: #eceef1; color: #5f6b7a; }
+@media (prefers-color-scheme: dark) {
+  .s-in_work { background: #22324d; color: #a9c6f5; } .s-in_review { background: #4a3a17; color: #f3cf86; }
+  .s-released { background: #1c3b27; color: #8fdca7; } .s-obsolete { background: #2c313a; color: #9aa4b2; }
+}
+.browser { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; }
+@media (max-width: 700px) { .browser { grid-template-columns: 1fr; } }
+#tree { border: 1px solid var(--line); border-radius: 6px; padding: 6px; max-height: 520px; overflow: auto; font-size: 13px; }
+#tree .f { display: flex; gap: 6px; align-items: baseline; padding: 3px 6px; border-radius: 5px; cursor: pointer; word-break: break-word; }
+#tree .f:hover, #tree .f.drop { background: var(--sel); }
+#tree .f.sel { background: var(--sel); outline: 2px solid var(--accent); outline-offset: -2px; font-weight: 600; }
+#tree .f .n { margin-left: auto; color: var(--muted); font-size: 11px; font-weight: 400; }
+#tree .fbtns { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+#tree .fbtns button { padding: 3px 8px; font-size: 12px; }
+td.folder { color: var(--muted); font-size: 12px; }
+.actions { border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin: 12px 0; display: grid; gap: 8px; }
+.actions textarea, .actions input { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--text); font: inherit; resize: vertical; }
+.actions .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions .msg { font-size: 12px; }
+.blockers { font-size: 12px; color: var(--muted); }
+.plan { border-top: 1px solid var(--line); padding-top: 8px; font-size: 12px; }
+.plan ol { margin: 6px 0; padding-left: 22px; max-height: 220px; overflow: auto; }
+.plan .do { color: var(--muted); }
+#who { margin-left: auto; font-size: 12px; color: var(--muted); }
+#who strong { color: var(--text); font-weight: 600; }
+#roles { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; font-size: 13px; }
+#roles summary { cursor: pointer; font-weight: 600; }
+#roles .people { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 8px 0; }
+#roles .people dt { color: var(--muted); }
+#roles .people dd { margin: 0; }
+#roles .chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 12px; padding: 1px 4px 1px 8px; margin: 0 4px 4px 0; }
+#roles .chip button { border: 0; padding: 0 5px; background: transparent; font-size: 14px; line-height: 1; }
+#roles .add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+#roles .add label { display: flex; align-items: center; gap: 4px; }
+#roles .add input[type=text] { flex: 1; min-width: 160px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; }
+.note { font-size: 12px; color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header><h1>Vault</h1><span>sw2sc __VERSION__ · SolidWorks to SolidCraft</span></header>
+<main>
+  <section aria-labelledby="h-import">
+    <h2 id="h-import">Import a folder</h2>
+    <label class="field" for="source">Folder with CAD files</label>
+    <div class="row"><input type="text" id="source" placeholder="D:\CAD\Projects" autocomplete="off"><button id="pick-source">Browse…</button></div>
+    <label class="field" for="vault">Vault folder</label>
+    <div class="row"><input type="text" id="vault" placeholder="D:\Vault" autocomplete="off"><button id="pick-vault">Browse…</button></div>
+    <p class="hint">The vault is created if it doesn't exist. Importing again converts only what changed.</p>
+    <div class="opts">
+      <label><input type="checkbox" id="opt-sub" checked> Link subassemblies to their own designs</label>
+      <label><input type="checkbox" id="opt-orig" checked> Keep the SolidWorks files in the vault</label>
+      <label><input type="checkbox" id="opt-other" checked> Copy the folder's other files too (drawings, STEP, PDFs…)</label>
+      <label><input type="checkbox" id="opt-git" checked> Record each import in the vault's history (Git)</label>
+    </div>
+    <button class="primary" id="go">Import</button><span id="status" role="status"></span>
+    <div id="log" aria-live="polite" aria-label="Import log"></div>
+  </section>
+
+  <section aria-labelledby="h-vault">
+    <h2 id="h-vault">Vault contents</h2>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search by name, part number or description" aria-label="Search the vault">
+      <button id="reload">Reload</button>
+      <button id="open-vault">Show in Explorer</button>
+      <span class="summary" id="summary"></span>
+      <span id="who"></span>
+    </div>
+    <div class="split">
+      <div><div class="browser"><nav id="tree" aria-label="Folders"></nav><div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th data-k="name">Name</th><th data-k="type">Type</th><th data-k="state">State</th>
+            <th data-k="wrev">Rev</th><th data-k="part_number">Part no.</th><th data-k="description">Description</th>
+            <th data-k="uses" class="num">Uses</th><th data-k="used" class="num">Used in</th><th data-k="note">Status</th>
+          </tr></thead>
+          <tbody id="rows"><tr><td colspan="9" class="empty">Choose a vault folder, or import into one.</td></tr></tbody>
+        </table>
+      </div></div><details id="roles"></details></div>
+      <div id="detail"><p class="empty">Select an item to see its details, what it uses and where it is used.</p></div>
+    </div>
+  </section>
+</main>
+<script>
+const TOKEN = "__TOKEN__";
+const $ = id => document.getElementById(id);
+const api = async (path, body) => {
+  const r = await fetch(path, body === undefined
+    ? { headers: { "X-Token": TOKEN } }
+    : { method: "POST", headers: { "X-Token": TOKEN, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json().catch(() => ({ error: "no answer" }));
+  if (!r.ok) throw Object.assign(new Error(data.error || r.statusText), { data });
+  return data;
+};
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sep = () => ($("vault").value.includes("/") && !$("vault").value.includes("\\")) ? "/" : "\\";
+
+let canOpen = false;
+let wf = {}, access = { open: true, admin: true, approver: true, user: "" };
+const STATE = { in_work: "In Work", in_review: "In Review", released: "Released", obsolete: "Obsolete" };
+let folderData = { folders: [], items: {} }, curFolder = null;  // null: every design; "": the top level
+let items = {}, sortKey = "name", sortDir = 1, selected = null, logNext = 0, polling = null;
+
+async function pick(what) {
+  const input = $(what);
+  try {
+    const r = await api("/api/pick", { what, start: input.value });
+    if (r.path) { input.value = r.path; if (what === "vault") loadVault(); }
+  } catch (e) { setStatus(e.message, "bad"); }
+}
+$("pick-source").onclick = () => pick("source");
+$("pick-vault").onclick = () => pick("vault");
+$("vault").addEventListener("change", loadVault);
+
+function setStatus(text, cls) { const s = $("status"); s.textContent = text; s.className = cls || ""; }
+
+$("go").onclick = async () => {
+  setStatus("");
+  try {
+    const req = { source: $("source").value, vault: $("vault").value, other: $("opt-other").checked,
+      subassemblies: $("opt-sub").checked, originals: $("opt-orig").checked, git: $("opt-git").checked };
+    try { await api("/api/import", req); }
+    catch (e) {
+      const why = e.data && e.data.confirm;
+      if (!why) throw e;
+      if (!confirm("Before importing, check this:\n\n• " + why.join("\n• ") + "\n\nImport anyway?")) { setStatus("Not imported."); return; }
+      await api("/api/import", { ...req, confirm: true });
+    }
+  } catch (e) { setStatus(e.message, "bad"); return; }
+  $("log").textContent = ""; logNext = 0;
+  $("go").disabled = true; setStatus("Importing…");
+  polling = setInterval(poll, 700);
+};
+
+async function poll() {
+  let st;
+  try { st = await api("/api/job?since=" + logNext); } catch (e) { return; }
+  if (st.lines.length) {
+    const log = $("log");
+    const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+    log.textContent += st.lines.join("\n") + "\n";
+    if (atEnd) log.scrollTop = log.scrollHeight;
+  }
+  logNext = st.next;
+  if (!st.running && st.result) {
+    clearInterval(polling); polling = null; $("go").disabled = false;
+    const r = st.result;
+    if (!r.ok) setStatus(r.error, "bad");
+    else setStatus(`${r.converted} converted, ${r.unchanged} unchanged` + (r.failed.length ? `, ${r.failed.length} failed` : "")
+                   + (r.commit ? ` · saved as ${r.commit}` : ""), r.failed.length ? "warn" : "ok");
+    loadVault();
+  }
+}
+
+async function loadVault() {
+  const path = $("vault").value.trim();
+  if (!path) return;
+  let data;
+  try { data = await api("/api/vault?path=" + encodeURIComponent(path)); }
+  catch (e) { items = {}; render(); $("summary").textContent = e.message; $("detail").innerHTML = ""; return; }
+  items = data.items || {};
+  folderData = data.folders || { folders: [], items: {} };
+  if (curFolder && !folderData.folders.includes(curFolder)) curFolder = null;
+  wf = data.workflow || {};
+  canOpen = data.solidcraft || "";
+  access = data.access || access;
+  renderAccess();
+  window.vaultHistory = data.history || [];
+  const n = Object.values(items);
+  $("summary").textContent = `${n.filter(i => i.type === "part").length} parts, ${n.filter(i => i.type === "assembly").length} assemblies, `
+    + `${(data.other_files || []).length} other files`;
+  render();
+  if (selected && items[selected]) showItem(selected); else showHistory();
+}
+$("reload").onclick = loadVault;
+$("open-vault").onclick = () => api("/api/show", { path: $("vault").value }).catch(e => setStatus(e.message, "bad"));
+$("q").addEventListener("input", render);
+
+document.querySelectorAll("th[data-k]").forEach(th => th.onclick = () => {
+  const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; render();
+});
+
+function rowOf(key, it) {
+  const w = wf[key] || {};
+  return { key, name: it.name || key.split("/").pop(), folder: folderOf(key), type: it.type, part_number: it.part_number || "", revision: it.revision || "",
+           state: STATE[w.state] || "", stateKey: w.state || "", wrev: w.revision || "",
+           description: it.description || "", uses: (it.uses || []).length, used: (it.where_used || []).length,
+           note: it.failed ? "Failed" : ((it.warnings || []).length ? `${it.warnings.length} warnings` : "OK"), it };
+}
+
+function render() {
+  const q = $("q").value.trim().toLowerCase();
+  renderTree();
+  let rows = Object.entries(items).map(([k, v]) => rowOf(k, v));
+  if (curFolder !== null) rows = rows.filter(r => inFolder(r.folder, curFolder));
+  if (q) rows = rows.filter(r => [r.key, r.name, r.part_number, r.description].some(x => String(x).toLowerCase().includes(q)));
+  rows.sort((a, b) => {
+    const x = a[sortKey], y = b[sortKey];
+    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * sortDir;
+  });
+  const body = $("rows");
+  if (!rows.length) { body.innerHTML = `<tr><td colspan="9" class="empty">${Object.keys(items).length ? (q ? "Nothing matches." : "This folder is empty. Drag designs onto it, or pick its folder in a design's details.") : "No vault here yet."}</td></tr>`; return; }
+  body.innerHTML = rows.map(r => `<tr data-key="${esc(r.key)}" tabindex="0" draggable="true" class="${r.key === selected ? "sel" : ""}">
+    <td title="${esc(r.key)}${r.folder ? " (in " + esc(r.folder) + ")" : ""}">${esc(r.name)}</td><td><span class="tag">${esc(r.type)}</span></td>
+    <td>${r.state ? `<span class="state s-${esc(r.stateKey)}">${esc(r.state)}</span>` : ""}</td><td>${esc(r.wrev)}</td>
+    <td>${esc(r.part_number)}</td><td>${esc(r.description)}</td><td class="num">${r.uses || ""}</td><td class="num">${r.used || ""}</td>
+    <td class="${r.it.failed ? "bad" : (r.note === "OK" ? "ok" : "warn")}">${esc(r.note)}</td></tr>`).join("");
+  body.querySelectorAll("tr[data-key]").forEach(tr => {
+    tr.onclick = () => showItem(tr.dataset.key);
+    tr.onkeydown = e => { if (e.key === "Enter") showItem(tr.dataset.key); };
+    tr.ondragstart = e => { e.dataTransfer.setData("text/x-sw2sc-item", tr.dataset.key); e.dataTransfer.effectAllowed = "move"; };
+  });
+}
+
+function folderOf(key) { return (folderData.items || {})[key] ?? ""; }
+function inFolder(f, cur) { return cur === "" ? f === "" : (f === cur || f.startsWith(cur + "/")); }
+function parentOf(f) { return f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : ""; }
+
+function renderTree() {
+  const all = Object.keys(items);
+  const count = f => all.filter(k => inFolder(folderOf(k), f)).length;
+  const row = (f, label, depth, n) => `<div class="f${curFolder === f ? " sel" : ""}" data-f="${f === null ? "*" : esc(f)}" tabindex="0"
+    style="padding-left:${6 + depth * 14}px" title="${esc(f || label)}"><span>${esc(label)}</span><span class="n">${n}</span></div>`;
+  let h = row(null, "All designs", 0, all.length) + row("", "Top level", 0, count(""));
+  for (const f of folderData.folders || []) h += row(f, "\u{1F4C1} " + f.split("/").pop(), f.split("/").length, count(f));
+  h += `<div class="fbtns"><button id="f-new">New folder</button>`
+    + (curFolder ? `<button id="f-ren">Rename</button><button id="f-del">Remove</button>` : "") + `</div>`
+    + (folderData.error ? `<p class="bad">${esc(folderData.error)}</p>` : "")
+    + `<p class="hint">Drag a design onto a folder to move it. Folders sort the vault here; the files stay where they are.</p>`;
+  const tree = $("tree"); tree.innerHTML = h;
+  tree.querySelectorAll(".f").forEach(el => {
+    const f = el.dataset.f === "*" ? null : el.dataset.f;
+    el.onclick = () => { curFolder = f; render(); };
+    el.onkeydown = e => { if (e.key === "Enter") { curFolder = f; render(); } };
+    if (f === null) return;
+    el.ondragover = e => { if (e.dataTransfer.types.includes("text/x-sw2sc-item")) { e.preventDefault(); el.classList.add("drop"); } };
+    el.ondragleave = () => el.classList.remove("drop");
+    el.ondrop = e => {
+      e.preventDefault(); el.classList.remove("drop");
+      const k = e.dataTransfer.getData("text/x-sw2sc-item"); if (k) folderOp({ op: "move", items: [k], folder: f });
+    };
+  });
+  $("f-new").onclick = () => {
+    const name = prompt(curFolder ? `New folder inside ${curFolder}:` : "New folder name:");
+    if (name && name.trim()) folderOp({ op: "create", name: (curFolder ? curFolder + "/" : "") + name.trim() }, true);
+  };
+  if (curFolder) {
+    $("f-ren").onclick = () => {
+      const name = prompt(`Rename ${curFolder} to:`, curFolder.split("/").pop());
+      const parent = parentOf(curFolder);
+      if (name && name.trim()) folderOp({ op: "rename", folder: curFolder, name: (parent ? parent + "/" : "") + name.trim() }, true);
+    };
+    $("f-del").onclick = () => {
+      const n = count(curFolder), to = parentOf(curFolder) || "the top level";
+      if (confirm(`Remove the folder ${curFolder}?` + (n ? ` Its ${n} design${n === 1 ? "" : "s"} move to ${to}; no design is deleted.` : "")))
+        folderOp({ op: "remove", folder: curFolder });
+    };
+  }
+}
+
+async function folderOp(req, go) {
+  try {
+    const r = await api("/api/folders", { vault: $("vault").value, ...req });
+    if (go && r.folder) curFolder = r.folder;
+    if (req.op === "remove") curFolder = parentOf(req.folder) || null;
+    await loadVault();
+  } catch (e) { setStatus(e.message, "bad"); }
+}
+
+function link(key, label) { return `<a href="#" data-go="${esc(key)}">${esc(label || (items[key] ? items[key].name : key))}</a>`; }
+
+function stateTag(key) {
+  const w = wf[key]; if (!w) return "";
+  return ` <span class="state s-${esc(w.state)}">${esc(STATE[w.state] || w.state)} ${esc(w.revision || "")}</span>`;
+}
+
+function bomLines(key, level, mult, out, seen) {
+  for (const u of (items[key]?.uses || [])) {
+    out.push(`<li style="margin-left:${(level - 1) * 14}px">${u.quantity * mult} × ${link(u.item)}${stateTag(u.item)}</li>`);
+    if (level < 32 && !seen.has(u.item + level)) { seen.add(u.item + level); bomLines(u.item, level + 1, u.quantity * mult, out, seen); }
+  }
+  return out;
+}
+
+function showItem(key) {
+  selected = key;
+  document.querySelectorAll("#rows tr").forEach(tr => tr.classList.toggle("sel", tr.dataset.key === key));
+  const it = items[key]; if (!it) return;
+  const props = [["Type", it.type], ["Part number", it.part_number], ["Revision", it.revision], ["Description", it.description],
+    ["Material", it.material], ["Configurations", (it.configurations || []).join(", ")], ["Source", it.source],
+    ["SolidWorks version", it.solidworks_version], ["Converted by", "sw2sc " + (it.converter || "")]]
+    .filter(([, v]) => v !== undefined && v !== null && v !== "");
+  const st = it.stats || {};
+  const geo = st.faces ? `${st.bodies ?? 0} bodies, ${st.faces} faces` + (st.approx_faces ? `, ${st.approx_faces} fitted` : "")
+    + (st.faces_left_out ? `, ${st.faces_left_out} left out` : "") : "";
+  if (geo) props.push(["Geometry", geo]);
+  const linked = [st.parts_linked ? `${st.parts_linked} parts` : "", st.subassemblies_linked ? `${st.subassemblies_linked} subassemblies` : ""]
+    .filter(Boolean).join(", ");
+  if (linked) props.push(["Linked", linked]);
+  let h = `<h3>${esc(it.name || key)}${stateTag(key)}</h3><div class="summary">${esc(key)}</div>`;
+  h += workflowPanel(key);
+  const fsel = `<select id="d-folder" aria-label="Folder"><option value="">Top level</option>${(folderData.folders || [])
+    .map(f => `<option value="${esc(f)}"${f === folderOf(key) ? " selected" : ""}>${esc(f)}</option>`).join("")}</select>`;
+  h += `<dl><dt>Folder</dt><dd>${fsel}</dd>${props.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+  h += `<div class="btns" style="display:flex;gap:8px;flex-wrap:wrap">`
+    + (canOpen && !it.failed ? `<button class="primary" data-open="${esc(key)}" title="SolidCraft ${esc(canOpen)}">Open in SolidCraft</button>` : "")
+    + `<button data-show="${esc(key)}">Show design in Explorer</button></div>`
+    + (canOpen ? "" : `<p class="note">SolidCraft wasn't found on this PC, so designs can't be opened from here.</p>`);
+  if (it.failed) h += `<h4 class="bad">Not converted</h4><p>${esc(it.failed)}</p>`;
+  if ((it.uses || []).length) h += `<h4>Contains (all levels)</h4><ul>${bomLines(key, 1, 1, [], new Set()).join("")}</ul>`;
+  h += `<h4>Used in</h4>` + ((it.where_used || []).length
+    ? `<ul>${it.where_used.map(w => `<li>${w.quantity} × in ${link(w.item)}${stateTag(w.item)}</li>`).join("")}</ul>`
+    : `<p class="summary">Not used in any assembly in this vault.</p>`);
+  if ((it.warnings || []).length) h += `<h4 class="warn">Conversion notes (${it.warnings.length})</h4><ul>${it.warnings.slice(0, 40).map(w => `<li>${esc(w)}</li>`).join("")}</ul>`;
+  const w = wf[key];
+  if (w && (w.history || []).length) {
+    h += `<h4>State history</h4><ul class="history">${w.history.slice().reverse().map(e =>
+      `<li>${esc(e.date)} · ${esc(e.by)} · ${esc(e.action)} → ${esc(STATE[e.to] || e.to)} ${esc(e.revision || "")}`
+      + (e.comment ? ` · “${esc(e.comment)}”` : "") + `</li>`).join("")}</ul>`;
+  }
+  if (w && (w.releases || []).length) {
+    h += `<h4>Releases</h4><ul>${w.releases.slice().reverse().map(r =>
+      `<li>Rev ${esc(r.revision)} · ${esc(r.date)} · ${esc(r.by)}` + (r.comment ? ` · “${esc(r.comment)}”` : "")
+      + (r.tag && canOpen ? ` <button data-open-rev="${esc(r.revision)}">Open</button>` : "")
+      + (r.tag ? ` <button data-get="${esc(r.revision)}">Get this release…</button>` : "") + `</li>`).join("")}</ul>`;
+  }
+  $("detail").innerHTML = h;
+  $("d-folder").onchange = e => folderOp({ op: "move", items: [key], folder: e.target.value });
+  $("detail").querySelectorAll("button[data-act]").forEach(b => b.onclick = () => act(key, b.dataset.act));
+  $("detail").querySelectorAll("button[data-tree]").forEach(b => b.onclick = () => previewTree(key, b.dataset.tree));
+  $("detail").querySelectorAll("button[data-get]").forEach(b => b.onclick = () => getRelease(key, b.dataset.get));
+  $("detail").querySelectorAll("button[data-open]").forEach(b => b.onclick = () => openDesign(key, ""));
+  $("detail").querySelectorAll("button[data-open-rev]").forEach(b => b.onclick = () => openDesign(key, b.dataset.openRev));
+  $("detail").querySelectorAll("a[data-go]").forEach(a => a.onclick = e => {
+    e.preventDefault();
+    $("q").value = ""; render(); showItem(a.dataset.go);
+    document.querySelector("#rows tr.sel")?.scrollIntoView({ block: "nearest" });
+  });
+  $("detail").querySelectorAll("button[data-show]").forEach(b => b.onclick = () =>
+    api("/api/show", { path: $("vault").value.replace(/[\\/]+$/, "") + sep() + b.dataset.show.split("/").join(sep()) })
+      .catch(e => setStatus(e.message, "bad")));
+}
+
+function workflowPanel(key) {
+  const w = wf[key]; if (!w) return "";
+  const labels = { submit: "Submit for review", release: "Release", reject: "Reject", revise: "Start revision " + nextRev(w.revision) };
+  const allowed = { in_work: ["submit"], in_review: ["release", "reject"], released: ["revise"], obsolete: [] }[w.state] || [];
+  const isAsm = (items[key]?.uses || []).length > 0;
+  const canApprove = access.approver;
+  let tree = isAsm && w.state !== "obsolete" ? [["submit", "Submit with everything it contains"], ["release", "Release with everything it contains"]]
+    .filter(([a]) => !(a === "submit" && w.state !== "in_work") && w.state !== "released") : [];
+  const hidden = canApprove ? [] : allowed.filter(a => a === "release" || a === "reject");
+  const mine = allowed.filter(a => !hidden.includes(a));
+  if (!canApprove) tree = tree.filter(([a]) => a !== "release");
+  allowed.length = 0; allowed.push(...mine);
+  if (!allowed.length && !tree.length) {
+    return hidden.length ? `<div class="actions"><div class="note">${esc(STATE[w.state])}: only an approver can release or reject. `
+      + `Approvers: ${esc((access.roles?.approvers || []).join(", ") || "none set")}.</div></div>` : "";
+  }
+  if (!allowed.length && !tree.length) return "";
+  let blockers = "";
+  if (w.state === "in_review") {
+    const open = (items[key]?.uses || []).filter(u => (wf[u.item] || {}).state !== "released");
+    if (open.length) blockers = `<div class="blockers">Release needs everything it contains Released first. Not yet: `
+      + open.slice(0, 12).map(u => link(u.item)).join(", ") + (open.length > 12 ? " …" : "") + `</div>`;
+  }
+  return `<div class="actions" aria-label="Release state">
+    <textarea id="wf-comment" rows="2" placeholder="Comment (needed to reject)" aria-label="Comment"></textarea>
+    <div class="note">Recorded as <strong>${esc(access.user)}</strong></div>
+    <div class="btns">${allowed.map((a, i) => `<button data-act="${a}" class="${i === 0 ? "primary" : ""}">${esc(labels[a])}</button>`).join("")}
+      ${tree.map(([a, t]) => `<button data-tree="${a}">${esc(t)}…</button>`).join("")}</div>
+    ${hidden.length ? `<div class="note">Only an approver can release or reject. Approvers: ${esc((access.roles?.approvers || []).join(", ") || "none set")}.</div>` : ""}
+    ${blockers}<div class="msg" id="wf-msg" role="status"></div><div id="wf-plan"></div></div>`;
+}
+
+function nextRev(r) {
+  if (/^[A-Z]+$/.test(r || "")) {
+    const d = [...r].map(c => c.charCodeAt(0) - 65); let i = d.length - 1;
+    while (i >= 0) { d[i]++; if (d[i] < 26) break; d[i] = 0; i--; }
+    if (i < 0) d.unshift(0);
+    return d.map(x => String.fromCharCode(65 + x)).join("");
+  }
+  const m = /^(.*?)(\d+)$/.exec(r || ""); return m ? m[1] + String(+m[2] + 1).padStart(m[2].length, "0") : (r ? r + ".1" : "A");
+}
+
+async function act(key, action) {
+  const msg = $("wf-msg");
+  msg.textContent = ""; msg.className = "msg";
+  try {
+    await api("/api/workflow", { vault: $("vault").value, item: key, action, comment: $("wf-comment").value });
+  } catch (e) { msg.textContent = e.message; msg.className = "msg bad"; return; }
+  await loadVault();
+  showItem(key);
+}
+
+async function previewTree(key, action) {
+  const box = $("wf-plan"), msg = $("wf-msg");
+  msg.textContent = ""; msg.className = "msg";
+  let plan;
+  try { plan = await api("/api/plan", { vault: $("vault").value, item: key, action }); }
+  catch (e) { msg.textContent = e.message; msg.className = "msg bad"; return; }
+  const verb = action === "release" ? "release" : "submit for review";
+  const doText = { "submit": "submit", "release": "release", "submit+release": "submit and release" };
+  let h = `<div class="plan"><strong>${plan.steps.length} item${plan.steps.length === 1 ? "" : "s"} to ${verb}</strong>`
+    + (plan.skip.length ? `, ${plan.skip.length} already done` : "") + (action === "release" ? " · parts first, then the assemblies that use them" : "");
+  if (plan.blockers.length) h += `<p class="bad">Nothing can change until these are sorted out:</p><ul>${plan.blockers.map(b => `<li>${esc(b)}</li>`).join("")}</ul>`;
+  if (plan.steps.length) h += `<ol>${plan.steps.map(s => `<li>${link(s.item)} rev ${esc(s.revision)} <span class="do">· ${esc(doText[s.do])}</span></li>`).join("")}</ol>`;
+  if (!plan.steps.length && !plan.blockers.length) h += `<p>Nothing to do.</p>`;
+  const ok = plan.steps.length && !plan.blockers.length;
+  h += `<div class="btns">${ok ? `<button class="primary" id="tree-go">${action === "release" ? "Release all " + plan.steps.length : "Submit all " + plan.steps.length}</button>` : ""}`
+    + `<button id="tree-cancel">Cancel</button></div></div>`;
+  box.innerHTML = h;
+  box.querySelectorAll("a[data-go]").forEach(a => a.onclick = e => { e.preventDefault(); showItem(a.dataset.go); });
+  $("tree-cancel").onclick = () => { box.innerHTML = ""; };
+  if (ok) $("tree-go").onclick = async () => {
+    $("tree-go").disabled = true;
+    try {
+      const r = await api("/api/workflow-tree", { vault: $("vault").value, item: key, action, comment: $("wf-comment").value });
+      await loadVault(); showItem(key);
+      setStatus(`${r.changed} items ${action === "release" ? "released" : "submitted for review"}`, "ok");
+    } catch (e) { $("tree-go").disabled = false; msg.textContent = e.message; msg.className = "msg bad"; }
+  };
+}
+
+async function openDesign(key, rev) {
+  setStatus(rev ? `Opening release ${rev} in SolidCraft…` : "Opening in SolidCraft…");
+  try {
+    await api("/api/open", { vault: $("vault").value, item: key, revision: rev });
+    setStatus(rev ? `Release ${rev} opened in SolidCraft (a copy: changes there don't touch the vault)` : "Opened in SolidCraft", "ok");
+  } catch (e) { setStatus(e.message, "bad"); }
+}
+
+async function getRelease(key, rev) {
+  setStatus("Choose a folder for the release…");
+  try {
+    const r = await api("/api/get-release", { vault: $("vault").value, item: key, revision: rev });
+    if (r.cancelled) setStatus(""); else setStatus(`Rev ${rev}: ${r.files} files written to ${r.to}`, "ok");
+  } catch (e) { setStatus(e.message, "bad"); }
+}
+
+function renderAccess() {
+  const mine = [access.admin && !access.open ? "admin" : "", access.approver && !access.open ? "approver" : ""].filter(Boolean);
+  $("who").innerHTML = `You are <strong>${esc(access.user)}</strong>` + (access.open ? "" : ` · ${esc(mine.join(", ") || "no role")}`);
+  const box = $("roles"), wasOpen = box.open;
+  const r = access.roles;
+  let h = `<summary>Roles${access.open ? ": none set, anyone can release" : ""}</summary>`;
+  if (access.error) h += `<p class="bad">${esc(access.error)}</p>`;
+  if (access.open) {
+    h += `<p class="note">Name the approvers to stop anyone else releasing. You become this vault's first admin.</p>`;
+  } else {
+    const chips = (list, kind) => (list.length ? list : ["none"]).map(p => list.length
+      ? `<span class="chip">${esc(p)}${access.admin ? `<button title="Remove" aria-label="Remove ${esc(p)} as ${kind}" data-rm="${kind}" data-who="${esc(p)}">×</button>` : ""}</span>`
+      : `<span class="note">none</span>`).join("");
+    h += `<dl class="people"><dt>Admins</dt><dd>${chips(r.admins, "admin")}</dd><dt>Approvers</dt><dd>${chips(r.approvers, "approver")}</dd>
+      <dt>Four-eyes</dt><dd>${r.four_eyes ? "on: approvers can't release what they submitted" : "off"}</dd></dl>`;
+    if (!access.admin) h += `<p class="note">Only an admin can change the roles.</p>`;
+  }
+  if (access.admin) {
+    h += `<div class="add"><input id="role-who" type="text" placeholder="Account, e.g. ${esc(access.user)}" aria-label="Account">
+      <button data-add="approver">Add approver</button><button data-add="admin">Add admin</button>`
+      + (access.open ? "" : `<label class="note"><input type="checkbox" id="four" ${r.four_eyes ? "checked" : ""}> Four-eyes</label>`) + `</div>
+      <div class="msg" id="role-msg" role="status"></div>`;
+  }
+  box.innerHTML = h;
+  box.open = wasOpen;
+  const send = async (op, who, value) => {
+    try { await api("/api/roles", { vault: $("vault").value, op, who, value }); box.open = true; await loadVault(); }
+    catch (e) { const m = $("role-msg"); if (m) { m.textContent = e.message; m.className = "msg bad"; } }
+  };
+  box.querySelectorAll("button[data-add]").forEach(b => b.onclick = () => send("add-" + b.dataset.add, $("role-who").value));
+  box.querySelectorAll("button[data-rm]").forEach(b => b.onclick = () => send("remove-" + b.dataset.rm, b.dataset.who));
+  const four = $("four"); if (four) four.onchange = () => send("four-eyes", "", four.checked);
+}
+
+function showHistory() {
+  const hist = window.vaultHistory || [];
+  $("detail").innerHTML = `<p class="empty">Select an item to see its details, what it uses and where it is used.</p>`
+    + (hist.length ? `<h4>Import history</h4><ul class="history">${hist.map(h => `<li>${esc(h.date)} · ${esc(h.commit)} · ${esc(h.message)}</li>`).join("")}</ul>` : "");
+}
+
+api("/api/settings").then(s => {
+  if (s.source) $("source").value = s.source;
+  if (s.vault) { $("vault").value = s.vault; loadVault(); }
+}).catch(() => {});
+</script>
+</body>
+</html>

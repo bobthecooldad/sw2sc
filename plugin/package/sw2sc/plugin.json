@@ -1,0 +1,14 @@
+{
+  "id": "sw2sc",
+  "name": "SolidWorks Parts (sw2sc)",
+  "version": "0.1.0",
+  "description": "Opens SolidWorks parts with their feature tree: sketches, dimensions, constraints and features, checked against the part's own solid.",
+  "capabilities": ["formats@0.2", "evaluate@0.2"],
+  "runtime": {
+    "module": "sw2sc.wasm",
+    "commands": [],
+    "entries": [{"name": "open", "kind": "importer", "extensions": ["sldprt"]}],
+    "limits": {"fuel": 100000000000, "memory_mib": 1024, "deadline_ms": 600000, "stack_kib": 16384},
+    "permissions": {"clock": true}
+  }
+}

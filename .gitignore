@@ -1,0 +1,12 @@
+# Third-party sample models: not ours to redistribute
+samples/
+Solidworks Example Grabcad/
+# Converter output
+out/
+__pycache__/
+*.pyc
+.claude/settings.local.json
+# Rust build output
+plugin/target/
+plugin/package/sw2sc/*.wasm
+plugin/*.zip

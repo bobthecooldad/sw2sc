@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = ["sw2sc-core", "sw2sc-plugin"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+miniz_oxide = "0.8"
+regex = "1"
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+memchr = "2"
+indexmap = { version = "2", features = ["serde"] }
+crc32fast = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 16
+strip = true
