@@ -59,7 +59,11 @@ after checking that the rebuilt tree matches the part's own solid (through Solid
 `evaluate` interface). Where it doesn't yet, the part comes in as its solid and the import
 report lists what isn't converted.
 
-Build (Rust with the `wasm32-unknown-unknown` target, and `wasm-tools`):
+**Download:** the latest `sw2sc-<version>.zip` is on the
+[Releases](https://github.com/bobthecooldad/sw2sc/releases/latest) page. Every push is built and
+tested; a new number in `VERSION` on `main` publishes a release (see `.github/workflows/build.yml`).
+
+To build it yourself (Rust with the `wasm32-unknown-unknown` target, and `wasm-tools`):
 
 ```powershell
 rustup target add wasm32-unknown-unknown
