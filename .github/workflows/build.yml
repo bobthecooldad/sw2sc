@@ -86,7 +86,7 @@ jobs:
         run: |
           v="${{ needs.build.outputs.version }}"
           # the CHANGELOG section for this version, if there is one
-          awk -v v="$v" '$0 ~ "^## \[" v "\]" {on=1; next} /^## \[/ {if (on) exit} on' CHANGELOG.md > notes.md
+          awk -v h="## [$v]" 'index($0, h) == 1 {on=1; next} index($0, "## [") == 1 {if (on) exit} on' CHANGELOG.md > notes.md
           printf '\n## Install\n\nIn SolidCraft: Preferences > Plugins > Install plugin..., choose `sw2sc-%s.zip` and allow the memory it asks for.\n' "$v" >> notes.md
 
       - uses: softprops/action-gh-release@v2
