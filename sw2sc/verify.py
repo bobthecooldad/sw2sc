@@ -635,14 +635,22 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                 pl = sk_f.sketch.planes[min((planes or {}).get(sk_f.name, 0), len(sk_f.sketch.planes) - 1)] \
                     if sk_f and sk_f.sketch.planes else None
                 if pl and all(abs(c) < 1e-12 for c in pl[1]):
-                    _d0, r0 = _prefix(name, feats, choices, planes, constraints, picked, order[i - 1].name, cli, tmp)
+                    d_pre, r0 = _prefix(name, feats, choices, planes, constraints, picked, order[i - 1].name, cli, tmp)
                     if r0 and r0.get("lo"):
                         n = pl[0][2]
                         corners = [(a, b, c) for a in (r0["lo"][0], r0["hi"][0]) for b in (r0["lo"][1], r0["hi"][1])
                                    for c in (r0["lo"][2], r0["hi"][2])]
                         along = [sum(p * m for p, m in zip(cn, n)) for cn in corners]
-                        for v in (max(along), min(along)):
-                            if abs(v) > 1e-6 and all(abs(v - w) > 1e-6 for w in starts):
+                        # the sides of the body's box, then its flat faces parallel to the sketch (a
+                        # pocket's floor), at most 8
+                        cands = [max(along), min(along)]
+                        from . import fillets as _fl
+                        for x in (_fl.body_faces(d_pre, cli, tmp) or []) if d_pre else []:
+                            pn = x.get("plane_normal")
+                            if pn and abs(sum(p * m for p, m in zip(pn, n))) > 1 - 1e-9:
+                                cands.append(sum(p * m for p, m in zip(x["point"], n)))
+                        for v in cands:
+                            if abs(v) > 1e-6 and all(abs(v - w) > 1e-6 for w in starts) and len(starts) < 8:
                                 starts.append(v)
             sides = ["center", "inside", "outside"] if getattr(f, "thin_mm", None) else [None]
             for opt, op, to, side, sp, st in ((o, p, t, sd, s_, s2) for sd in sides for t in tos for p in ops

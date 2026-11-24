@@ -846,3 +846,33 @@ before any more field guesses.
     - `ROADMAP.md` (where things stand, where help is most useful, which fixes need checking on
       more files) and `CONTRIBUTING.md` (clean room, keeping one's own files private, Python and
       Rust parity, checking before claiming, keeping these logs).
+138. **Three reading faults found on two more stuck parts.**
+    - A sketch with no curves read at all (an older tutorial part: every sketch empty) left its
+      extrudes "decoded", and the search spent its budget building nothing. An extrude or revolve
+      whose sketch has no curves read is now TBD: "its sketch's curves weren't read".
+    - A thin cut kept under the plain cut class (an older file's `moICE_c`) was built as an
+      ordinary cut of an open outline: its wall was never read. Where KeyWords gives the extrude a
+      `D5` and its name or type says thin, that is its wall (snapped to the record like other
+      KeyWords lengths: 0.22 in shown, 7/32 in kept).
+    - An arc whose centre was read at the wrong point: a hub's outline took the top of a lobe as
+      its big arc's centre. Both that point and the true one (the origin) are as far from the
+      arc's two ends, but only the origin makes the lines meeting the arc tangent. Where the
+      centre as read leaves every line meeting the arc at a corner, another sketch point as far
+      from both ends that makes all of them tangent is taken as the centre (`_tangent_centres`,
+      before the mirror-image alternatives).
+    - Extrudes whose sketch plane reads through the origin are now also tried from every flat face
+      of the body so far parallel to the sketch (a pocket's floor), not only the two sides of its
+      box: at most 8 starts.
+    Results: the hub's first extrude is now its true outline and it builds well into its tree, but
+    still doesn't match (its back-face cuts; next to look at). Checked by the new check queue (139).
+139. **A check queue that works while no one is at the keyboard** (`tools/checks.py`). `watch`
+    follows a branch: each new commit gets the whole suite, one job at a time, in a checkout of
+    its own (a git worktree under `~/.sw2sc-checks`, never the one being edited): build, Rust and
+    Python feature and design parity, Python and Rust tests, the regression set (parts that
+    rebuild must still rebuild, against the last commit that passed), and, while the queue is
+    idle, the long sample run through the plugin's converter (no part that rebuilt may stop, no
+    new crash). A newer commit replaces an older one still waiting. Reports name parts, so they
+    stay under `~/.sw2sc-checks`; which parts are checked is in the private folder's
+    `checks.json`. The regression and sample runners moved from scratch scripts into
+    `tools/rebuild_set.py` and `tools/convert_sample.py`. A commit goes to the public `dev`
+    branch once its suite passes, and to `main` once a few have, with the long run passing.

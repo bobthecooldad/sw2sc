@@ -10,6 +10,10 @@ Each release has a survey log in `logs/survey-<version>.md`.
   and the private names and words kept in a private folder outside the repository); `export`
   writes the repository into a clone of the public one with private names replaced by fixed
   aliases, then checks it. Nothing is committed or pushed by it.
+- `tools/checks.py`: a check queue that follows a branch and runs the whole suite on each new
+  commit in a checkout of its own (build, parity, tests, regression set, and the long sample run
+  while idle), with a report per commit; `tools/rebuild_set.py` and `tools/convert_sample.py`
+  run the regression set and the sample.
 - `ROADMAP.md` and `CONTRIBUTING.md`: where help is most useful, which recent fixes need checking
   on more files, and the rules for contributing.
 - The public repository's CI build and release workflow, version stamping and LICENSE.
@@ -30,7 +34,12 @@ Each release has a survey log in `logs/survey-<version>.md`.
 - A partial build smaller than the part, with nothing left that adds material, is dropped: a
   boss read as a cut no longer passes because it changed the solid.
 - An extrude whose sketch plane reads through the origin is also tried starting at a face of the
-  body so far (SolidCraft's `start_offset`): sketches on faces whose plane isn't stored.
+  body so far (SolidCraft's `start_offset`): sketches on faces whose plane isn't stored, or on a
+  pocket's floor.
+- An arc whose centre was read at the wrong point is given the sketch point that makes the lines
+  meeting it tangent.
+- A thin cut kept under the plain cut class gets its wall from KeyWords' `D5`.
+- An extrude or revolve whose sketch has no curves read is TBD instead of building nothing.
 
 ### Changed
 - Features kept in the tree that make no solid (unused sketches, reference axes, cosmetic

@@ -643,7 +643,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                 if let Some(([_x, _y, n], t)) = pl.filter(|p| p.1.iter().all(|c| c.abs() < 1e-12)) {
                     let _ = t;
                     let prev = sh.order[i - 1].name.clone();
-                    let (_d0, r0) = ctx.prefix(choices, picks, &prev);
+                    let (d_pre, r0) = ctx.prefix(choices, picks, &prev);
                     if let Some((Some(lo), Some(hi))) = r0.map(|r| (r.lo, r.hi)) {
                         let mut along = Vec::new();
                         for a in [lo[0], hi[0]] {
@@ -655,8 +655,21 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                         }
                         let up = along.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                         let down = along.iter().copied().fold(f64::INFINITY, f64::min);
-                        for v in [up, down] {
-                            if v.abs() > 1e-6 && starts.iter().all(|w| (v - w).abs() > 1e-6) {
+                        // the sides of the body's box, then its flat faces parallel to the sketch (a
+                        // pocket's floor), at most 8
+                        let mut cands = vec![up, down];
+                        if !d_pre.is_null() {
+                            for x in fillets::body_faces(&d_pre, ctx.ev) {
+                                let Some(pn) = x.get("plane_normal").and_then(Value::as_array) else { continue };
+                                let pn: Vec<f64> = pn.iter().filter_map(Value::as_f64).collect();
+                                let pt: Vec<f64> = x.get("point").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect()).unwrap_or_default();
+                                if pn.len() == 3 && pt.len() == 3 && (pn[0] * n[0] + pn[1] * n[1] + pn[2] * n[2]).abs() > 1.0 - 1e-9 {
+                                    cands.push(pt[0] * n[0] + pt[1] * n[1] + pt[2] * n[2]);
+                                }
+                            }
+                        }
+                        for v in cands {
+                            if v.abs() > 1e-6 && starts.iter().all(|w| (v - w).abs() > 1e-6) && starts.len() < 8 {
                                 starts.push(v);
                             }
                         }

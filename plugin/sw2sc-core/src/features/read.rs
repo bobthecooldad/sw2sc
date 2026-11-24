@@ -606,6 +606,15 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 None => f.through_all = true,
                 Some(d) => f.depth_mm = Some(d * 1000.0),
             }
+            // a thin extrude kept under the plain class (older files): KeyWords gives its wall as D5
+            let re = Regex::new(&format!(r#"(?s)<Extrusion ([^>]*Name="{}"[^>/]*)>(.*?)</Extrusion>"#, regex::escape(&escape(nm)))).unwrap();
+            if let Some(c) = re.captures(&kw) {
+                if let Some(d5) = kw_dims(&c[2]).into_iter().find(|d| d.0 == "D5") {
+                    if nm.contains("Thin") || c[1].contains("Thin") {
+                        f.thin_mm = kw_length(Some(&d5.1), b, r.offset, end, &mut unit);
+                    }
+                }
+            }
         } else if cls == REVOLVE || cls == REVCUT {
             f = Feature::new(if cls == REVOLVE { "revolve" } else { "revcut" }, nm, r.offset, cls);
             f.profile = last_name;
@@ -948,6 +957,18 @@ fn place_holes(mut out: Vec<Feature>) -> Vec<Feature> {
         if ["boss", "cut", "revolve", "revcut"].contains(&f.kind.as_str()) && !f.profile.as_ref().is_some_and(|p| sketches.contains(p)) {
             f.kind = "tbd".into();
             f.reason = "the sketch it uses wasn't found".into();
+        }
+    }
+    // one whose sketch has no curves read (an older layout) has nothing to build from
+    let empty: HashSet<String> = out
+        .iter()
+        .filter(|f| f.kind == "sketch" && f.sketch.as_ref().is_some_and(|s| s.lines.is_empty() && s.arcs.is_empty() && s.circles.is_empty()))
+        .map(|f| f.name.clone())
+        .collect();
+    for f in out.iter_mut() {
+        if ["boss", "cut", "revolve", "revcut"].contains(&f.kind.as_str()) && f.profile.as_ref().is_some_and(|p| empty.contains(p)) {
+            f.kind = "tbd".into();
+            f.reason = "its sketch's curves weren't read".into();
         }
     }
     let used: HashSet<String> = out.iter().filter_map(|f| f.profile.clone()).collect();

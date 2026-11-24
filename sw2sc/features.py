@@ -715,6 +715,7 @@ def _read_sketch(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict
     # record per closed region). They are not yet used to change the reading: the handle class
     # it names is `sgArcHandle`, which covers circles as well as arcs, so one point and an arc
     # tag is not enough to tell an arc whose other end wasn't written from a circle.
+    _tangent_centres(sk)
     _alternative_centres(sk)
     if any(v == "sgTextHandle" for v in tags.values()) and b.find(b"sgTextHandle", s, e) >= 0:
         # the words, their size and place are stored (moDimText_c, utCharFormat_c), not the letters'
@@ -751,6 +752,32 @@ def _centres_from_relations(sk: Sketch) -> None:
         sk.problems.remove(pr)
         sk.circles.append((at, math.dist(sk.points[at], sk.points[end])))
         sk.curve_of[("arc", cid)] = f"c{len(sk.circles)}"
+
+
+def _tangent_centres(sk: Sketch) -> None:
+    """An arc whose centre, as read, leaves every line meeting it at a corner, where another point
+    of the sketch is as far from both its ends and makes every one of those lines tangent: that
+    point is its centre (a hub's outline read with the top of a lobe as its big arc's centre, the
+    true centre the origin)."""
+    P = sk.points
+
+    def tangent(e, o, cx, cy):
+        ux, uy = P[o][0] - P[e][0], P[o][1] - P[e][1]
+        rx, ry = P[e][0] - cx, P[e][1] - cy
+        return abs(ux * rx + uy * ry) <= 1e-6 * math.hypot(ux, uy) * math.hypot(rx, ry)
+
+    for n, (a, c, ctr) in enumerate(sk.arcs):
+        meet = [(e, lb if e == la else la) for la, lb in sk.lines for e in (a, c) if e in (la, lb)]
+        if not meet or any(tangent(e, o, *P[ctr]) for e, o in meet):
+            continue
+        for q in sorted(P):
+            if q in (a, c, ctr):
+                continue
+            qx, qy = P[q]
+            da, dc = math.hypot(P[a][0] - qx, P[a][1] - qy), math.hypot(P[c][0] - qx, P[c][1] - qy)
+            if da > TOL and abs(da - dc) <= 1e-6 * da and all(tangent(e, o, qx, qy) for e, o in meet):
+                sk.arcs[n] = (a, c, q)
+                break
 
 
 def _alternative_centres(sk: Sketch) -> None:
@@ -1312,6 +1339,11 @@ def read(sw) -> list[Feature] | None:
                 f.through_all = True
             else:
                 f.depth_mm = dep * 1000
+            # a thin extrude kept under the plain class (older files): KeyWords gives its wall as D5
+            m = re.search(r'<Extrusion ([^>]*Name="%s"[^>/]*)>(.*?)</Extrusion>' % re.escape(html.escape(nm)), kw, re.S)
+            d5 = re.search(r'<Dimension Name="D5">([^<]*)</Dimension>', m.group(2)) if m else None
+            if d5 and ("Thin" in nm or "Thin" in m.group(1)):
+                f.thin_mm = _kw_length(d5.group(1), b, r.offset, end, unit)
         elif r.cls in (REVOLVE, REVCUT):
             f = Feature("revolve" if r.cls == REVOLVE else "revcut", nm, r.offset, r.cls,
                         profile=last_sketch.name if last_sketch else None)
@@ -1581,6 +1613,11 @@ def _place_holes(feats: list) -> list:
     for f in out:
         if f.kind in ("boss", "cut", "revolve", "revcut") and f.profile not in sketches:
             f.kind, f.reason = "tbd", "the sketch it uses wasn't found"
+    # one whose sketch has no curves read (an older layout) has nothing to build from
+    empty = {f.name for f in out if f.kind == "sketch" and not (f.sketch.lines or f.sketch.arcs or f.sketch.circles)}
+    for f in out:
+        if f.kind in ("boss", "cut", "revolve", "revcut") and f.profile in empty:
+            f.kind, f.reason = "tbd", "its sketch's curves weren't read"
     # a sketch no feature uses (SolidWorks allows them) whose plane isn't read doesn't touch the
     # solid: it stays in the tree as TBD, and isn't written
     used = {f.profile for f in out if f.profile}

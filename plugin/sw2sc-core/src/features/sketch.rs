@@ -250,6 +250,7 @@ pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, m
     let (one_ended, rest): (Vec<String>, Vec<String>) = sk.problems.drain(..).partition(|x| is_one_end(x));
     sk.problems = rest;
     sk.dropped.extend(one_ended);
+    tangent_centres(sk);
     alternative_centres(sk);
     if tags.values().any(|v| v == "sgTextHandle") && find_in(b, b"sgTextHandle", s, e).is_some() {
         // the words, size and place are stored, not the letters' outlines (see the Python)
@@ -443,6 +444,46 @@ fn centres_from_relations(sk: &mut Sketch) {
 
 /// An arc's other possible centre: the mirror of the centre across the chord, kept where no line
 /// meets the arc tangentially at either end (a tangency would settle it).
+/// An arc whose centre, as read, leaves every line meeting it at a corner, where another point
+/// of the sketch is as far from both its ends and makes every one of those lines tangent: that
+/// point is its centre (see the Python).
+pub fn tangent_centres(sk: &mut Sketch) {
+    let p = sk.points.clone();
+    let tangent = |e: u32, o: u32, cx: f64, cy: f64| -> bool {
+        let (ux, uy) = (p[&o].0 - p[&e].0, p[&o].1 - p[&e].1);
+        let (rx, ry) = (p[&e].0 - cx, p[&e].1 - cy);
+        (ux * rx + uy * ry).abs() <= 1e-6 * ux.hypot(uy) * rx.hypot(ry)
+    };
+    let mut ids: Vec<u32> = p.keys().copied().collect();
+    ids.sort();
+    for n in 0..sk.arcs.len() {
+        let (a, c, ctr) = sk.arcs[n];
+        let mut meet: Vec<(u32, u32)> = Vec::new();
+        for &(la, lb) in &sk.lines {
+            for e in [a, c] {
+                if e == la || e == lb {
+                    meet.push((e, if e == la { lb } else { la }));
+                }
+            }
+        }
+        if meet.is_empty() || meet.iter().any(|&(e, o)| tangent(e, o, p[&ctr].0, p[&ctr].1)) {
+            continue;
+        }
+        for &q in &ids {
+            if q == a || q == c || q == ctr {
+                continue;
+            }
+            let (qx, qy) = p[&q];
+            let da = (p[&a].0 - qx).hypot(p[&a].1 - qy);
+            let dc = (p[&c].0 - qx).hypot(p[&c].1 - qy);
+            if da > TOL && (da - dc).abs() <= 1e-6 * da && meet.iter().all(|&(e, o)| tangent(e, o, qx, qy)) {
+                sk.arcs[n] = (a, c, q);
+                break;
+            }
+        }
+    }
+}
+
 pub fn alternative_centres(sk: &mut Sketch) {
     let p = &sk.points;
     let mut alts = Vec::new();
