@@ -52,7 +52,9 @@ checks each partial build against the saved solid's volume and box (`sw2sc/verif
 
 ### 2. Sketches read wrong or not at all
 
-- Sketches whose plane isn't found, lines with one end, arcs with no centre (F-036, F-047, B-020).
+- **Extrudes of a sketch with no curves of its own**: SolidWorks lets an extrude use edges of the model the sketch selects (converted entities), so its sketch record holds none. SolidCraft can extrude a body's face directly (`face: [x,y,z]`): the search should try each flat face of the body so far. Likely most of the next item. *Medium, high value.*
+- **Sketches whose curves aren't read at all**: the commonest blocker in a census of about 4,000 real parts (170). Their sketch records are tiny (under 1 KB, no points), Russian-language files among them: the geometry must be stored somewhere else. *Hard, high value.*
+- Sketches whose plane isn't found (93 parts in that census), lines with one end, arcs with no centre (38: each a different point missing) (F-036, F-047, B-020).
 - Circles whose centre reads at a stray point (a circle through the origin instead of on it): the
   relations say where the centre is (`_centres_from_relations` in `sw2sc/features.py`); extending
   that to a centre that was read but disagrees with a coincident relation.
@@ -67,7 +69,7 @@ checks each partial build against the saved solid's volume and box (`sw2sc/verif
 | Draft (F-046) | SolidCraft has `solid.draft`; the faces and neutral plane are still to be read |
 | Full round fillet (F-045) | No full round in SolidCraft; two half-width rounds where the kernel allows |
 | Hole sizes | Holes with no named sizes (`M2 Clearance Hole1`): the sizes aren't in KeyWords either, so they must be in the hole record's layout |
-| Fillet and chamfer edges (F-032) | Older files' edge selections aren't found yet |
+| Fillet and chamfer edges (F-032) | Older files' edge selections aren't found yet; in some parts a fillet's edges name curves of a cut's sketch that the sketch as read doesn't number (a 12-line cut numbered 1-4 and 8-15, the edges naming 5 and 6): which numbering is off is open |
 | Split, sheet metal, surfaces, cavity | Listed as TBD in the tree |
 
 ### 4. Assemblies in the plugin

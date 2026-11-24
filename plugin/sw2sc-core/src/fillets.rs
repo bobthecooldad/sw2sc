@@ -182,7 +182,17 @@ pub fn solve(
     // each SolidWorks edge's possible SolidCraft edges, by kind and feature alone
     let pool: Vec<Vec<&ScEdge>> = sw_edges
         .iter()
-        .map(|(a, b)| sc_edges.iter().filter(|e| (kinds_fit(a, &e.0 .0) && kinds_fit(b, &e.0 .1)) || (kinds_fit(a, &e.0 .1) && kinds_fit(b, &e.0 .0))).collect())
+        // (an edge SolidWorks gives as one face twice, a cylinder's rim: any edge of that face)
+        .map(|(a, b)| {
+            sc_edges
+                .iter()
+                .filter(|e| {
+                    (kinds_fit(a, &e.0 .0) && kinds_fit(b, &e.0 .1))
+                        || (kinds_fit(a, &e.0 .1) && kinds_fit(b, &e.0 .0))
+                        || (a == b && (kinds_fit(a, &e.0 .0) || kinds_fit(a, &e.0 .1)))
+                })
+                .collect()
+        })
         .collect();
 
     struct Ctx<'a> {
@@ -198,12 +208,16 @@ pub fn solve(
             ctx.work += 1;
             for (f1, f2) in [(&fc.0, &fc.1), (&fc.1, &fc.0)] {
                 let Some(b1) = fits(&a, f1, amap) else { continue };
-                let mut m2 = amap.clone();
-                m2.extend(b1.iter().map(|(k, v)| (*k, v.clone())));
-                let Some(b2) = fits(&b, f2, &m2) else { continue };
-                if a == b {
-                    continue;
-                }
+                let b2 = if a == b {
+                    // SolidWorks gives one face for it (a cylinder's rim between its end and its
+                    // side): an edge of that face, the other face left open
+                    Default::default()
+                } else {
+                    let mut m2 = amap.clone();
+                    m2.extend(b1.iter().map(|(k, v)| (*k, v.clone())));
+                    let Some(b2) = fits(&b, f2, &m2) else { continue };
+                    b2
+                };
                 if used.contains(name) {
                     // an edge already taken: only by an entity sharing its curve with a neighbour
                     let shared = [(&a, f1), (&b, f2)].iter().any(|(r, fb)| r.side && amap.iter().any(|(r2, v)| r2 != *r && v == *fb));

@@ -84,6 +84,10 @@ allow the memory it asks for. Assemblies aren't converted by the plugin yet.
 Sample models (`samples/`, `Solidworks Example Grabcad/`) belong to their authors and
 are not committed.
 
+## Thanks
+
+- [cadkit-kernel](https://github.com/civilkit/cadkit-kernel) (MIT OR Apache-2.0), another clean-room SolidWorks reader, whose author pointed us to it and whose work guides parts of this one; findings it led to are credited in `docs/clean-room.md`.
+
 ## Licence and trademarks
 
 MIT (see `LICENSE`).

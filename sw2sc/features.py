@@ -1739,24 +1739,26 @@ def _place_holes(feats: list) -> list:
     for f in out:
         if f.kind in ("boss", "cut", "revolve", "revcut") and f.profile not in sketches:
             f.kind, f.reason = "tbd", "the sketch it uses wasn't found"
-    # one whose sketch has no curves read (an older layout) has nothing to build from
+    # one whose sketch has no curves read has nothing to build from (SolidWorks can't extrude an
+    # empty sketch, so its curves were missed): the feature is TBD, the sketch stays in the tree as
+    # read, under its own name
     empty = {f.name for f in out if f.kind == "sketch" and not (f.sketch.lines or f.sketch.arcs or f.sketch.circles)}
     for f in out:
-        if f.kind in ("boss", "cut", "revolve", "revcut") and f.profile in empty:
-            f.kind, f.reason = "tbd", "its sketch's curves weren't read"
+        if f.kind in ("boss", "cut", "revolve", "revcut", "sweep", "sweepcut") and \
+                (f.profile in empty or getattr(f, "path", None) in empty):
+            f.kind, f.reason = "tbd", "its sketch has no curves of its own (likely model edges it selects): extruding the body's face isn't tried yet"
     # a sketch no feature uses (SolidWorks allows them) whose plane isn't read doesn't touch the
     # solid: it stays in the tree as TBD, and isn't written
     used = {f.profile for f in out if f.profile}
     for f in out:
         if f.kind == "sketch" and f.name not in used and not f.sketch.planes:
-            f.kind, f.reason = "absorbed", "sketch plane not read (no feature uses this sketch)"
-    # a profile with points but none of its curves read (records the numbering doesn't name)
-    # can't make the feature that uses it (a hole's placement sketch is points only)
-    shaped = {f.profile for f in out if f.profile and f.kind != "hole"}
-    for f in out:
-        if f.kind == "sketch" and f.name in shaped and f.sketch.points and \
-                not (f.sketch.lines or f.sketch.arcs or f.sketch.circles):
-            f.kind, f.reason = "tbd", "sketch curves not read"
+            s = f.sketch
+            if not (s.points or s.lines or s.arcs or s.circles):
+                # an empty sketch (SolidWorks keeps them): written empty, on the Front plane (with
+                # nothing in it, its plane changes nothing), so the tree keeps its names and order
+                s.add_plane((FRONT, (0.0, 0.0, 0.0)), "an empty sketch whose plane isn't read: kept for its place in the tree")
+            else:
+                f.kind, f.reason = "absorbed", "sketch plane not read (no feature uses this sketch)"
     return _after_what_it_rounds(out)
 
 

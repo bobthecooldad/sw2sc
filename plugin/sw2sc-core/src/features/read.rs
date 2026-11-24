@@ -1109,25 +1109,25 @@ fn place_holes(mut out: Vec<Feature>) -> Vec<Feature> {
         .map(|f| f.name.clone())
         .collect();
     for f in out.iter_mut() {
-        if ["boss", "cut", "revolve", "revcut"].contains(&f.kind.as_str()) && f.profile.as_ref().is_some_and(|p| empty.contains(p)) {
+        // (the feature is TBD; the sketch stays in the tree as read, under its own name)
+        if ["boss", "cut", "revolve", "revcut", "sweep", "sweepcut"].contains(&f.kind.as_str())
+            && (f.profile.as_ref().is_some_and(|p| empty.contains(p)) || f.path.as_ref().is_some_and(|p| empty.contains(p)))
+        {
             f.kind = "tbd".into();
-            f.reason = "its sketch's curves weren't read".into();
+            f.reason = "its sketch has no curves of its own (likely model edges it selects): extruding the body's face isn't tried yet".into();
         }
     }
     let used: HashSet<String> = out.iter().filter_map(|f| f.profile.clone()).collect();
     for f in out.iter_mut() {
         if f.kind == "sketch" && !used.contains(&f.name) && f.sketch.as_ref().unwrap().planes.is_empty() {
-            f.kind = "absorbed".into();
-            f.reason = "sketch plane not read (no feature uses this sketch)".into();
-        }
-    }
-    let shaped: HashSet<String> = out.iter().filter(|f| f.kind != "hole").filter_map(|f| f.profile.clone()).collect();
-    for f in out.iter_mut() {
-        if f.kind == "sketch" && shaped.contains(&f.name) {
-            let sk = f.sketch.as_ref().unwrap();
-            if !sk.points.is_empty() && sk.lines.is_empty() && sk.arcs.is_empty() && sk.circles.is_empty() {
-                f.kind = "tbd".into();
-                f.reason = "sketch curves not read".into();
+            let s = f.sketch.as_mut().unwrap();
+            if s.points.is_empty() && s.lines.is_empty() && s.arcs.is_empty() && s.circles.is_empty() {
+                // an empty sketch (SolidWorks keeps them): written empty, on the Front plane, so
+                // the tree keeps its names and order (see the Python)
+                s.add_plane(&(FRONT, [0.0, 0.0, 0.0]), "an empty sketch whose plane isn't read: kept for its place in the tree", false);
+            } else {
+                f.kind = "absorbed".into();
+                f.reason = "sketch plane not read (no feature uses this sketch)".into();
             }
         }
     }

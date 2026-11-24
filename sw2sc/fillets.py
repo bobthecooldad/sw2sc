@@ -184,8 +184,10 @@ def solve(sw_edges: list, sc_edges: list, design_id: dict, sketch_curves: dict, 
         return face[0] == ("blend" if d in blends else "side")
 
     # each SolidWorks edge's possible SolidCraft edges, by kind and feature alone
+    # (an edge SolidWorks gives as one face twice, a cylinder's rim: any edge of that face)
     pool = [[e for e in sc_edges if (kinds_fit(a, e[0][0]) and kinds_fit(b, e[0][1])) or
-             (kinds_fit(a, e[0][1]) and kinds_fit(b, e[0][0]))] for a, b in sw_edges]
+             (kinds_fit(a, e[0][1]) and kinds_fit(b, e[0][0])) or
+             (a == b and (kinds_fit(a, e[0][0]) or kinds_fit(a, e[0][1])))] for a, b in sw_edges]
     work = [0]
 
     def matches(i, amap, used):
@@ -197,10 +199,14 @@ def solve(sw_edges: list, sc_edges: list, design_id: dict, sketch_curves: dict, 
                 b1 = fits(a, f1, amap)
                 if b1 is None:
                     continue
-                m2 = {**amap, **b1}
-                b2 = fits(b, f2, m2)
-                if b2 is None or (a == b):
-                    continue
+                if a == b:
+                    # SolidWorks gives one face for it (a cylinder's rim between its end and its
+                    # side): an edge of that face, the other face left open
+                    b2 = {}
+                else:
+                    b2 = fits(b, f2, {**amap, **b1})
+                    if b2 is None:
+                        continue
                 if name in used:
                     # an edge already taken: only by an entity sharing its curve with a neighbour
                     # (two collinear SolidWorks faces, one SolidCraft face, one edge along both)

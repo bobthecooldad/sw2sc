@@ -940,4 +940,23 @@ before any more field guesses.
     feature that doesn't change the solid ("a way that does nothing is no way SolidWorks built
     it"), so it had nowhere to go. Where no way of an extrude changes the solid but one builds,
     the search now goes on from the solid as it was. The pin rebuilds again (both converters).
+147. **A fillet edge given as one face twice** (F-032). A pin's 1 mm fillet names its edge as
+    between "end face 1 of the first boss" and the same face again: the rim of a cylinder, between
+    its end and its side (the side of a one-circle extrude isn't named apart here). The edge
+    matcher skipped such pairs, so the fillet had no candidates. An edge given as one face twice is
+    now any edge of that face, the other face left open (the search tries each where the face has
+    several, a rim and a hole's rim). The pin rebuilds in both converters, all 7 features.
+148. **Fillet edges naming curves the sketch doesn't number** (open). A stand's fillet rounds 8
+    edges between a boss's sides and a cut's: the edges name the cut's curves 1, 2, 5, 6, 13 and
+    14, but its sketch as read numbers its 12 lines 1-4 and 8-15 (no 5, 6 or 7), so those edges
+    can't be matched and the fillet has no candidates. Either the sketch's handle numbering or the
+    face references count differently here; not settled (ROADMAP, F-032).
+149. **Empty sketches stay in the tree.** SolidWorks keeps empty sketches; they are part of the
+    tree's names and order. A sketch with no curves read is no longer itself made TBD: it comes
+    across as read under its own name, and only the extrude, revolve or sweep using it is TBD. An
+    unused empty sketch whose plane isn't read is written empty on the Front plane (with nothing in
+    it, its plane changes nothing) instead of being left out. The user's point on why such an
+    extrude exists at all: SolidWorks can extrude edges of the model a sketch selects (converted
+    entities), so the sketch holds no curves of its own; the TBD reason says so, and extruding the
+    body's face (SolidCraft's `face:`) is the next thing for the search to try (ROADMAP). Parity 413/0.
 

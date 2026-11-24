@@ -14,6 +14,10 @@ This converter has to stay free of proprietary code and data, so anyone can use 
 - Code from other converters under GPL/LGPL/AGPL licences, or any leaked or proprietary code.
 - Copying text or documentation from SolidWorks help.
 
+## Other projects' code
+
+Another converter's code, whatever its licence, is read only once its authors say how they learned the format and that fits the rules above (public specifications and study of sample files, no SolidWorks API, SDK or Document Manager). Until then only results are compared, on the same public parts. cadkit-kernel (github.com/civilkit/cadkit-kernel, MIT OR Apache-2.0, crates `ck-sldprt` and `ck-swedit`): its author says it was made clean-room (asked 2026-11-24). It may be read as a guide; every finding it leads to is credited to it here and in the working log ("with help from cadkit-kernel"), and its code is not copied.
+
 ## How the formats were learned
 Record each new finding here.
 

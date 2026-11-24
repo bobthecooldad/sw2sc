@@ -51,6 +51,7 @@ Each release has a survey log in `logs/survey-<version>.md`.
   starts from a face and stray loops left out.
 - A circle whose radius matches none of its sketch's circle dimensions is centred on the point at
   a dimensioned radius from its through-point.
+- A fillet whose edge the file gives as one face twice (a cylinder's rim) is matched to that face's edges.
 
 ### Changed
 - Features kept in the tree that make no solid (unused sketches, reference axes, cosmetic
