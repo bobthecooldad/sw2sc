@@ -37,6 +37,11 @@ _HOLE_PARAMS = {"Hole Dia.": "diameter", "Thru Hole Dia.": "diameter", "Tap Dril
                 "C'Bore Depth": "cb_depth", "Drill Angle": "tip_angle",
                 "Near C'Sink Dia.": "cs_diameter", "Near C'Sink Angle": "cs_angle",
                 "Thru Tap Drill Dia.": "diameter", "Thru Tap Drill Depth": "depth",
+                # a tapped hole with no drill diameter of its own lists this (the hole as drilled)
+                "Thread Major Dia.": "thread_major",
+                # names some files use (older Hole Wizard data, Portuguese files' holes)
+                "Diameter": "diameter", "Depth": "depth", "C-Bore Diameter": "cb_diameter", "C-Bore Depth": "cb_depth",
+                "C-Sink Diameter": "cs_diameter", "C-Sink Angle": "cs_angle",
                 # Polish
                 "Średnica otworu gwintowanego na wylot": "diameter", "Głębokość otworu gwintowanego na wylot": "depth",
                 # French
@@ -1394,6 +1399,8 @@ def read(sw) -> list[Feature] | None:
             f = Feature("hole", nm, r.offset, r.cls)
             stop = next((x[1].offset for x in named[n + 1:] if x[1].cls != SKETCH), len(b))
             f.hole = _hole_params(b, r.offset, stop)
+            if "diameter" not in f.hole and _hole_from_name(nm):
+                f.hole["diameter"] = _hole_from_name(nm)
             if "diameter" not in f.hole:
                 f.kind, f.reason = "tbd", "hole's size not read"
         elif r.cls == "moShell_c":
@@ -1552,6 +1559,30 @@ def _scale_factors(b: bytes, s: int, e: int) -> tuple | None:
     return None
 
 
+# ISO metric sizes (public standards): the coarse pitch (ISO 261), and the clearance hole of
+# ISO 273's medium series, the Hole Wizard's "normal" fit
+_ISO_PITCH = {1.6: 0.35, 2.0: 0.4, 2.5: 0.45, 3.0: 0.5, 3.5: 0.6, 4.0: 0.7, 5.0: 0.8, 6.0: 1.0, 8.0: 1.25,
+              10.0: 1.5, 12.0: 1.75, 14.0: 2.0, 16.0: 2.0, 20.0: 2.5, 24.0: 3.0}
+_ISO_CLEARANCE = {1.6: 1.8, 2.0: 2.4, 2.5: 2.9, 3.0: 3.4, 3.5: 3.9, 4.0: 4.5, 5.0: 5.5, 6.0: 6.6, 8.0: 9.0,
+                  10.0: 11.0, 12.0: 13.5, 14.0: 15.5, 16.0: 17.5, 20.0: 22.0, 24.0: 26.0}
+
+
+def _hole_from_name(name: str) -> float | None:
+    """A hole's diameter (mm) from the size in the name the Hole Wizard gives it, where the
+    record names none: `M3 Clearance Hole1` (ISO 273 normal fit), `M3 Tapped Hole1` and
+    `Tap Drill for M3 Tap1` (the tap drill: the major diameter less the coarse pitch, or the pitch
+    the name gives, `M3x0.5`). The rebuild check says whether it's right (a name can be changed)."""
+    m = re.match(r"M(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?\s+Clearance Hole", name)
+    if m:
+        return _ISO_CLEARANCE.get(float(m.group(1)))
+    m = re.match(r"(?:Tap Drill for )?M(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?\s+(?:Tapped Hole|Tap)", name)
+    if m:
+        d = float(m.group(1))
+        p = float(m.group(2)) if m.group(2) else _ISO_PITCH.get(d)
+        return round(d - p, 9) if p else None
+    return None
+
+
 def _hole_params(b: bytes, s: int, e: int) -> dict:
     """A Hole Wizard hole's sizes: its named parameters (`FF FE FF` length, UTF-16 name, then
     the parameter's value as for D1), lengths in mm, angles in degrees."""
@@ -1566,6 +1597,11 @@ def _hole_params(b: bytes, s: int, e: int) -> dict:
         if v is None or not 0 < v < 10:
             continue
         out[key] = round(math.degrees(v), 6) if key.endswith("angle") else round(v * 1000, 9)
+    # a tapped hole with no drill diameter: its "Thread Major Dia." is the hole as drilled (2.5 for
+    # an M3x0.5); the rebuild check says whether it's right
+    major = out.pop("thread_major", None)
+    if "diameter" not in out and major is not None:
+        out["diameter"] = major
     return out
 
 
@@ -2067,10 +2103,11 @@ def revolve_axis_options(sk: Sketch) -> list[dict]:
             [{"type": "sketch_line", "curve": c} for c in sorted(in_loops)])
 
 
-def profile_loops(sk: Sketch) -> list[list[str]]:
+def profile_loops(sk: Sketch, skip=frozenset()) -> list[list[str]]:
     """The loops to extrude: those nested inside an even number of others (outlines and islands);
-    the loops inside them are holes, as SolidWorks extrudes a sketch."""
-    loops = _loops(sk)
+    the loops inside them are holes, as SolidWorks extrudes a sketch. Loops using a curve in
+    `skip` are left out before the nesting is worked out."""
+    loops = [lp for lp in _loops(sk) if not skip.intersection(lp[0])]
     out = []
     for ids, poly in loops:
         # test a point just inside the loop next to one of its edges: a corner can lie on another
@@ -2129,7 +2166,9 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             d, op = choices.get(f.name, ("positive", None))
             if op is None:
                 op = "new_body" if first else ("cut" if f.kind == "cut" else "join")
-            g = extrude_feature(f, nid, ids[f.profile], d, op, profile_loops(sk_of[f.profile]),
+            # loops the search leaves out (a stray curve reaching past the part)
+            skip = frozenset((fillets or {}).get("drop:" + f.name) or ())
+            g = extrude_feature(f, nid, ids[f.profile], d, op, profile_loops(sk_of[f.profile], skip),
                                 (fillets or {}).get("to:" + f.name))
             span = (fillets or {}).get("span:" + f.name)
             if span is not None:   # a boss through all: as far as the body reaches (verify)

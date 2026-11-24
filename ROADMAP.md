@@ -66,7 +66,7 @@ checks each partial build against the saved solid's volume and box (`sw2sc/verif
 | Helical sweep (a thread cut along a helix) | SolidCraft's `solid.coil` takes a profile sketch, axis, pitch and turns; the helix record (`moHelix_c`) is still to be read |
 | Draft (F-046) | SolidCraft has `solid.draft`; the faces and neutral plane are still to be read |
 | Full round fillet (F-045) | No full round in SolidCraft; two half-width rounds where the kernel allows |
-| Hole sizes | Some holes list only `D1`..`D9` in KeyWords; which is which isn't settled |
+| Hole sizes | Holes with no named sizes (`M2 Clearance Hole1`): the sizes aren't in KeyWords either, so they must be in the hole record's layout |
 | Fillet and chamfer edges (F-032) | Older files' edge selections aren't found yet |
 | Split, sheet metal, surfaces, cavity | Listed as TBD in the tree |
 

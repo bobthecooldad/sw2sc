@@ -40,6 +40,12 @@ Each release has a survey log in `logs/survey-<version>.md`.
   meeting it tangent.
 - A thin cut kept under the plain cut class gets its wall from KeyWords' `D5`.
 - An extrude or revolve whose sketch has no curves read is TBD instead of building nothing.
+- A boss whose sketch has a loop reaching past the part (a stray circle read with the outline) is
+  also tried without it.
+- Hole Wizard holes: a tapped hole's `Thread Major Dia.` where it has no drill diameter, and the
+  `Diameter`, `Depth`, `C-Bore Diameter`, `C-Bore Depth` names some files use.
+- A Hole Wizard hole whose record names no size takes it from its default name (`M3 Clearance
+  Hole1`, `M3 Tapped Hole1`, `Tap Drill for M2 Tap1`) with the ISO 273 and ISO 261 tables.
 
 ### Changed
 - Features kept in the tree that make no solid (unused sketches, reference axes, cosmetic

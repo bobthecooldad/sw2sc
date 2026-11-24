@@ -680,6 +680,11 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             let stop = named[n + 1..].iter().find(|x| x.1.cls != SKETCH).map_or(b.len(), |x| x.1.offset);
             f.hole = hole_params(b, r.offset, stop);
             if !f.hole.contains_key("diameter") {
+                if let Some(d) = hole_from_name(nm) {
+                    f.hole.insert("diameter".into(), json!(d));
+                }
+            }
+            if !f.hole.contains_key("diameter") {
                 f.kind = "tbd".into();
                 f.reason = "hole's size not read".into();
             }
@@ -882,7 +887,43 @@ fn hole_params(b: &[u8], s: usize, e: usize) -> IndexMap<String, Value> {
         let val = if key.ends_with("angle") { py_round(v.to_degrees(), 6) } else { py_round(v * 1000.0, 9) };
         out.insert(key.into(), json!(val));
     }
+    // a tapped hole with no drill diameter: its "Thread Major Dia." is the hole as drilled (see the Python)
+    let major = out.shift_remove("thread_major");
+    if !out.contains_key("diameter") {
+        if let Some(v) = major {
+            out.insert("diameter".into(), v);
+        }
+    }
     out
+}
+
+/// ISO metric sizes (public standards): (diameter, coarse pitch (ISO 261), ISO 273's medium
+/// clearance hole, the Hole Wizard's "normal" fit).
+const ISO_METRIC: [(f64, f64, f64); 15] = [
+    (1.6, 0.35, 1.8), (2.0, 0.4, 2.4), (2.5, 0.45, 2.9), (3.0, 0.5, 3.4), (3.5, 0.6, 3.9), (4.0, 0.7, 4.5), (5.0, 0.8, 5.5),
+    (6.0, 1.0, 6.6), (8.0, 1.25, 9.0), (10.0, 1.5, 11.0), (12.0, 1.75, 13.5), (14.0, 2.0, 15.5), (16.0, 2.0, 17.5),
+    (20.0, 2.5, 22.0), (24.0, 3.0, 26.0),
+];
+
+/// A hole's diameter (mm) from the size in its Hole Wizard name, where the record names none (see the Python).
+fn hole_from_name(name: &str) -> Option<f64> {
+    static C: OnceLock<Regex> = OnceLock::new();
+    static T: OnceLock<Regex> = OnceLock::new();
+    let clearance = C.get_or_init(|| Regex::new(r"^M(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?\s+Clearance Hole").unwrap());
+    let tapped = T.get_or_init(|| Regex::new(r"^(?:Tap Drill for )?M(\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?\s+(?:Tapped Hole|Tap)").unwrap());
+    let row = |d: f64| ISO_METRIC.iter().find(|r| r.0 == d).copied();
+    if let Some(c) = clearance.captures(name) {
+        return row(c[1].parse().ok()?).map(|r| r.2);
+    }
+    if let Some(c) = tapped.captures(name) {
+        let d: f64 = c[1].parse().ok()?;
+        let p = match c.get(2) {
+            Some(m) => m.as_str().parse().ok()?,
+            None => row(d)?.1,
+        };
+        return Some(py_round(d - p, 9));
+    }
+    None
 }
 
 fn transpose(r: &[V3; 3]) -> [V3; 3] {

@@ -387,8 +387,11 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                 arc_opts.append({"arcs:" + f.name: frozenset([n])})
     if len(alts) > 1:
         arc_opts.append({"arcs:" + f.name: frozenset(f.sketch.alt_centres) for f in alts})
+    sketch_of = {f.name: f.sketch for f in feats if f.kind == "sketch"}
     seq = any(f.kind in ("fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale")
-              or f.thin_mm or f.through_all for f in feats)
+              or f.thin_mm or f.through_all for f in feats) or \
+        any(f.kind == "boss" and sketch_of.get(f.profile) and any(outside_loops(sketch_of[f.profile], p, ref) for p in sketch_of[f.profile].planes)
+            for f in feats)   # a boss whose sketch has a loop past the part: tried without it, in sequence
     # built in sequence, each extrude's direction is chosen as it is built: one set of directions
     # is enough here. (Every other set was skipped one by one: 3 ** extrudes turns of the loop,
     # billions for a part with 20 extrudes, which spun until the time budget ran out.)
@@ -506,6 +509,22 @@ def _prefix(name, feats, choices, planes, constraints, picked, upto, cli, tmp):
     with open(p, "w", encoding="utf-8") as fh:
         json.dump(d, fh)
     return d, evaluate(cli, p)
+
+
+def outside_loops(sk, plane, ref) -> list:
+    """The curves of the sketch's loops that reach past the part's box, the sketch on `plane`."""
+    if not ref or not ref.get("lo"):
+        return []
+    (ax, ay, _n), t = plane[0], plane[1]
+    tol = REL * max(max(h - lo for lo, h in zip(ref["lo"], ref["hi"])), 1.0) + 1e-6
+    out_ids = []
+    for ids, poly in features._loops(sk):
+        for u, v in poly:
+            w = [(t[k] + u * ax[k] + v * ay[k]) * 1000 for k in range(3)]
+            if any(w[k] < ref["lo"][k] - tol or w[k] > ref["hi"][k] + tol for k in range(3)):
+                out_ids += ids
+                break
+    return sorted(set(out_ids))
 
 
 def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, progress=None):
@@ -652,14 +671,26 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                         for v in cands:
                             if abs(v) > 1e-6 and all(abs(v - w) > 1e-6 for w in starts) and len(starts) < 8:
                                 starts.append(v)
+            # a boss can't reach past the part: loops of its sketch that do (a stray circle read
+            # with the outline) are also tried left out, all together
+            drops = [None]
+            if f.kind == "boss" and not getattr(f, "thin_mm", None):
+                sk_f = next((x for x in feats if x.name == f.profile), None)
+                if sk_f and sk_f.sketch.planes:
+                    pl = sk_f.sketch.planes[min((planes or {}).get(sk_f.name, 0), len(sk_f.sketch.planes) - 1)]
+                    out_ids = outside_loops(sk_f.sketch, pl, ref)
+                    if out_ids and any(not set(ids) & set(out_ids) for ids, _p in features._loops(sk_f.sketch)):
+                        drops.append(out_ids)
             sides = ["center", "inside", "outside"] if getattr(f, "thin_mm", None) else [None]
-            for opt, op, to, side, sp, st in ((o, p, t, sd, s_, s2) for sd in sides for t in tos for p in ops
-                                              for o in ("positive", "negative", "symmetric")
-                                              for s_ in ([None] + ([spans[o]] if o in spans and spans[o] > 1e-6 else []))
-                                              for s2 in [None] + starts):
+            for opt, op, to, side, sp, st, dr in ((o, p, t, sd, s_, s2, d2) for sd in sides for t in tos for p in ops
+                                                  for o in ("positive", "negative", "symmetric")
+                                                  for s_ in ([None] + ([spans[o]] if o in spans and spans[o] > 1e-6 else []))
+                                                  for s2 in [None] + starts for d2 in drops):
                 if to is not None and (opt == "symmetric" or sp is not None):
                     continue
                 if st is not None and (to is not None or sp is not None):
+                    continue
+                if dr is not None and to is not None:
                     continue
                 c2 = dict(choices, **{f.name: (opt, op)})
                 p_to = dict(picked, **{"to:" + f.name: to}) if to is not None else picked
@@ -667,6 +698,8 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                     p_to = dict(p_to, **{"span:" + f.name: sp})
                 if st is not None:
                     p_to = dict(p_to, **{"start:" + f.name: st})
+                if dr is not None:
+                    p_to = dict(p_to, **{"drop:" + f.name: dr})
                 if side:
                     p_to = dict(p_to, **{"thin:" + f.name: side})
                 _d, r = _prefix(name, feats, c2, planes, constraints, p_to, f.name, cli, tmp)

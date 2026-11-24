@@ -876,3 +876,28 @@ before any more field guesses.
     `checks.json`. The regression and sample runners moved from scratch scripts into
     `tools/rebuild_set.py` and `tools/convert_sample.py`. A commit goes to the public `dev`
     branch once its suite passes, and to `main` once a few have, with the long run passing.
+140. **A stray loop read with a boss's outline.** Two parts that built but didn't match had one
+    extra circle each, reaching well past the part: a plate's offset circle (336.55 mm round a
+    304.8 mm disc), and a circle of 18.3 mm round a corner of a 20 x 10 mm block (centred on one
+    point, through an unrelated one). Nested with the real loops, it turned the plate's ring into
+    the wrong rings and the block's hole into an island. A boss can't put material past the part's
+    box, so where loops of its sketch (on the plane being tried) do, the search also tries the
+    boss with all of them left out (`drop:<feature>`, before the nesting is worked out). Parts
+    with such a boss now go through the sequential search (the plain one has no per-feature
+    choices). The plate rebuilds (both converters); the block's boss is now right and its fillet
+    is what's left (finding its edges, F-032).
+141. **Hole Wizard holes whose size wasn't read.** 69 parts of the user's folders stopped at
+    "hole's size not read". Their holes' named parameters, listed: tapped holes with no drill
+    diameter of their own carry `Thread Major Dia.` (2.5 for an M3x0.5: the hole as drilled, the
+    thread cosmetic); other files name them `Diameter`, `Depth`, `C-Bore Diameter`, `C-Bore Depth`.
+    Both are read now (the thread's diameter only where no drill diameter is). 26 of the 69 now
+    read fully (0 before); Rust and Python read all of them the same. Left: 41 parts whose holes
+    have no named sizes at all (`M2 Clearance Hole1`, `Tap Drill for M2 Tap1`), not in KeyWords
+    either: their sizes must be in the hole record's own layout, still to be found (ROADMAP).
+    - Many of those keep the Hole Wizard's own names, which say the size: `M2 Clearance Hole1`,
+      `M3 Tapped Hole1`, `Tap Drill for M2 Tap1`. Where the record names no diameter, it comes
+      from the name with public ISO tables: clearance holes ISO 273's medium series (the Hole
+      Wizard's "normal" fit: M2 2.4, M3 3.4), tapped holes and tap drills the major diameter less
+      the coarse pitch (ISO 261: M2 1.6, M3 2.5) or the pitch the name gives. With no depth they go
+      through all; the rebuild check says whether either is right. 30 of the 69 now read fully;
+      28 still have no size (holes renamed from the defaults). Parity 68/0.

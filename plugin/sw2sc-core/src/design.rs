@@ -607,7 +607,12 @@ pub fn revolve_axis_options(sk: &Sketch) -> Vec<Value> {
 
 /// The loops to extrude: those nested inside an even number of others.
 pub fn profile_loops(sk: &Sketch) -> Vec<Vec<String>> {
-    let lps = loops(sk);
+    profile_loops_skip(sk, &[])
+}
+
+/// `profile_loops` with the loops using a curve in `skip` left out before the nesting is worked out.
+pub fn profile_loops_skip(sk: &Sketch, skip: &[String]) -> Vec<Vec<String>> {
+    let lps: Vec<(Vec<String>, Poly)> = loops(sk).into_iter().filter(|(ids, _)| !ids.iter().any(|c| skip.contains(c))).collect();
     let mut out = Vec::new();
     for (i, (ids, poly)) in lps.iter().enumerate() {
         let mut probe = poly[0];
@@ -703,7 +708,12 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 let op = op.unwrap_or_else(|| if first { "new_body".into() } else if f.kind == "cut" { "cut".into() } else { "join".into() });
                 let prof = f.profile.clone().unwrap_or_default();
                 let sk = &sk_of[&prof];
-                let mut g = extrude_feature(f, nid, ids[&prof], &d, &op, &profile_loops(sk), pick(&format!("to:{}", f.name)));
+                // loops the search leaves out (a stray curve reaching past the part)
+                let skip: Vec<String> = pick(&format!("drop:{}", f.name))
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                    .unwrap_or_default();
+                let mut g = extrude_feature(f, nid, ids[&prof], &d, &op, &profile_loops_skip(sk, &skip), pick(&format!("to:{}", f.name)));
                 if let Some(span) = pick(&format!("span:{}", f.name)).and_then(Value::as_f64) {
                     g["extent"] = json!({"convention": "total_distance", "direction": d, "distance": repr(round(span, 9))});
                 }

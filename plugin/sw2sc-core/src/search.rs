@@ -208,6 +208,12 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
         ["fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale"].contains(&f.kind.as_str())
             || f.thin_mm.is_some_and(|t| t != 0.0)
             || f.through_all
+    }) || ctx.feats.iter().any(|f| {
+        // a boss whose sketch has a loop past the part: tried without it, in sequence
+        f.kind == "boss"
+            && ctx.feats.iter().find(|x| x.kind == "sketch" && Some(&x.name) == f.profile.as_ref()).and_then(|x| x.sketch.as_ref()).is_some_and(|sk| {
+                sk.planes.iter().any(|p| !outside_loops(sk, &p.0, ctx.rf.as_ref()).is_empty())
+            })
     });
     let options = ["positive", "negative", "symmetric"];
     let mut tries = 0usize;
@@ -315,6 +321,27 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
         }
     }
     None
+}
+
+/// The curves of the sketch's loops that reach past the part's box, the sketch on `plane`.
+fn outside_loops(sk: &crate::features::Sketch, plane: &crate::features::Frame, rf: Option<&Eval>) -> Vec<String> {
+    let Some(rf) = rf else { return vec![] };
+    let (Some(rlo), Some(rhi)) = (rf.lo, rf.hi) else { return vec![] };
+    let ([ax, ay, _n], t) = *plane;
+    let tol = REL * (0..3).map(|k| rhi[k] - rlo[k]).fold(f64::NEG_INFINITY, f64::max).max(1.0) + 1e-6;
+    let mut out_ids: Vec<String> = Vec::new();
+    for (ids, poly) in design::loops(sk) {
+        for &(u, v) in &poly {
+            let w = [0, 1, 2].map(|k| (t[k] + u * ax[k] + v * ay[k]) * 1000.0);
+            if (0..3).any(|k| w[k] < rlo[k] - tol || w[k] > rhi[k] + tol) {
+                out_ids.extend(ids.iter().cloned());
+                break;
+            }
+        }
+    }
+    out_ids.sort();
+    out_ids.dedup();
+    out_ids
 }
 
 fn flips_for(f: &Feature, tol: f64) -> Vec<bool> {
@@ -676,6 +703,21 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                     }
                 }
             }
+            // a boss can't reach past the part: loops of its sketch that do (a stray circle read
+            // with the outline) are also tried left out, all together
+            let mut drops: Vec<Option<Vec<String>>> = vec![None];
+            if f.kind == "boss" && !f.thin_mm.is_some_and(|t| t != 0.0) {
+                if let Some(sk_f) = ctx.by_fname(f.profile.as_deref().unwrap_or("")).cloned() {
+                    let sk = sk_f.sketch.as_ref().unwrap();
+                    if !sk.planes.is_empty() {
+                        let pl = sk.planes[ctx.planes.get(&sk_f.name).copied().unwrap_or(0).min(sk.planes.len() - 1)].0;
+                        let out_ids = outside_loops(sk, &pl, rf.as_ref());
+                        if !out_ids.is_empty() && design::loops(sk).iter().any(|(ids, _)| !ids.iter().any(|c| out_ids.contains(c))) {
+                            drops.push(Some(out_ids));
+                        }
+                    }
+                }
+            }
             let sides: Vec<Option<&str>> = if f.thin_mm.is_some_and(|t| t != 0.0) { vec![Some("center"), Some("inside"), Some("outside")] } else { vec![None] };
             for side in &sides {
                 for to in &tos {
@@ -685,7 +727,15 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                             if let Some(&s) = spans.get(opt).filter(|s| **s > 1e-6) {
                                 sps.push(Some(s));
                             }
-                            for (sp, st) in sps.iter().flat_map(|sp| std::iter::once(None).chain(starts.iter().map(|s| Some(*s))).map(move |st| (*sp, st))) {
+                            let combos: Vec<(Option<f64>, Option<f64>, Option<Vec<String>>)> = sps
+                                .iter()
+                                .flat_map(|sp| std::iter::once(None).chain(starts.iter().map(|s| Some(*s))).map(move |st| (*sp, st)))
+                                .flat_map(|(sp, st)| drops.iter().map(move |dr| (sp, st, dr.clone())))
+                                .collect();
+                            for (sp, st, dr) in combos {
+                                if dr.is_some() && to.is_some() {
+                                    continue;
+                                }
                                 if to.is_some() && (opt == "symmetric" || sp.is_some()) {
                                     continue;
                                 }
@@ -703,6 +753,9 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                                 }
                                 if let Some(st) = st {
                                     p_to = p_to.with(&format!("start:{}", f.name), json!(st));
+                                }
+                                if let Some(dr) = &dr {
+                                    p_to = p_to.with(&format!("drop:{}", f.name), json!(dr));
                                 }
                                 if let Some(side) = side {
                                     p_to = p_to.with(&format!("thin:{}", f.name), json!(side));

@@ -44,6 +44,15 @@ pub fn hole_param(name: &str) -> Option<&'static str> {
     Some(match name {
         "Hole Dia." | "Thru Hole Dia." | "Tap Drill Dia." | "Thru Tap Drill Dia." => "diameter",
         "Hole Depth" | "Thru Hole Depth" | "Tap Drill Depth" | "Thru Tap Drill Depth" => "depth",
+        // a tapped hole with no drill diameter of its own lists this (the hole as drilled)
+        "Thread Major Dia." => "thread_major",
+        // names some files use (older Hole Wizard data, Portuguese files' holes)
+        "Diameter" => "diameter",
+        "Depth" => "depth",
+        "C-Bore Diameter" => "cb_diameter",
+        "C-Bore Depth" => "cb_depth",
+        "C-Sink Diameter" => "cs_diameter",
+        "C-Sink Angle" => "cs_angle",
         // Polish
         "Średnica otworu gwintowanego na wylot" => "diameter",
         "Głębokość otworu gwintowanego na wylot" => "depth",
