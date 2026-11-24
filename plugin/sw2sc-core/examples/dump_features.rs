@@ -36,7 +36,7 @@ fn feature(f: &Feature) -> Value {
         "through_all": f.through_all, "angle_deg": f.angle_deg, "fid": f.fid, "radius_mm": f.radius_mm,
         "chamfer_deg": f.chamfer_deg, "chamfer_mm2": f.chamfer_mm2, "hole": f.hole, "alt_kind": f.alt_kind,
         "mirror_face": f.mirror_face.as_ref().map(face), "mirror_planes": f.mirror_planes.iter().map(frame).collect::<Vec<_>>(),
-        "thread": f.thread, "pattern": f.pattern, "thin_mm": f.thin_mm, "dome_mm": f.dome_mm, "path": f.path,
+        "thread": f.thread, "pattern": f.pattern, "thin_mm": f.thin_mm, "dome_mm": f.dome_mm, "path": f.path, "scale": f.scale,
         "edges": f.edges.iter().map(edge).collect::<Vec<_>>(), "edge_ends": f.edge_ends.iter().map(edge).collect::<Vec<_>>(),
     })
 }

@@ -359,12 +359,56 @@ pub fn parasolid_sources(sw: &SwFile) -> Vec<(String, Vec<u8>)> {
         }
     }
     for (_, v) in by_config {
-        let found: Vec<(String, Vec<u8>)> = v.into_iter().filter(|(_, s)| has_body(s)).collect();
+        let mut found: Vec<(String, Vec<u8>)> = v.into_iter().filter(|(_, s)| has_body(s)).collect();
+        // where the partition holds the part's solid, the named local bodies beside it are bodies
+        // as they were imported (an import feature's own)
+        if found.iter().any(|(n, _)| n.is_empty()) {
+            found.retain(|(n, _)| n.is_empty());
+        }
         if !found.is_empty() {
             return found;
         }
     }
     vec![]
+}
+
+/// The named bodies of `FeatureBodies/LocalBodies`, first configuration first: name -> the
+/// Parasolid transmit bytes. An imported body is kept here under its feature's name.
+pub fn local_bodies(sw: &SwFile) -> std::collections::HashMap<String, Vec<u8>> {
+    let mut out = std::collections::HashMap::new();
+    let mut names: Vec<&String> = sw.streams.keys().filter(|n| n.ends_with("FeatureBodies/LocalBodies")).collect();
+    names.sort_by_key(|n| config_of(n));
+    let guid = [0x23, 0x1d, 0xd5, 0x71, 0xda, 0x81, 0x48, 0xa2, 0xa8, 0x58, 0x98, 0xb2, 0x1b, 0x89, 0xef, 0x99];
+    for n in names {
+        let blob = &sw.streams[n];
+        let mut i = find(blob, &guid, 0);
+        while let Some(at) = i {
+            let sec = unzlb(&blob[at..]).unwrap_or_default();
+            if sec.starts_with(b"PS\0\0") && find(&sec[..sec.len().min(80)], b"(deltas)", 0).is_none() {
+                let name = sw_string_before(blob, at);
+                let name = match name.rfind('_') {
+                    Some(k) if !name[k + 1..].is_empty() && name[k + 1..].chars().all(|c| c.is_ascii_digit()) => name[..k].to_string(),
+                    _ => name,
+                };
+                if !name.is_empty() {
+                    out.entry(name).or_insert(sec);
+                }
+            }
+            i = find(blob, &guid, at + 16);
+        }
+    }
+    out
+}
+
+/// One Parasolid body as STEP text (None if it doesn't convert).
+pub fn body_step(data: &[u8], name: &str) -> Option<String> {
+    let part = crate::parasolid::read(data).ok()?;
+    let mut conv = Converter::new(&part);
+    let mut bodies = conv.bodies();
+    for b in bodies.iter_mut() {
+        b.name = name.to_string();
+    }
+    (!bodies.is_empty()).then(|| write(&bodies, name))
 }
 
 /// The part's solid as STEP: (text or None, warnings, faces left out).

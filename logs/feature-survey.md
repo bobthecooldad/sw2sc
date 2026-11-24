@@ -676,7 +676,7 @@ With a feature stream: 196.
 | 10000 | yes | Crank.SLDPRT | Boss-Extrude |
 | 10000 | yes | Cross Slide.SLDPRT | Boss-Extrude, Thread |
 | 10000 | yes | Cylinder.SLDPRT | Cut-Extrude, Boss-Extrude, Thread, Fillet, Mirror |
-| 10000 | yes | FlyPart R.SLDPRT | Boss-Extrude, Mirror, Fillet |
+| 10000 | yes | Flywheel.SLDPRT | Boss-Extrude, Mirror, Fillet |
 | 10000 | yes | Front Cylinder Cover.SLDPRT | Boss-Extrude |
 | 10000 | yes | Key Way.SLDPRT | Boss-Extrude, Folder, Fillet |
 | 10000 | yes | Pin for Crank.SLDPRT | Boss-Extrude |
@@ -722,5 +722,5 @@ With a feature stream: 196.
 | 15000 | yes | Part M.SLDPRT | Boss-Extrude |
 | 15000 | yes | Part N.SLDPRT | Boss-Extrude, Fillet, Mirror, Sketch |
 | 15000 | yes | Part K.SLDPRT | Boss-Extrude |
-| 15000 | yes | Part P.SLDPRT | Boss-Extrude, Fillet |
-| 15000 | yes | Part R.SLDPRT | Boss-Extrude |
+| 15000 | yes | Adapter.SLDPRT | Boss-Extrude, Fillet |
+| 15000 | yes | Wheel.SLDPRT | Boss-Extrude |

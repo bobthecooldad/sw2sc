@@ -36,6 +36,9 @@ _HOLE_PARAMS = {"Hole Dia.": "diameter", "Thru Hole Dia.": "diameter", "Tap Dril
                 "C'Sink Dia.": "cs_diameter", "C'Sink Angle": "cs_angle", "C'Bore Dia.": "cb_diameter",
                 "C'Bore Depth": "cb_depth", "Drill Angle": "tip_angle",
                 "Near C'Sink Dia.": "cs_diameter", "Near C'Sink Angle": "cs_angle",
+                "Thru Tap Drill Dia.": "diameter", "Thru Tap Drill Depth": "depth",
+                # Polish
+                "Średnica otworu gwintowanego na wylot": "diameter", "Głębokość otworu gwintowanego na wylot": "depth",
                 # French
                 "Diamètre du perçage": "diameter", "Diamètre du perçage jusqu'au prochain": "diameter",
                 "Profondeur du perçage": "depth", "Profondeur du perçage jusqu'au prochain": "depth",
@@ -43,20 +46,21 @@ _HOLE_PARAMS = {"Hole Dia.": "diameter", "Thru Hole Dia.": "diameter", "Tap Dril
                 "Diamètre du lamage": "cb_diameter", "Profondeur du lamage": "cb_depth",
                 "Angle de pointe": "tip_angle"}
 CUT = "moICE_c"
-IMPORTED = {"moBaseBody_c", "moRefSurface_c"}  # a body (or surface) imported into SolidWorks: no tree
+IMPORTED = {"moBaseBody_c", "moRefSurface_c", "moMirrorStock_c", "moMBimport_c", "moSplitBody_c"}  # a body (or surface) imported, or a mirror of another part file: no tree here
 # Named records that are not features: folders, parameters, dimensions, handles and helper data.
 # Every other named record is a feature, so a feature of a kind not converted yet still keeps its
 # place in the tree as TBD instead of being skipped.
 NOT_FEATURES = {"moDetailCabinet_c", "moFavoriteHandle_c", "moCompRefPlane_c", "moPointBackedUpData_c",
                 "moOriginProfileFeature_c", "moPLine_c", "moVertexRef_c", "moIntegerParameter_c",
-                "moScalerParameter_c", "moFoldUpDownSketchFolder_c"}
+                "moScalerParameter_c", "moFoldUpDownSketchFolder_c", "moDimTolerance_c", "moAttributeDef_c",
+                "moAttribute_c"}
 
 
 def is_feature_class(cls: str) -> bool:
     return not (cls in NOT_FEATURES or cls.startswith("pre") or cls.startswith("sg") or
                 cls.endswith(("Folder_c", "Parameter_c", "Dim", "Dim_c", "Handle", "Handle_c", "Data_c",
                               "IdRep_c", "Options_c", "Region_c", "ValG", "ValG_c", "ValG2_c", "Radial_c",
-                              "Chain_c", "Ref_c", "Ref_w")))
+                              "Chain_c", "Ref_c", "Ref_w", "Spec_c", "IdRepN_c")))   # (…Spec_c: an extrude's end conditions)
 
 
 FEATURE_CLASSES = None  # see is_feature_class
@@ -138,6 +142,9 @@ class Feature:
     thin_mm: float | None = None  # a thin extrude's wall thickness
     dome_mm: float | None = None  # a dome's height
     path: str | None = None       # a sweep's path sketch (its profile sketch is `profile`)
+    scale: tuple | None = None    # a scale's factors (x, y, z)
+    import_body: bytes | None = field(default=None, repr=False, compare=False)  # an import's body as imported
+    import_step: str | None = field(default=None, repr=False, compare=False)    # … as STEP (made when written)
     edges: list = field(default_factory=list)  # a fillet's edges: (face, face), face = (side|end, feature id, entity|0/1)
     edge_ends: list = field(default_factory=list)  # for each edge, the two faces at its ends (they border its faces)
 
@@ -180,6 +187,13 @@ def _plane_record(b: bytes, off: int, is_new: bool):
     z = i
     while i < len(b) and b[i] == 0:
         i += 1
+    # some files set a flag byte (01) inside the zero run, ahead of the FF block
+    if i < len(b) and b[i] == 1:
+        j = i + 1
+        while j < len(b) and b[j] == 0:
+            j += 1
+        if j - z >= 40 and b[j:j + 16] == b"\xff" * 16:
+            i = j
     if i - z < 40:
         return None
     if b[i:i + 16] == b"\xff" * 16:
@@ -236,7 +250,14 @@ def _face_frame_at(b: bytes, s0: int):
         return None
     n = normal
     y2 = (n[1] * x[2] - n[2] * x[1], n[2] * x[0] - n[0] * x[2], n[0] * x[1] - n[1] * x[0])
-    return (x, y2, n), origin
+    first = ((x, y2, n), origin)
+    # the record's own axes: where its z points into the part (against the face's normal) its y
+    # is the other way from y2, and some files' sketches are drawn in it (a bracket's sketches on
+    # its side faces came out mirrored): a second candidate, which the rebuild check chooses
+    if sum(p * q for p, q in zip(y, y2)) < 0:
+        z2 = (x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0])
+        return [first, ((x, y, z2), origin)]
+    return first
 
 
 def _face_candidates(b, recs, after, end):
@@ -333,7 +354,8 @@ class _Ref:
     new_class: bool = False
 
 
-_REF_SHAPE = re.compile(rb"[\x00-\xff][\x80-\xff][\x00-\xff][\x80-\xff]\x02\x00\x00{40}", re.S)
+# (a flag byte 01 can sit in the zero run: _plane_record checks the rest)
+_REF_SHAPE = re.compile(rb"[\x00-\xff][\x80-\xff][\x00-\xff][\x80-\xff]\x02\x00(?:\x00{40}|\x00{20,39}\x01\x00{1,20})", re.S)
 
 
 def _plane_refs(b: bytes, recs: list, lo: int, hi: int) -> list:
@@ -695,9 +717,40 @@ def _read_sketch(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict
     # tag is not enough to tell an arc whose other end wasn't written from a circle.
     _alternative_centres(sk)
     if any(v == "sgTextHandle" for v in tags.values()) and b.find(b"sgTextHandle", s, e) >= 0:
-        sk.problems.append("sketch text not converted yet")
+        # the words, their size and place are stored (moDimText_c, utCharFormat_c), not the letters'
+        # outlines: SolidCraft would draw its own, which the rebuild check can't match exactly
+        sk.problems.append("sketch text: SolidWorks keeps the words, size and place but not the letters' shapes, so SolidCraft's own lettering can't be matched to the solid exactly")
     _read_dimensions(b, tags, sk, s, e)
     _read_relations(b, tags, sk, s, e)
+    _centres_from_relations(sk)
+
+
+def _centres_from_relations(sk: Sketch) -> None:
+    """A circle read from one point whose centre wasn't found: its centre's point record may be
+    missing, its id still next to the circle's point (a circle's point and centre are numbered
+    one after the other). A coincident relation (9) that puts that id on a point read places the
+    centre there (Concentric: a circle's centre coincident with the sketch origin)."""
+    for pr in list(sk.problems):
+        m = re.fullmatch(r"arc (\d+): no centre found \(ends \[(\d+)\]\)", pr)
+        if not m:
+            continue
+        cid, end = int(m.group(1)), int(m.group(2))
+        at = None
+        for t, groups in sk.relations:
+            if t != 9:
+                continue
+            for g in groups:
+                ids = [h + 1 for kind, h in g if kind == "point"]   # a point handle's id is the point's - 1
+                if len(ids) != 2:
+                    continue
+                for a, c in (ids, ids[::-1]):
+                    if a in (end - 1, end + 1) and a not in sk.points and c in sk.points and c != end:
+                        at = at or c
+        if at is None or math.dist(sk.points[at], sk.points[end]) < TOL:
+            continue
+        sk.problems.remove(pr)
+        sk.circles.append((at, math.dist(sk.points[at], sk.points[end])))
+        sk.curve_of[("arc", cid)] = f"c{len(sk.circles)}"
 
 
 def _alternative_centres(sk: Sketch) -> None:
@@ -887,11 +940,15 @@ def _read_relations(b: bytes, tags: dict, sk: Sketch, s: int, e: int) -> None:
 
 # KeyWords' feature types (SolidWorks localizes them) for classes a feature can be recovered as
 _KW_TYPES = {"Fillet": FILLET, "Скругление": FILLET, "Congé": FILLET, "Verrundung": FILLET,
+             "Filete": FILLET, "Redondeo": FILLET, "Raccordo": FILLET,
+             "Chanfro": "Chamfer_c", "Chaflán": "Chamfer_c", "Smusso": "Chamfer_c",
              "Chamfer": "Chamfer_c", "Фаска": "Chamfer_c", "Chanfrein": "Chamfer_c", "Fase": "Chamfer_c"}
 
 
-_BOSS_TYPES = {"Boss-Extrude", "Бобышка-Вытянуть", "Boss.-Extru."}
-_CUT_TYPES = {"Cut-Extrude", "Enlèv. mat.-Extru.", "Вырез-Вытянуть"}
+_BOSS_TYPES = {"Boss-Extrude", "Бобышка-Вытянуть", "Boss.-Extru.", "Ressalto-extrusão", "Saliente-Extruir",
+               "Aufsatz-Extrusion", "Estrusione base"}
+_CUT_TYPES = {"Cut-Extrude", "Enlèv. mat.-Extru.", "Вырез-Вытянуть", "Corte-extrusão", "Cortar-Extruir",
+              "Schnitt-Extrusion", "Taglio estruso"}
 
 
 def _kw_features(kw: str) -> list:
@@ -932,8 +989,8 @@ def _recover(b: bytes, named: list, kw: str) -> list:
         if e_t and e_t[0] in ("Extrusion", "Cut") and r.cls not in ("moCut_c",):
             want = BOSS if e_t[1] in _BOSS_TYPES else CUT if e_t[1] in _CUT_TYPES else r.cls
             if want not in (BOSS, CUT):   # a drifted tag read it as something else (a fillet …)
-                want = CUT if e_t[0] == "Cut" or re.search(r"cut|вырез|enl", nm, re.I) else \
-                    BOSS if re.search(r"boss|бобышка", nm, re.I) else want
+                want = CUT if e_t[0] == "Cut" or re.search(r"cut|вырез|enl|corte|cortar|schnitt|taglio|řez", nm, re.I) else \
+                    BOSS if re.search(r"boss|бобышка|ressalto|saliente|aufsatz|estrusione|bossage|výstupek", nm, re.I) else want
             if want != r.cls:
                 r = archive.Record(r.offset, r.number, want, r.new_class)
         fixed.append((k, r, nm))
@@ -966,7 +1023,7 @@ def _recover(b: bytes, named: list, kw: str) -> list:
                 c = cls or tag_cls.get(struct.unpack_from("<H", b, i - 4)[0])
                 if e in ("Extrusion", "Cut") and c not in (BOSS, CUT, "moCut_c"):
                     # an extrude is a boss or a cut, whatever a drifted tag says
-                    c = CUT if e == "Cut" or re.search(r"cut|вырез|enl", nm, re.I) else BOSS if re.search(r"boss|бобышка", nm, re.I) else None
+                    c = CUT if e == "Cut" or re.search(r"cut|вырез|enl|corte|cortar|schnitt|taglio|řez", nm, re.I) else BOSS if re.search(r"boss|бобышка|ressalto|saliente|aufsatz|estrusione|bossage|výstupek", nm, re.I) else None
                 if c and is_feature_class(c):
                     extra.append((None, archive.Record(i - 4, -1, c, False), nm))
                 break
@@ -1081,6 +1138,55 @@ def _param_value(b: bytes, s: int) -> float | None:
     return struct.unpack_from("<d", b, i + 2)[0]
 
 
+# the length units KeyWords can show a document's sizes in, as mm: mm, inch, cm, m, foot
+_UNITS = (1.0, 25.4, 10.0, 1000.0, 304.8)
+
+
+def _kw_length(text: str, b: bytes, lo: int, hi: int, unit: list) -> float | None:
+    """A KeyWords length in mm. KeyWords shows it in the document's units, rounded as it displays
+    it; the feature's record (`b[lo:hi]`) keeps it exact in metres. For each unit (the one found
+    earlier in this file first), the record's doubles that round to the shown value are found;
+    the commonest is the value, and its unit is kept in `unit[0]`. Where none matches, the value
+    as shown, in the unit found earlier (mm if none)."""
+    m = re.search(r"-?\d+(?:\.(\d+))?", html.unescape(text or ""))
+    if not m:
+        return None
+    v, dec = float(m.group()), len(m.group(1) or "")
+    # once the unit is known only it; before, the two common ones (a wider unit's window would
+    # take unrelated doubles)
+    order = [unit[0]] if unit[0] else list(_UNITS[:2])
+    for u in order:
+        want, half = v * u, 0.5 * 10 ** -dec * u + 1e-9
+        found: dict = {}
+        for i in range(lo, max(lo, hi - 8)):
+            d = struct.unpack_from("<d", b, i)[0] * 1000
+            if d == d and abs(d - want) <= half and d > 0:
+                found[d] = found.get(d, 0) + 1
+        if found:
+            unit[0] = u
+            return max(found, key=lambda d: (found[d], -abs(d - want)))
+    return v * (unit[0] or 1.0)
+
+
+def _sketch_unit(kw: str, sk: "Sketch") -> float | None:
+    """The unit KeyWords shows lengths in (as mm), from a sketch's dimensions: KeyWords' value of
+    a length dimension against the sketch's own (exact, in metres)."""
+    m = re.search(r'<Sketch [^>]*Name="%s"[^>/]*>(.*?)</Sketch>' % re.escape(html.escape(sk.name)), kw, re.S)
+    if not m:
+        return None
+    shown = dict(re.findall(r'<Dimension Name="(D\d+)">([^<]*)</Dimension>', m.group(1)))
+    for name, _cls, val, _h in sk.dims:
+        t = html.unescape(shown.get(name, ""))
+        x = re.search(r"-?\d+(?:\.(\d+))?", t)
+        if not x or "°" in t or not val or float(x.group()) == 0:
+            continue
+        v, dec = float(x.group()), len(x.group(1) or "")
+        for u in _UNITS:
+            if abs(abs(val) * 1000 - abs(v) * u) <= 0.5 * 10 ** -dec * u + 1e-9 and abs(v) * u > 10 ** -dec * u:
+                return u
+    return None
+
+
 def _depth(b: bytes, recs: list, k: int, end: int) -> float | None:
     """An extrude's depth: the value of its first length parameter, or else of its first distance
     dimension (`ParallelPlaneDistanceDim_c`)."""
@@ -1133,8 +1239,10 @@ def read(sw) -> list[Feature] | None:
             named.append((k, r, nm))
     named = _recover(b, named, kw)
     learned: dict = {}   # handle tags the numbering doesn't give, learned sketch by sketch
+    local = None         # the local bodies (an import's own), read when an import needs them
     out: list[Feature] = []
     last_sketch = None
+    unit: list = [None]  # the unit KeyWords shows lengths in (as mm), once a value has shown it
     fids = {_fid(b, r) for _k, r, _nm in named}
     rec_offsets = [x.offset for x in recs]
     for n, (k, r, nm) in enumerate(named):
@@ -1159,20 +1267,27 @@ def read(sw) -> list[Feature] | None:
                     pl, how = _plane_from_ref(b, recs, refs[-1], by_id, by_off)
                     if pl:
                         sk.add_plane(pl, "plane reference before it: " + how)
+                        # some files write a sketch's plane reference after it, among its own
+                        # records (the one before is then another's): tried too
+                        pl2, how2 = _plane_inside(b, recs, r.offset, end, by_id, by_off)
+                        for one in (pl2 if isinstance(pl2, list) else [pl2] if pl2 else []):
+                            sk.add_plane(one, "plane reference after it: " + how2)
             if not sk.planes:
                 pl, how = _plane_inside(b, recs, r.offset, end, by_id, by_off)
                 for one in (pl if isinstance(pl, list) else [pl] if pl else []):
                     sk.add_plane(one, how)
             f = Feature("sketch", nm, r.offset, r.cls, sketch=sk)
             last_sketch = f
-        elif r.cls in ("moBossThin_c", "moCutThin_c"):
+            if not unit[0]:
+                unit[0] = _sketch_unit(kw, sk)
+        elif r.cls in ("moBossThin_c", "moCutThin_c", "moExtruThin_c"):
             # a thin extrude: KeyWords' D1 its depth, D5 its wall's thickness
-            f = Feature("boss" if r.cls == "moBossThin_c" else "cut", nm, r.offset, r.cls,
+            f = Feature("cut" if r.cls == "moCutThin_c" else "boss", nm, r.offset, r.cls,
                         profile=last_sketch.name if last_sketch else None)
             m = re.search(r'<(\w+) [^>]*Name="%s"[^>]*>(.*?)</\1>' % re.escape(html.escape(nm)), kw, re.S)
             dims = dict(re.findall(r'<Dimension Name="(D\d+)">([^<]*)</Dimension>', m.group(2))) if m else {}
-            num = lambda k: (lambda x: float(x.group()) if x else None)(re.search(r"\d+(?:\.\d+)?", dims.get(k, "")))  # noqa: E731
-            f.depth_mm, f.thin_mm = num("D1"), num("D5")
+            f.depth_mm = _kw_length(dims.get("D1"), b, r.offset, end, unit)
+            f.thin_mm = _kw_length(dims.get("D5"), b, r.offset, end, unit)
             if not f.depth_mm or not f.thin_mm:
                 f.kind, f.reason = "tbd", "thin extrude's depth or thickness not read"
         elif r.cls in (BOSS, CUT, "moCut_c"):   # moCut_c: KeyWords lists it as <Cut>
@@ -1186,6 +1301,11 @@ def read(sw) -> list[Feature] | None:
                 f.alt_kind = "cut"
 
             dep = _depth(b, recs, k, end)
+            if dep is None:
+                m = re.search(r'<Extrusion [^>]*Name="%s"[^>/]*>(.*?)</Extrusion>' % re.escape(html.escape(nm)), kw, re.S)
+                d1 = re.search(r'<Dimension Name="D1">([^<]*)</Dimension>', m.group(1)) if m else None
+                mm = _kw_length(d1.group(1), b, r.offset, end, unit) if d1 else None
+                dep = mm / 1000 if mm else None
             if dep is None:
                 # no distance in the file: an end condition such as through all or up to a face.
                 # Through all is tried; the rebuild check rejects it when it's something else.
@@ -1249,8 +1369,7 @@ def read(sw) -> list[Feature] | None:
             f = Feature("shell", nm, r.offset, r.cls)
             m = re.search(r'<Feature [^>]*Name="%s"[^>]*>(.*?)</Feature>' % re.escape(html.escape(nm)), kw, re.S)
             d1 = re.search(r'<Dimension Name="D1">([^<]*)</Dimension>', m.group(1)) if m else None
-            num = re.search(r"\d+(?:\.\d+)?", d1.group(1)) if d1 else None
-            f.thin_mm = float(num.group()) if num else None
+            f.thin_mm = _kw_length(d1.group(1), b, r.offset, end, unit) if d1 else None
             for mm in _FACE_REF.finditer(b, r.offset, min(end, r.offset + 2000)):
                 fd = struct.unpack("<I", mm.group(3))[0]
                 if fd in fids and fd != _fid(b, r):
@@ -1259,7 +1378,8 @@ def read(sw) -> list[Feature] | None:
                     break
             if not f.thin_mm:
                 f.kind, f.reason = "tbd", "shell's thickness not read"
-        elif r.cls in ("moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c"):
+        elif r.cls in ("moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c", "moHelix_c", "moRefCurve_c",
+                       "moSketchBitmap_c", "moExtObject_c"):
             # no solid: a cosmetic thread is an annotation, an axis or point reference geometry.
             # Kept in the tree (TBD), not written, and doesn't stop the part rebuilding
             f = Feature("absorbed", nm, r.offset, r.cls,
@@ -1283,14 +1403,21 @@ def read(sw) -> list[Feature] | None:
                 prof.sketch.used = path.sketch.used = True
             else:
                 f.kind, f.reason = "tbd", "sweep's profile and path not found"
+        elif r.cls == "moScale_c":
+            # a scale: its factors are the first three doubles in its record that are all sizes
+            # (KeyWords lists no dimension for it); what it scales about is chosen in the rebuild
+            f = Feature("scale", nm, r.offset, r.cls)
+            f.scale = _scale_factors(b, r.offset, end)
+            if not f.scale:
+                f.kind, f.reason = "tbd", "scale's factors not read"
         elif r.cls == "moDome_c":
             # a dome: its height is KeyWords' D1 for it; the face it sits on is chosen in the rebuild
             f = Feature("dome", nm, r.offset, r.cls)
             m = re.search(r'<Feature [^>]*Name="%s"[^>]*>(.*?)</Feature>' % re.escape(html.escape(nm)), kw, re.S)
             d1 = re.search(r'<Dimension Name="D1">([^<]*)</Dimension>', m.group(1)) if m else None
-            num = re.search(r"\d+(?:\.\d+)?", d1.group(1)) if d1 else None
-            if num:
-                f.dome_mm = float(num.group())
+            mm = _kw_length(d1.group(1), b, r.offset, end, unit) if d1 else None
+            if mm:
+                f.dome_mm = mm
             else:
                 f.kind, f.reason = "tbd", "dome's height not read"
         elif r.cls in PATTERNS:
@@ -1307,7 +1434,8 @@ def read(sw) -> list[Feature] | None:
             if kind == "circular":
                 f.pattern["angle"] = angle
             else:
-                f.pattern.update(spacing1=val("D3"), count2=val("D2"), spacing2=val("D4"))
+                f.pattern.update(spacing1=_kw_length(dims.get("D3"), b, r.offset, end, unit), count2=val("D2"),
+                                 spacing2=_kw_length(dims.get("D4"), b, r.offset, end, unit))
             if not f.pattern["count1"] or (kind == "circular" and not angle) or (kind == "linear" and not f.pattern["spacing1"]):
                 f.kind, f.reason = "tbd", "pattern's counts not read"
         elif r.cls == THREAD:
@@ -1323,9 +1451,9 @@ def read(sw) -> list[Feature] | None:
                 if not num or "°" in v:
                     continue
                 if "MOD-DIAM" in v:
-                    f.thread["diameter"] = float(num.group())
+                    f.thread["diameter"] = _kw_length(v.replace("<MOD-DIAM>", ""), b, r.offset, end, unit)
                 else:
-                    lengths.append(float(num.group()))
+                    lengths.append(_kw_length(v, b, r.offset, end, unit))
             if len(lengths) >= 2 and "diameter" in f.thread:
                 f.thread["pitch"], f.thread["length"] = min(lengths), max(lengths)
             elif len(lengths) == 1 and "diameter" in f.thread:
@@ -1347,8 +1475,13 @@ def read(sw) -> list[Feature] | None:
                 for one in (pl if isinstance(pl, list) else [pl] if pl else []):
                     f.mirror_planes.append(one)
         elif r.cls in IMPORTED:
-            # SolidWorks has no history for it either: it converts as SolidCraft's import of the body
+            # SolidWorks has no history for it either: it converts as SolidCraft's import of the
+            # body, as it was imported (kept under the feature's name among the local bodies)
             f = Feature("import", nm, r.offset, r.cls)
+            if local is None:
+                from . import geometry
+                local = geometry.local_bodies(sw)
+            f.import_body = local.get(nm)
         elif r.cls == "moRefPlane_c":
             # a plane the user added: written at the place it ends up (its definition, offset or
             # angle from other geometry, is not decoded yet)
@@ -1372,6 +1505,19 @@ def read(sw) -> list[Feature] | None:
         f.fid = _fid(b, r)
         out.append(f)
     return _place_holes(out)
+
+
+def _scale_factors(b: bytes, s: int, e: int) -> tuple | None:
+    """A scale's x, y and z factors: the first three doubles in a row, each a size (between a
+    thousandth and a thousand), after its name (a casting pattern's shrinkage scale: 1.06 three
+    times)."""
+    i = b.find(b"\xff\xfe\xff", s, s + 40)
+    start = i + 4 + 2 * b[i + 3] if i >= 0 else s
+    for k in range(start, min(e, len(b)) - 24):
+        v = struct.unpack_from("<3d", b, k)
+        if all(1e-3 < x < 1e3 for x in v):
+            return v
+    return None
 
 
 def _hole_params(b: bytes, s: int, e: int) -> dict:
@@ -1419,6 +1565,22 @@ def _place_holes(feats: list) -> list:
                 rows = (tuple(x), tuple(y), tuple(n))
                 tr = tuple(tuple(rows[j][i] for j in range(3)) for i in range(3))
                 f.sketch.add_plane(((tr[0], tr[1], tr[2]), t), how + " (transposed)")
+    # a sketch a second feature uses: SolidWorks records an empty copy, `Sketch3<3>`, for it; the
+    # feature uses the sketch itself (Flywheel: a boss and a cut from one sketch)
+    names = {f.name: f for f in out if f.kind == "sketch"}
+    for f in out:
+        m = re.fullmatch(r"(.+)<\d+>", f.name)
+        if f.kind == "sketch" and m and m.group(1) in names and not f.sketch.points:
+            for g in out:
+                if g.profile == f.name:
+                    g.profile = m.group(1)
+            f.kind, f.reason = "absorbed", f"the same sketch as {m.group(1)}, for a second feature"
+    # an extrude or revolve whose sketch wasn't found (none before it, or not a sketch read) can't
+    # be built
+    sketches = {f.name for f in out if f.kind == "sketch"}
+    for f in out:
+        if f.kind in ("boss", "cut", "revolve", "revcut") and f.profile not in sketches:
+            f.kind, f.reason = "tbd", "the sketch it uses wasn't found"
     # a sketch no feature uses (SolidWorks allows them) whose plane isn't read doesn't touch the
     # solid: it stays in the tree as TBD, and isn't written
     used = {f.profile for f in out if f.profile}
@@ -1935,6 +2097,9 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             span = (fillets or {}).get("span:" + f.name)
             if span is not None:   # a boss through all: as far as the body reaches (verify)
                 g["extent"] = {"convention": "total_distance", "direction": d, "distance": repr(round(span, 9))}
+            start = (fillets or {}).get("start:" + f.name)
+            if start is not None:   # starting at a face of the body so far (verify)
+                g["extent"]["start_offset"] = repr(round(start, 9))
             if f.thin_mm:   # a wall along all its sketch's curves, on the side the search chooses
                 sk = sk_of[f.profile]
                 cur = [f"l{n + 1}" for n in range(len(sk.lines)) if n not in sk.construction] + \
@@ -1996,6 +2161,21 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
                         "path_sketch": ids[path], "path": path_curves, "operation": op,
                         **({"body_names": [f.name]} if op == "new_body" else {})})
             first = False
+        elif f.kind == "scale":
+            got = (fillets or {}).get("scale:" + f.name)
+            if got is None:        # the point it scales about is chosen in the design so far (verify)
+                d = design_tail(name, feats, out, nid)
+                d["pending"] = f.name
+                return d
+            body = next((x["body_names"][0] for x in out if x.get("body_names")), None)
+            sx, sy, sz = f.scale
+            g = {"id": nid, "name": f.name, "type": "scale", "suppressed": False,
+                 "bodies": [body] if body else [], "origin": list(got)}
+            if abs(sx - sy) < 1e-12 and abs(sx - sz) < 1e-12:
+                g["factor"] = repr(sx)
+            else:
+                g["factors"] = [repr(sx), repr(sy), repr(sz)]
+            out.append(g)
         elif f.kind == "dome":
             got = (fillets or {}).get("dome:" + f.name)
             if got is None:        # the circular face it sits on is chosen in the design so far (verify)
@@ -2092,6 +2272,14 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             elif "tip_angle" in h and "depth" in g:
                 g["hole"] = {"type": "drilled", "tip_angle": f"{h['tip_angle']} deg"}
             out.append(g)
+        elif f.kind == "import":
+            # the body as it was imported, the features after it built on it
+            if f.import_step is None and f.import_body:
+                from . import geometry
+                f.import_step = geometry.body_step(f.import_body, f.name) or ""
+            out.append({"id": nid, "name": f.name, "type": "import", "suppressed": False,
+                        "file": f.name + ".step", "step": f.import_step or ""})
+            first = False
         elif f.kind == "plane":
             (x, y, _n), t = f.frame
             base = {"type": "custom", "plane": {"origin": [c * 1000 for c in t], "x_dir": list(x), "y_dir": list(y)}}

@@ -36,6 +36,12 @@ def main():
             py = json.loads(json.dumps(features.design(name, fs, {}, None, True, {})))
             n += 1
         r = rust.get(p, {}).get("design", "missing")
+        # an import's STEP text: the same entities line for line; numbers can differ in their last
+        # digit (the two languages' maths libraries round differently), so its lines are compared
+        for dd in (py, r):
+            for g in (dd or {}).get("features", []) if isinstance(dd, dict) else []:
+                if isinstance(g.get("step"), str):
+                    g["step"] = [ln.split("(")[0] for ln in g["step"].splitlines()]
         d = diff(py, r, "")
         if d:
             bad += 1

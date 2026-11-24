@@ -53,9 +53,47 @@ def parasolid_sources(sw: SwFile) -> list[tuple[str, bytes]]:
                 i = blob.find(ZLB_GUID, i + 16)
     for cfg in sorted(by_config):
         found = [(nm, sec) for nm, sec in by_config[cfg] if _has_body(sec)]
+        # where the partition holds the part's solid, the named local bodies beside it are bodies
+        # as they were imported (an import feature's own, before the features after it)
+        if any(not nm for nm, _sec in found):
+            found = [(nm, sec) for nm, sec in found if not nm]
         if found:
             return found
     return []
+
+
+def local_bodies(sw: SwFile) -> dict:
+    """The named bodies of `FeatureBodies/LocalBodies` (first configuration first): name -> the
+    Parasolid transmit bytes. An imported body is kept here under its feature's name."""
+    out: dict = {}
+    for n in sorted(sw.streams, key=_config_of):
+        if not n.endswith("FeatureBodies/LocalBodies"):
+            continue
+        blob = sw.streams[n]
+        i = blob.find(ZLB_GUID)
+        while i >= 0:
+            try:
+                sec = unzlb(blob[i:])
+            except Exception:
+                sec = b""
+            if sec[:4] == b"PS\x00\x00" and b"(deltas)" not in sec[:80]:
+                name = re.sub(r"_\d+$", "", _sw_string_before(blob, i))
+                if name and name not in out:
+                    out[name] = sec
+            i = blob.find(ZLB_GUID, i + 16)
+    return out
+
+
+def body_step(data: bytes, name: str) -> str | None:
+    """One Parasolid body as STEP text (None if it doesn't convert)."""
+    try:
+        part = parasolid.read(data)
+    except parasolid.XtError:
+        return None
+    bodies = xtgeom.Converter(part).bodies()
+    for b in bodies:
+        b.name = name
+    return step.write(bodies, name) if bodies else None
 
 
 def _has_body(sec: bytes) -> bool:

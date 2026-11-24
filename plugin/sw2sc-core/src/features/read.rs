@@ -104,12 +104,86 @@ pub fn first_number(s: &str, signed: bool) -> Option<f64> {
     re.find(s).and_then(|m| m.as_str().parse::<f64>().ok())
 }
 
-const KW_TYPES: [(&str, &str); 8] = [
+/// The length units KeyWords can show a document's sizes in, as mm: mm, inch, cm, m, foot.
+const UNITS: [f64; 5] = [1.0, 25.4, 10.0, 1000.0, 304.8];
+
+/// A number as KeyWords shows it (`-?\d+(?:\.\d+)?`, unescaped): its value and its decimals.
+fn shown_number(text: &str) -> Option<(f64, i32)> {
+    static R: OnceLock<Regex> = OnceLock::new();
+    let re = R.get_or_init(|| Regex::new(r"-?\d+(?:\.(\d+))?").unwrap());
+    let t = unescape(text);
+    let c = re.captures(&t)?;
+    Some((c[0].parse().ok()?, c.get(1).map_or(0, |m| m.as_str().len() as i32)))
+}
+
+/// A KeyWords length in mm. KeyWords shows it in the document's units, rounded as it displays
+/// it; the feature's record (`b[lo..hi]`) keeps it exact in metres. For the unit found earlier
+/// in this file (before one is, mm and inch), the record's doubles that round to the shown
+/// value are found; the commonest is the value, and its unit is kept in `unit`. Where none
+/// matches, the value as shown, in the unit found earlier (mm if none).
+fn kw_length(text: Option<&str>, b: &[u8], lo: usize, hi: usize, unit: &mut Option<f64>) -> Option<f64> {
+    let (v, dec) = shown_number(text?)?;
+    let order: Vec<f64> = match *unit {
+        Some(u) => vec![u],
+        None => UNITS[..2].to_vec(),
+    };
+    for u in order {
+        let (want, half) = (v * u, 0.5 * 10f64.powi(-dec) * u + 1e-9);
+        let mut found: IndexMap<u64, usize> = IndexMap::new();
+        for i in lo..hi.saturating_sub(8).max(lo) {
+            let d = f64::from_le_bytes(b[i..i + 8].try_into().unwrap()) * 1000.0;
+            if !d.is_nan() && (d - want).abs() <= half && d > 0.0 {
+                *found.entry(d.to_bits()).or_insert(0) += 1;
+            }
+        }
+        let mut best: Option<(f64, usize)> = None;
+        for (&bits, &n) in &found {
+            let d = f64::from_bits(bits);
+            let better = match best {
+                None => true,
+                Some((bd, bn)) => n > bn || (n == bn && (d - want).abs() < (bd - want).abs()),
+            };
+            if better {
+                best = Some((d, n));
+            }
+        }
+        if let Some((d, _)) = best {
+            *unit = Some(u);
+            return Some(d);
+        }
+    }
+    Some(v * unit.unwrap_or(1.0))
+}
+
+/// The unit KeyWords shows lengths in (as mm), from a sketch's dimensions: KeyWords' value of
+/// a length dimension against the sketch's own (exact, in metres).
+fn sketch_unit(kw: &str, sk: &Sketch) -> Option<f64> {
+    let re = Regex::new(&format!(r#"(?s)<Sketch [^>]*Name="{}"[^>/]*>(.*?)</Sketch>"#, regex::escape(&escape(&sk.name)))).ok()?;
+    let inner = re.captures(kw)?[1].to_string();
+    let shown: HashMap<String, String> = kw_dims(&inner).into_iter().collect();
+    for d in &sk.dims {
+        let t = unescape(shown.get(&d.name).map_or("", |s| s.as_str()));
+        let Some((v, dec)) = shown_number(&t) else { continue };
+        if t.contains('°') || d.value == 0.0 || v == 0.0 {
+            continue;
+        }
+        for u in UNITS {
+            if (d.value.abs() * 1000.0 - v.abs() * u).abs() <= 0.5 * 10f64.powi(-dec) * u + 1e-9 && v.abs() * u > 10f64.powi(-dec) * u {
+                return Some(u);
+            }
+        }
+    }
+    None
+}
+
+const KW_TYPES: [(&str, &str); 14] = [
     ("Fillet", FILLET), ("Скругление", FILLET), ("Congé", FILLET), ("Verrundung", FILLET),
+    ("Filete", FILLET), ("Redondeo", FILLET), ("Raccordo", FILLET),
+    ("Chanfro", CHAMFER), ("Chaflán", CHAMFER), ("Smusso", CHAMFER),
     ("Chamfer", CHAMFER), ("Фаска", CHAMFER), ("Chanfrein", CHAMFER), ("Fase", CHAMFER),
 ];
-const BOSS_TYPES: [&str; 3] = ["Boss-Extrude", "Бобышка-Вытянуть", "Boss.-Extru."];
-const CUT_TYPES: [&str; 3] = ["Cut-Extrude", "Enlèv. mat.-Extru.", "Вырез-Вытянуть"];
+const BOSS_TYPES: [&str; 7] = ["Boss-Extrude", "Бобышка-Вытянуть", "Boss.-Extru.", "Ressalto-extrusão", "Saliente-Extruir", "Aufsatz-Extrusion", "Estrusione base"];
+const CUT_TYPES: [&str; 7] = ["Cut-Extrude", "Enlèv. mat.-Extru.", "Вырез-Вытянуть", "Corte-extrusão", "Cortar-Extruir", "Schnitt-Extrusion", "Taglio estruso"];
 const ORIGIN_NAMES: [&str; 5] = ["Origin", "Origine", "Ursprung", "Origen", "Исходная точка"];
 
 /// KeyWords' features: (element, name, type), in its order.
@@ -139,12 +213,12 @@ fn ci(pattern: &str) -> Regex {
 
 fn says_cut(nm: &str) -> bool {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| ci("cut|вырез|enl")).is_match(nm)
+    R.get_or_init(|| ci("cut|вырез|enl|corte|cortar|schnitt|taglio|řez")).is_match(nm)
 }
 
 fn says_boss(nm: &str) -> bool {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| ci("boss|бобышка")).is_match(nm)
+    R.get_or_init(|| ci("boss|бобышка|ressalto|saliente|aufsatz|estrusione|bossage|výstupek")).is_match(nm)
 }
 
 /// (record index or None, record, name)
@@ -447,6 +521,9 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
     }
     let named = recover(b, named, &kw);
     let mut learned: Tags = Tags::new();
+    // the unit KeyWords shows lengths in (as mm), once a value has shown it
+    let mut unit: Option<f64> = None;
+    let mut local: Option<std::collections::HashMap<String, Vec<u8>>> = None;
     let mut out: Vec<Feature> = Vec::new();
     let mut last_sketch: Option<usize> = None; // index into out
     let fids: HashSet<u32> = named.iter().map(|x| fid(b, &x.1)).collect();
@@ -481,6 +558,10 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                     let (pl, how) = plane_from_ref(b, &recs, o, nc, &by_id, &by_off);
                     if pl.is_some() {
                         add_got(&mut sk, pl, &format!("plane reference before it: {how}"), false);
+                        // some files write a sketch's plane reference after it, among its own
+                        // records (the one before is then another's): tried too
+                        let (pl2, how2) = plane_inside(b, &recs, r.offset, end, &by_id, &by_off);
+                        add_got(&mut sk, pl2, &format!("plane reference after it: {how2}"), false);
                     }
                 }
             }
@@ -488,16 +569,18 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 let (pl, how) = plane_inside(b, &recs, r.offset, end, &by_id, &by_off);
                 add_got(&mut sk, pl, &how, false);
             }
+            if unit.is_none() {
+                unit = sketch_unit(&kw, &sk);
+            }
             f = Feature::new("sketch", nm, r.offset, cls);
             f.sketch = Some(sk);
-        } else if cls == "moBossThin_c" || cls == "moCutThin_c" {
+        } else if cls == "moBossThin_c" || cls == "moCutThin_c" || cls == "moExtruThin_c" {
             // a thin extrude: KeyWords' D1 its depth, D5 its wall's thickness
-            f = Feature::new(if cls == "moBossThin_c" { "boss" } else { "cut" }, nm, r.offset, cls);
+            f = Feature::new(if cls == "moCutThin_c" { "cut" } else { "boss" }, nm, r.offset, cls);
             f.profile = last_name;
             let dims: HashMap<String, String> = kw_element(&kw, nm).map(|i| kw_dims(&i).into_iter().collect()).unwrap_or_default();
-            let num = |k: &str| dims.get(k).and_then(|v| first_number(v, false));
-            f.depth_mm = num("D1");
-            f.thin_mm = num("D5");
+            f.depth_mm = kw_length(dims.get("D1").map(|s| s.as_str()), b, r.offset, end, &mut unit);
+            f.thin_mm = kw_length(dims.get("D5").map(|s| s.as_str()), b, r.offset, end, &mut unit);
             if f.depth_mm.is_none_or(|v| v == 0.0) || f.thin_mm.is_none_or(|v| v == 0.0) {
                 f.kind = "tbd".into();
                 f.reason = "thin extrude's depth or thickness not read".into();
@@ -512,7 +595,14 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             } else if f.kind == "boss" && (nm.starts_with("Cut") || nm.starts_with("Вырез") || nm.starts_with("Enl")) {
                 f.alt_kind = Some("cut".into());
             }
-            match depth(b, &recs, k.unwrap(), end) {
+            let mut dep = depth(b, &recs, k.unwrap(), end);
+            if dep.is_none() {
+                // no distance in its records: KeyWords' D1 for it (a blind depth; through all has none)
+                let re = Regex::new(&format!(r#"(?s)<Extrusion [^>]*Name="{}"[^>/]*>(.*?)</Extrusion>"#, regex::escape(&escape(nm)))).unwrap();
+                let d1 = re.captures(&kw).and_then(|c| kw_dims(&c[1]).into_iter().find(|d| d.0 == "D1")).map(|d| d.1);
+                dep = d1.and_then(|t| kw_length(Some(&t), b, r.offset, end, &mut unit)).filter(|&mm| mm != 0.0).map(|mm| mm / 1000.0);
+            }
+            match dep {
                 None => f.through_all = true,
                 Some(d) => f.depth_mm = Some(d * 1000.0),
             }
@@ -587,13 +677,14 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
         } else if cls == "moShell_c" {
             // a shell: KeyWords' D1 its thickness; the face it opens named like a mirror's
             f = Feature::new("shell", nm, r.offset, cls);
-            f.thin_mm = kw_feature(&kw, nm).and_then(|i| kw_dims(&i).into_iter().find(|d| d.0 == "D1")).and_then(|d| first_number(&d.1, false));
+            let d1 = kw_feature(&kw, nm).and_then(|i| kw_dims(&i).into_iter().find(|d| d.0 == "D1")).map(|d| d.1);
+            f.thin_mm = d1.and_then(|t| kw_length(Some(&t), b, r.offset, end, &mut unit));
             f.mirror_face = first_face(b, r.offset, end, &fids, fid(b, r));
             if f.thin_mm.is_none_or(|v| v == 0.0) {
                 f.kind = "tbd".into();
                 f.reason = "shell's thickness not read".into();
             }
-        } else if ["moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c"].contains(&cls) {
+        } else if ["moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c", "moHelix_c", "moRefCurve_c", "moSketchBitmap_c", "moExtObject_c"].contains(&cls) {
             f = Feature::new("absorbed", nm, r.offset, cls);
             f.reason = format!("{cls}: reference geometry or annotation, no solid; not converted yet");
         } else if cls == "moCombineBodies_c" {
@@ -616,9 +707,19 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 f.kind = "tbd".into();
                 f.reason = "sweep's profile and path not found".into();
             }
+        } else if cls == "moScale_c" {
+            // a scale: its factors are the first three doubles in its record that are all sizes;
+            // what it scales about is chosen in the rebuild
+            f = Feature::new("scale", nm, r.offset, cls);
+            f.scale = scale_factors(b, r.offset, end);
+            if f.scale.is_none() {
+                f.kind = "tbd".into();
+                f.reason = "scale's factors not read".into();
+            }
         } else if cls == "moDome_c" {
             f = Feature::new("dome", nm, r.offset, cls);
-            f.dome_mm = kw_feature(&kw, nm).and_then(|i| kw_dims(&i).into_iter().find(|d| d.0 == "D1")).and_then(|d| first_number(&d.1, false));
+            let d1 = kw_feature(&kw, nm).and_then(|i| kw_dims(&i).into_iter().find(|d| d.0 == "D1")).map(|d| d.1);
+            f.dome_mm = d1.and_then(|t| kw_length(Some(&t), b, r.offset, end, &mut unit)).filter(|&v| v != 0.0);
             if f.dome_mm.is_none() {
                 f.kind = "tbd".into();
                 f.reason = "dome's height not read".into();
@@ -636,9 +737,11 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             if kind == "circular" {
                 f.pattern.insert("angle".into(), num_or_null(angle));
             } else {
-                f.pattern.insert("spacing1".into(), num_or_null(val("D3")));
+                let s1 = kw_length(dmap.get("D3").map(|s| s.as_str()), b, r.offset, end, &mut unit);
+                f.pattern.insert("spacing1".into(), num_or_null(s1));
                 f.pattern.insert("count2".into(), num_or_null(val("D2")));
-                f.pattern.insert("spacing2".into(), num_or_null(val("D4")));
+                let s2 = kw_length(dmap.get("D4").map(|s| s.as_str()), b, r.offset, end, &mut unit);
+                f.pattern.insert("spacing2".into(), num_or_null(s2));
             }
             let zero = |x: Option<f64>| x.is_none_or(|v| v == 0.0);
             if zero(val("D1")) || (kind == "circular" && zero(angle)) || (kind == "linear" && zero(val("D3"))) {
@@ -658,10 +761,11 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 if v.contains('°') {
                     continue;
                 }
+                let mm = kw_length(Some(&v.replace("<MOD-DIAM>", "")), b, r.offset, end, &mut unit).unwrap_or(num);
                 if v.contains("MOD-DIAM") {
-                    f.thread.insert("diameter".into(), json!(num));
+                    f.thread.insert("diameter".into(), json!(mm));
                 } else {
-                    lengths.push(num);
+                    lengths.push(mm);
                 }
             }
             let has_d = f.thread.contains_key("diameter");
@@ -687,7 +791,13 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 }
             }
         } else if IMPORTED.contains(&cls) {
+            // it converts as SolidCraft's import of the body, as it was imported (kept under the
+            // feature's name among the local bodies)
             f = Feature::new("import", nm, r.offset, cls);
+            if local.is_none() {
+                local = Some(crate::step::local_bodies(sw));
+            }
+            f.import_body = local.as_ref().and_then(|l| l.get(nm.as_str()).cloned());
         } else if cls == "moRefPlane_c" {
             f = Feature::new("plane", nm, r.offset, cls);
             f.frame = by_off.get(&r.offset).copied();
@@ -726,6 +836,17 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
 }
 
 /// A Hole Wizard hole's sizes: its named parameters, lengths in mm, angles in degrees.
+/// A scale's x, y and z factors: the first three doubles in a row, each a size (between a
+/// thousandth and a thousand), after its name.
+fn scale_factors(b: &[u8], s: usize, e: usize) -> Option<[f64; 3]> {
+    let start = match find_in(b, &[0xff, 0xfe, 0xff], s, s + 40) {
+        Some(i) => i + 4 + 2 * *b.get(i + 3)? as usize,
+        None => s,
+    };
+    let stop = e.min(b.len()).saturating_sub(24);
+    (start..stop).map(|k| f64s::<3>(b, k)).find(|v| v.iter().all(|x| 1e-3 < *x && *x < 1e3))
+}
+
 fn hole_params(b: &[u8], s: usize, e: usize) -> IndexMap<String, Value> {
     let mut out: IndexMap<String, Value> = IndexMap::new();
     let e = e.min(b.len());
@@ -798,6 +919,35 @@ fn place_holes(mut out: Vec<Feature>) -> Vec<Feature> {
             if how.contains("rotation") {
                 sk.add_plane(&(transpose(&fr.0), fr.1), &format!("{how} (transposed)"), false);
             }
+        }
+    }
+    // a sketch a second feature uses: SolidWorks records an empty copy, `Sketch3<3>`, for it; the
+    // feature uses the sketch itself
+    let names: HashSet<String> = out.iter().filter(|f| f.kind == "sketch").map(|f| f.name.clone()).collect();
+    let mut aliases: Vec<(String, String)> = Vec::new();
+    for f in out.iter_mut() {
+        if f.kind != "sketch" || !f.sketch.as_ref().is_some_and(|s| s.points.is_empty()) {
+            continue;
+        }
+        let Some(base) = f.name.strip_suffix('>').and_then(|n| n.rsplit_once('<')).filter(|(_, d)| !d.is_empty() && d.bytes().all(|c| c.is_ascii_digit())).map(|(b, _)| b.to_string()) else { continue };
+        if base.is_empty() || !names.contains(&base) {
+            continue;
+        }
+        aliases.push((f.name.clone(), base.clone()));
+        f.kind = "absorbed".into();
+        f.reason = format!("the same sketch as {base}, for a second feature");
+    }
+    for g in out.iter_mut() {
+        if let Some((_, base)) = aliases.iter().find(|(a, _)| g.profile.as_deref() == Some(a.as_str())) {
+            g.profile = Some(base.clone());
+        }
+    }
+    // an extrude or revolve whose sketch wasn't found can't be built
+    let sketches: HashSet<String> = out.iter().filter(|f| f.kind == "sketch").map(|f| f.name.clone()).collect();
+    for f in out.iter_mut() {
+        if ["boss", "cut", "revolve", "revcut"].contains(&f.kind.as_str()) && !f.profile.as_ref().is_some_and(|p| sketches.contains(p)) {
+            f.kind = "tbd".into();
+            f.reason = "the sketch it uses wasn't found".into();
         }
     }
     let used: HashSet<String> = out.iter().filter_map(|f| f.profile.clone()).collect();

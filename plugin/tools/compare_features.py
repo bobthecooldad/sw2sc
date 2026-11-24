@@ -46,6 +46,7 @@ def py_feature(f):
         "chamfer_deg": f.chamfer_deg, "chamfer_mm2": f.chamfer_mm2, "hole": dict(f.hole), "alt_kind": f.alt_kind,
         "mirror_face": face(f.mirror_face), "mirror_planes": [frame(p) for p in f.mirror_planes],
         "thread": dict(f.thread), "pattern": dict(f.pattern), "thin_mm": f.thin_mm, "dome_mm": f.dome_mm, "path": f.path,
+        "scale": list(f.scale) if f.scale else None,
         "edges": [[face(a), face(b)] for a, b in f.edges], "edge_ends": [[face(a), face(b)] for a, b in f.edge_ends],
     }
 

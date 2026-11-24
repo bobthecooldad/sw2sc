@@ -51,8 +51,14 @@ pub fn tree_summary(feats: &[Feature]) -> Vec<Value> {
         .map(|f| {
             let sk_bad = f.kind == "sketch" && f.sketch.as_ref().is_some_and(|s| s.planes.is_empty() || !s.problems.is_empty());
             let tbd = f.kind == "tbd" || !f.reason.is_empty() || sk_bad;
-            let mut item = json!({"name": f.name, "kind": f.kind, "status": if tbd { "tbd" } else { "read" }});
-            if tbd {
+            // an absorbed feature is in the tree, making no solid (an unused sketch, a reference
+            // axis …): no blocker
+            let status = if f.kind == "absorbed" { "kept" } else if tbd { "tbd" } else { "read" };
+            let mut item = json!({"name": f.name, "kind": f.kind, "status": status});
+            if status == "kept" && !f.reason.is_empty() {
+                item["why"] = json!(f.reason);
+            }
+            if status == "tbd" {
                 let why = if !f.reason.is_empty() {
                     f.reason.clone()
                 } else if let Some(s) = f.sketch.as_ref().filter(|s| !s.problems.is_empty()) {
@@ -109,8 +115,11 @@ pub fn convert_part(sw: &SwFile, name: &str, file_name: &str, ev: &mut dyn Evalu
     let summary = tree_summary(&feats);
     design["metadata"][METADATA_KEY]["feature_tree"] = json!(summary);
     for s in &summary {
+        let (name, why) = (s["name"].as_str().unwrap_or(""), s["why"].as_str().unwrap_or(""));
         if s["status"] == "tbd" {
-            rep.item("dropped", "Features not converted yet", s["name"].as_str().unwrap_or(""), s["why"].as_str().unwrap_or(""), "feature_tbd");
+            rep.item("dropped", "Features not converted yet", name, why, "feature_tbd");
+        } else if s["status"] == "kept" {
+            rep.item("info", "Kept in the tree, making no solid", name, why, "feature_kept");
         }
     }
     let mut feats = feats;
@@ -127,6 +136,12 @@ pub fn convert_part(sw: &SwFile, name: &str, file_name: &str, ev: &mut dyn Evalu
             rep.item("degraded", "Feature tree read but not used", name,
                      &format!("its rebuild didn't match the part's own solid: {}", mismatch_signature(outcome.closest.as_ref(), outcome.reference.as_ref())),
                      "tree_mismatch");
+        } else if feats.iter().all(|f| ["import", "sketch", "plane", "absorbed"].contains(&f.kind.as_str()))
+            && (feats.is_empty() || feats.iter().any(|f| f.kind == "import"))
+        {
+            // an imported body, or a mirror of another part file: no history in this file to rebuild
+            rep.summary = format!("{name}: its solid (the part has no feature history of its own: an imported or derived body)");
+            rep.item("info", "No feature history in this file", name, "an imported body, or a part derived from another part file", "no_history");
         } else {
             rep.summary = format!("{name}: its solid, with the feature tree in the metadata (not every feature converts yet)");
         }

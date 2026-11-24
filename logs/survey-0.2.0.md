@@ -9,24 +9,24 @@
 
 | File | Result | Container | Type | Components | Occurrences | Hidden | Bodies | Faces | Fitted | Left out | Warnings |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Part Q.SLDASM | ok | v2015 | ASSEMBLY | 3 | 5 | 0 | 45 | 914 | 42 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Axle Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 3 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 16 | 4 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 33 | 4 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 57 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Bucket.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 215 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\CAT_Part R_Loader_Design.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 | 60 | 2614 | 123 | 0 | 8 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Connecting Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 8 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Differential.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 110 | 39 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Front Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 169 | 5 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rear Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 4 | 1028 | 24 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rim.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 111 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rocker Arm Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 16 | 4 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rocker Arm Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 5 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rocker Arm.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 30 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Screw.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 13 | 1 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Tyre.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 43 | 800 | 42 | 0 | 1 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Part R Loader.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 | 60 | 2614 | 123 | 0 | 8 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Assem1.SLDASM | ok | v2015 | ASSEMBLY | 3 | 5 | 0 | 45 | 914 | 42 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Axle Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 3 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 16 | 4 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 33 | 4 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 57 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Bucket.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 215 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\CAT_Wheel_Loader_Design.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 | 60 | 2614 | 123 | 0 | 8 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Connecting Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 8 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Differential.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 110 | 39 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Front Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 169 | 5 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rear Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 4 | 1028 | 24 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rim.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 111 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rocker Arm Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 16 | 4 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rocker Arm Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 5 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rocker Arm.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 30 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Screw.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 13 | 1 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Tyre.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 43 | 800 | 42 | 0 | 1 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Wheel Loader.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 | 60 | 2614 | 123 | 0 | 8 |
 | Solidworks Example Grabcad\concrete-pump-bracket-1.snapshot.2\132 M (2-4-6-8)  FLANSLI (BICIM A-B5) DOKME DEMIR (PIK) GOVDE.sldasm | ok | v2015 | ASSEMBLY | 5 | 6 | 0 | 19 | 1051 | 94 | 0 | 3 |
 | Solidworks Example Grabcad\concrete-pump-bracket-1.snapshot.2\BETON BORU KELEP荅S_U SAPLAMA.sldprt | ok | cfb | PART | 1 | 1 |  | 2 | 22 | 1 | 0 | 1 |
 | Solidworks Example Grabcad\concrete-pump-bracket-1.snapshot.2\FORGED SOCKET HEAD CAP SCREW X METRIC - ANSI B18.3.1M X M12 X 1.75 X 50.sldprt | ok | cfb | PART | 1 | 1 |  | 1 | 15 | 0 | 0 | 0 |
@@ -135,7 +135,7 @@
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Crank.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 17 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Cross Slide.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 25 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 95 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\FlyPart R.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 69 | 0 | 0 | 0 |
+| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Flywheel.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 69 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Front Cylinder Cover.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 11 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Key Way.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 17 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Pin for Crank.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 3 | 0 | 0 | 0 |
@@ -143,7 +143,7 @@
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Piston crank.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 13 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Piston.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 19 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Rear Cylidner Cover.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 14 | 0 | 0 | 0 |
-| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Part O.SLDASM | ok | v2015 | ASSEMBLY | 27 | 28 | 0 | 23 | 576 | 4 | 0 | 4 |
+| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Rough Assembly.SLDASM | ok | v2015 | ASSEMBLY | 27 | 28 | 0 | 23 | 576 | 4 | 0 | 4 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Slide.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 13 | 0 | 0 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Valve Horizontal.SLDASM | ok | v2015 | ASSEMBLY | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 3 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Valve Lid.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 1 | 19 | 0 | 0 | 0 |
@@ -219,16 +219,16 @@
 
 ## Warnings and failures
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Part Q.SLDASM
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Assem1.SLDASM
 - Tyre: 42 of 800 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom Cylinder.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom Cylinder.SLDPRT
 - Boom Cylinder: 4 of 16 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom Rod.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom Rod.SLDPRT
 - Boom Rod: 4 of 33 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\CAT_Part R_Loader_Design.SLDASM
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\CAT_Wheel_Loader_Design.SLDASM
 - Rear Body: 24 of 1028 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 - Front Body: 5 of 169 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 - Screw: 1 of 13 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
@@ -238,25 +238,25 @@
 - Rocker Arm Cylinder: 4 of 16 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 - Tyre: 42 of 800 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Differential.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Differential.SLDPRT
 - Differential: 39 of 110 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Front Body.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Front Body.SLDPRT
 - Front Body: 5 of 169 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rear Body.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rear Body.SLDPRT
 - Rear Body: 24 of 1028 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rocker Arm Cylinder.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rocker Arm Cylinder.SLDPRT
 - Rocker Arm Cylinder: 4 of 16 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Screw.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Screw.SLDPRT
 - Screw: 1 of 13 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Tyre.SLDPRT
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Tyre.SLDPRT
 - Tyre: 42 of 800 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Part R Loader.SLDASM
+### Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Wheel Loader.SLDASM
 - Rear Body: 24 of 1028 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 - Front Body: 5 of 169 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 - Screw: 1 of 13 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
@@ -414,7 +414,7 @@
 ### Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Conrod.SLDPRT
 - Conrod: 4 of 26 faces are close fits, not exact (blends, offsets, swept or spun surfaces)
 
-### Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Part O.SLDASM
+### Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Rough Assembly.SLDASM
 - referenced file not found next to the assembly: Valve.SLDPRT (structure kept; its properties and feature tree are missing)
 - referenced file not found next to the assembly: Valve Seal Top.SLDPRT (structure kept; its properties and feature tree are missing)
 - referenced file not found next to the assembly: Valve Seal Bottom.SLDPRT (structure kept; its properties and feature tree are missing)

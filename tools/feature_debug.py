@@ -17,7 +17,7 @@ from feature_check import evaluate, same  # noqa: E402
 p = sys.argv[1]
 if not os.path.isfile(p):  # a part name: look in the sample sets
     import glob
-    roots = [r"samples", r"Solidworks Example Grabcad",
+    roots = [r"C:\Solidworks to Solidcraft\samples", r"C:\Solidworks to Solidcraft\Solidworks Example Grabcad",
              os.path.expanduser(r"~\Documents")]
     hits = [h for r in roots for h in glob.glob(os.path.join(r, "**", p + ".SLDPRT"), recursive=True)]
     p = hits[0]

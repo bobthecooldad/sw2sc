@@ -10,3 +10,5 @@ __pycache__/
 plugin/target/
 plugin/package/sw2sc/*.wasm
 plugin/*.zip
+# Private names and aliases for tools/publish.py (never committed)
+.private/

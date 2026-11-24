@@ -27,6 +27,28 @@ pub struct Outcome {
     pub timed_out: bool,
 }
 
+/// The evaluator as the search uses it: past the time budget it evaluates nothing more, so the
+/// loops still running end at once instead of trying every remaining option.
+struct Timed<'a> {
+    inner: &'a mut dyn Evaluator,
+    deadline: f64,
+}
+
+impl Evaluator for Timed<'_> {
+    fn evaluate(&mut self, design: &Value) -> Option<Eval> {
+        if self.inner.now() > self.deadline { None } else { self.inner.evaluate(design) }
+    }
+    fn edges(&mut self, design: &Value) -> Option<Value> {
+        if self.inner.now() > self.deadline { None } else { self.inner.edges(design) }
+    }
+    fn faces(&mut self, design: &Value) -> Option<Value> {
+        if self.inner.now() > self.deadline { None } else { self.inner.faces(design) }
+    }
+    fn now(&self) -> f64 {
+        self.inner.now()
+    }
+}
+
 struct Ctx<'a> {
     name: String,
     feats: &'a mut Vec<Feature>,
@@ -36,6 +58,14 @@ struct Ctx<'a> {
     rf: Option<Eval>,
     deadline: f64,
     out: Outcome,
+    /// The box check's second pass: a partial build may lie outside the part's box when a cut
+    /// still to come could trim it (an imported blank wider than the part).
+    relax_box: bool,
+    /// The strict pass stopped such a build, so the second pass is worth running.
+    box_blocked: bool,
+    /// How far the sequential build got: the index in `feats` of the furthest feature it tried
+    /// (`feats.len()` once it made a whole design).
+    reach: Option<usize>,
 }
 
 /// Python's `round(x, 6)` as a key part.
@@ -113,12 +143,25 @@ pub fn rebuild(feats: &mut Vec<Feature>, reference: &Value, name: &str, ev: &mut
         return (None, outcome);
     };
     let deadline = ev.now() + TIME_BUDGET;
-    let mut ctx = Ctx { name: name.into(), feats, planes: HashMap::new(), constraints: true, ev, rf: Some(rf), deadline, out: outcome };
+    let mut timed = Timed { inner: ev, deadline };
+    let mut ctx = Ctx {
+        name: name.into(), feats, planes: HashMap::new(), constraints: true, ev: &mut timed, rf: Some(rf), deadline, out: outcome,
+        relax_box: false, box_blocked: false, reach: None,
+    };
     for constraints in [true, false] {
         // without the sketches' constraints only if they spoil it
         ctx.constraints = constraints;
         if let Some(d) = search(&mut ctx) {
             return (Some(d), ctx.out);
+        }
+        if ctx.box_blocked {
+            ctx.relax_box = true;
+            let found = search(&mut ctx);
+            ctx.relax_box = false;
+            ctx.box_blocked = false;
+            if let Some(d) = found {
+                return (Some(d), ctx.out);
+            }
         }
     }
     (None, ctx.out)
@@ -162,14 +205,45 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
         arc_opts.push(alts.iter().map(|s| (format!("arcs:{}", s.0), s.2.clone())).collect());
     }
     let seq = ctx.feats.iter().any(|f| {
-        ["fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell"].contains(&f.kind.as_str())
+        ["fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale"].contains(&f.kind.as_str())
             || f.thin_mm.is_some_and(|t| t != 0.0)
             || f.through_all
     });
     let options = ["positive", "negative", "symmetric"];
     let mut tries = 0usize;
     let mut done: HashSet<String> = HashSet::new();
-    let plane_sets = product(&sk_list.iter().map(|s| s.1).collect::<Vec<_>>());
+    // plane sets whose sequence stopped short: (arc and revolve choices, the planes of the
+    // sketches before the feature it got stuck at). What is built up to there depends only on
+    // those, so a later set with the same planes for them stops there too and is skipped
+    let mut stuck: Vec<(String, Vec<(usize, usize)>)> = Vec::new();
+    // each sketch's planes, those that put its points inside the part's box first (a sketch on a
+    // face of the part lies on the part; a cut's outline may reach past it, so it only orders)
+    let plane_orders: Vec<Vec<usize>> = sk_list
+        .iter()
+        .map(|(name, n, _)| {
+            let sk = ctx.by_fname(name).and_then(|f| f.sketch.as_ref()).unwrap();
+            let outside = |k: usize| -> usize {
+                let Some(rf) = ctx.rf.as_ref() else { return 0 };
+                let (Some(lo), Some(hi)) = (rf.lo, rf.hi) else { return 0 };
+                let ([x, y, _], t) = sk.planes[k].0;
+                let tol = REL * (0..3).map(|i| hi[i] - lo[i]).fold(f64::NEG_INFINITY, f64::max).max(1.0) + 1e-6;
+                sk.points
+                    .values()
+                    .filter(|(u, v)| {
+                        let w = [0, 1, 2].map(|i| (t[i] + u * x[i] + v * y[i]) * 1000.0);
+                        (0..3).any(|i| w[i] < lo[i] - tol || w[i] > hi[i] + tol)
+                    })
+                    .count()
+            };
+            let mut ks: Vec<usize> = (0..*n).collect();
+            ks.sort_by_key(|k| outside(*k)); // stable, as Python's sorted
+            ks
+        })
+        .collect();
+    let plane_sets: Vec<Vec<usize>> = product(&sk_list.iter().map(|s| s.1).collect::<Vec<_>>())
+        .into_iter()
+        .map(|pc| pc.iter().enumerate().map(|(j, k)| plane_orders[j][*k]).collect())
+        .collect();
     let rev_sets = product(&rev_opts.iter().map(|o| o.len()).collect::<Vec<_>>());
     // built in sequence, each extrude's direction is chosen as it is built: one set is enough
     let dir_sets = if seq { vec![vec![0; extr.len()]] } else { product(&vec![3; extr.len()]) };
@@ -183,6 +257,10 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
                     let key = format!("{pc:?}|{ac:?}|{rc:?}");
                     if seq && done.contains(&key) {
                         continue; // directions are chosen in sequence: once per plane/arc/revolve choice
+                    }
+                    let rest = format!("{ac:?}|{rc:?}");
+                    if seq && stuck.iter().any(|(k0, fixed)| *k0 == rest && fixed.iter().all(|(j, v)| pc[*j] == *v)) {
+                        continue;
                     }
                     tries += 1;
                     if tries > MAX_TRIES {
@@ -212,7 +290,16 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
                     };
                     if seq {
                         done.insert(key);
+                        ctx.reach = None;
                         sequential(ctx, &choices, &mut sink);
+                        let reached = ctx.reach.take();
+                        if let Some(at) = reached.filter(|&at| at < ctx.feats.len()) {
+                            if !ctx.late() {
+                                let before: HashSet<&str> = ctx.feats[..at].iter().map(|x| x.name.as_str()).collect();
+                                let fixed = sk_list.iter().enumerate().filter(|(_, s)| before.contains(s.0.as_str())).map(|(j, _)| (j, pc[j])).collect();
+                                stuck.push((rest, fixed));
+                            }
+                        }
                     } else {
                         with_fillets(ctx, &choices, &Picks::new(), &mut sink);
                     }
@@ -328,7 +415,7 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
     let order: Vec<Feature> = ctx
         .feats
         .iter()
-        .filter(|f| ["boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell"].contains(&f.kind.as_str()))
+        .filter(|f| ["boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale"].contains(&f.kind.as_str()))
         .cloned()
         .collect();
     let most = |f: &Feature, feats: &[Feature]| -> Option<f64> {
@@ -356,19 +443,54 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
         adds.push(if a.iter().any(Option::is_none) { None } else { Some(a.iter().map(|x| x.unwrap()).sum()) });
         takes.push(if t.iter().any(Option::is_none) || rest.iter().any(|f| f.kind == "hole") { None } else { Some(t.iter().map(|x| x.unwrap()).sum()) });
     }
-    let shared = Shared { order, adds, takes };
+    // a scale changes the solid's size and place: before it, neither the volume bounds nor the
+    // part's box say anything about the solid built so far
+    let first_scale = order.iter().position(|f| f.kind == "scale").unwrap_or(order.len());
+    // whether a cut is still to come after each step: material outside the part's box can still go
+    let cut_after: Vec<bool> = order
+        .iter()
+        .map(|f| {
+            let at = ctx.feats.iter().position(|x| x.name == f.name).unwrap_or(0);
+            ctx.feats[at + 1..].iter().any(|x| ["cut", "hole", "revcut", "sweepcut"].contains(&x.kind.as_str()) || x.alt_kind.as_deref() == Some("cut"))
+        })
+        .collect();
+    // whether anything still to come after each step can add material (and so grow the solid's
+    // box): cuts, holes, fillets, chamfers and shells never reach past the solid they work on
+    let add_after: Vec<bool> = order
+        .iter()
+        .map(|f| {
+            let at = ctx.feats.iter().position(|x| x.name == f.name).unwrap_or(0);
+            ctx.feats[at + 1..].iter().any(|x| {
+                ["boss", "revolve", "sweep", "mirror", "pattern", "thread", "dome", "scale", "import"].contains(&x.kind.as_str())
+                    || x.alt_kind.as_deref() == Some("boss")
+            })
+        })
+        .collect();
+    let shared = Shared { order, adds, takes, first_scale, cut_after, add_after };
     step(ctx, &shared, 0, choices, &Picks::new(), None, sink)
 }
 
 struct Shared {
+    first_scale: usize,
+    cut_after: Vec<bool>,
+    add_after: Vec<bool>,
     order: Vec<Feature>,
     adds: Vec<Option<f64>>,
     takes: Vec<Option<f64>>,
 }
 
 impl Shared {
+    /// The part's own numbers for the box check at step i, or none while a scale is still to
+    /// come (or, in the second pass, a cut that could trim it).
+    fn box_rf<'a>(&self, rf: Option<&'a Eval>, i: usize, relax: bool) -> Option<&'a Eval> {
+        if self.first_scale != self.order.len() || (relax && self.cut_after[i]) { None } else { rf }
+    }
+
     /// Can the solid after step i still become the part?
     fn reachable(&self, rf: Option<&Eval>, r: &Eval, i: usize) -> bool {
+        if i < self.first_scale {
+            return true;
+        }
         let Some(target) = rf.and_then(|x| x.volume).filter(|v| *v != 0.0) else { return true };
         let v = r.volume.unwrap_or(0.0);
         if let Some(a) = self.adds[i + 1] {
@@ -383,6 +505,30 @@ impl Shared {
         }
         true
     }
+}
+
+/// `ok` at step i, noting when the box check alone stopped a build a later cut could trim.
+fn ok_at(ctx: &mut Ctx, sh: &Shared, r: &Option<Eval>, i: usize) -> bool {
+    let rf = ctx.rf.clone();
+    if ok(sh.box_rf(rf.as_ref(), i, ctx.relax_box), r) {
+        // with nothing left that adds material, a build that falls short of the part's box can't
+        // become the part (a boss read as a cut: the part goes on past it)
+        if let (Some(rf), Some(r)) = (rf.as_ref(), r.as_ref()) {
+            if let (Some(rlo), Some(rhi), Some(lo), Some(hi)) = (rf.lo, rf.hi, r.lo, r.hi) {
+                if sh.first_scale == sh.order.len() && !sh.add_after[i] {
+                    let tol = REL * (0..3).map(|k| rhi[k] - rlo[k]).fold(f64::NEG_INFINITY, f64::max).max(1.0);
+                    if (0..3).any(|k| lo[k] > rlo[k] + tol || hi[k] < rhi[k] - tol) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+    if sh.cut_after[i] && ok(None, r) {
+        ctx.box_blocked = true;
+    }
+    false
 }
 
 /// A partial build that can still become the part: it built, and lies inside the part's box.
@@ -409,7 +555,7 @@ fn ok(rf: Option<&Eval>, r: &Option<Eval>) -> bool {
 fn try_pick(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, p2: Picks, seen: &mut Vec<(i64, i64)>, reach: bool, sink: &mut Sink) -> bool {
     let f = &sh.order[i];
     let (_d, r) = ctx.prefix(choices, &p2, &f.name.clone());
-    if !ok(ctx.rf.as_ref(), &r) {
+    if !ok_at(ctx, sh, &r, i) {
         return false;
     }
     let r = r.unwrap();
@@ -429,6 +575,8 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
     if ctx.late() {
         return false;
     }
+    let at = if i < sh.order.len() { ctx.feats.iter().position(|x| x.name == sh.order[i].name).unwrap_or(0) } else { ctx.feats.len() };
+    ctx.reach = Some(ctx.reach.map_or(at, |r| r.max(at)));
     if i == sh.order.len() {
         let d = ctx.design(choices, picks, None);
         return sink(ctx, d);
@@ -438,7 +586,9 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
     match f.kind.as_str() {
         "boss" | "cut" => {
             let mut seen: Vec<(i64, i64, Vec<i64>)> = Vec::new();
-            let first = !sh.order[..i].iter().any(|x| ["boss", "cut", "revolve", "revcut", "sweep"].contains(&x.kind.as_str()));
+            let at = ctx.feats.iter().position(|x| x.name == f.name).unwrap_or(0);
+            let first = !sh.order[..i].iter().any(|x| ["boss", "cut", "revolve", "revcut", "sweep"].contains(&x.kind.as_str()))
+                && !ctx.feats[..at].iter().any(|x| x.kind == "import");
             let mut ops: Vec<Option<&str>> = vec![None];
             if let Some(alt) = f.alt_kind.as_deref() {
                 if !first {
@@ -481,6 +631,38 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                     }
                 }
             }
+            // a sketch whose plane reads through the origin may be on a face of the body so far
+            // whose plane wasn't stored: it is tried from each side of the body's box along its normal
+            let mut starts: Vec<f64> = Vec::new();
+            if !first && !f.through_all && f.depth_mm.is_some_and(|d| d != 0.0) {
+                let sk_f = ctx.by_fname(f.profile.as_deref().unwrap_or("")).cloned();
+                let pl = sk_f.as_ref().and_then(|x| {
+                    let sk = x.sketch.as_ref()?;
+                    (!sk.planes.is_empty()).then(|| sk.planes[ctx.planes.get(&x.name).copied().unwrap_or(0).min(sk.planes.len() - 1)].0)
+                });
+                if let Some(([_x, _y, n], t)) = pl.filter(|p| p.1.iter().all(|c| c.abs() < 1e-12)) {
+                    let _ = t;
+                    let prev = sh.order[i - 1].name.clone();
+                    let (_d0, r0) = ctx.prefix(choices, picks, &prev);
+                    if let Some((Some(lo), Some(hi))) = r0.map(|r| (r.lo, r.hi)) {
+                        let mut along = Vec::new();
+                        for a in [lo[0], hi[0]] {
+                            for b in [lo[1], hi[1]] {
+                                for c in [lo[2], hi[2]] {
+                                    along.push(a * n[0] + b * n[1] + c * n[2]);
+                                }
+                            }
+                        }
+                        let up = along.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                        let down = along.iter().copied().fold(f64::INFINITY, f64::min);
+                        for v in [up, down] {
+                            if v.abs() > 1e-6 && starts.iter().all(|w| (v - w).abs() > 1e-6) {
+                                starts.push(v);
+                            }
+                        }
+                    }
+                }
+            }
             let sides: Vec<Option<&str>> = if f.thin_mm.is_some_and(|t| t != 0.0) { vec![Some("center"), Some("inside"), Some("outside")] } else { vec![None] };
             for side in &sides {
                 for to in &tos {
@@ -490,8 +672,11 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                             if let Some(&s) = spans.get(opt).filter(|s| **s > 1e-6) {
                                 sps.push(Some(s));
                             }
-                            for sp in sps {
+                            for (sp, st) in sps.iter().flat_map(|sp| std::iter::once(None).chain(starts.iter().map(|s| Some(*s))).map(move |st| (*sp, st))) {
                                 if to.is_some() && (opt == "symmetric" || sp.is_some()) {
+                                    continue;
+                                }
+                                if st.is_some() && (to.is_some() || sp.is_some()) {
                                     continue;
                                 }
                                 let mut c2 = choices.clone();
@@ -503,11 +688,14 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                                 if let Some(sp) = sp {
                                     p_to = p_to.with(&format!("span:{}", f.name), json!(sp));
                                 }
+                                if let Some(st) = st {
+                                    p_to = p_to.with(&format!("start:{}", f.name), json!(st));
+                                }
                                 if let Some(side) = side {
                                     p_to = p_to.with(&format!("thin:{}", f.name), json!(side));
                                 }
                                 let (_d, r) = ctx.prefix(&c2, &p_to, &f.name);
-                                if !ok(rf.as_ref(), &r) {
+                                if !ok_at(ctx, sh, &r, i) {
                                     continue;
                                 }
                                 let r = r.unwrap();
@@ -557,6 +745,45 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             for swap in [false, true] {
                 let p2 = picks.with(&format!("swap:{}", f.name), json!(swap));
                 if try_pick(ctx, sh, i, choices, p2, &mut seen, true, sink) {
+                    return true;
+                }
+            }
+            false
+        }
+        "scale" => {
+            // about the origin, the centre of mass or the middle of the box of the solid so far
+            let mut origins: Vec<Value> = vec![json!([0.0, 0.0, 0.0])];
+            if i > 0 {
+                let prev = sh.order[i - 1].name.clone();
+                if let (_, Some(r0)) = ctx.prefix(choices, picks, &prev) {
+                    if let Some(c) = r0.com {
+                        origins.push(json!(c));
+                    }
+                    if let (Some(lo), Some(hi)) = (r0.lo, r0.hi) {
+                        origins.push(json!([0, 1, 2].map(|k| (lo[k] + hi[k]) / 2.0)));
+                    }
+                }
+            }
+            let mut seen: Vec<(i64, i64)> = Vec::new();
+            let mut boxes: Vec<Vec<i64>> = Vec::new();
+            for o in origins {
+                let p2 = picks.with(&format!("scale:{}", f.name), o);
+                let (_d, r) = ctx.prefix(choices, &p2, &f.name);
+                if !ok_at(ctx, sh, &r, i) {
+                    continue;
+                }
+                let r = r.unwrap();
+                if !sh.reachable(rf.as_ref(), &r, i) {
+                    continue;
+                }
+                let bx: Vec<i64> = r.lo.iter().flat_map(|a| a.iter().map(|x| k6(Some(*x)))).collect();
+                let key = (k6(r.volume), k6(r.area));
+                if seen.iter().zip(&boxes).any(|(s, b)| *s == key && *b == bx) {
+                    continue;
+                }
+                seen.push(key);
+                boxes.push(bx);
+                if step(ctx, sh, i + 1, choices, &p2, r.volume, sink) {
                     return true;
                 }
             }
@@ -732,7 +959,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                     }
                     let p2 = picks.with(&format!("hole:{}", f.name), json!([a, c])).with(&format!("holepts:{}", f.name), json!(s));
                     let (_d, r) = ctx.prefix(choices, &p2, &f.name);
-                    if !ok(rf.as_ref(), &r) {
+                    if !ok_at(ctx, sh, &r, i) {
                         continue;
                     }
                     let r = r.unwrap();
@@ -768,7 +995,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                     let mut p2 = picks.with(&f.name, edges_value(&edges)).with(&format!("flip:{}", f.name), json!(flip));
                     p2.known = Some(amaps.clone());
                     let (_d, r) = ctx.prefix(choices, &p2, &f.name);
-                    if !ok(rf.as_ref(), &r) || !sh.reachable(rf.as_ref(), r.as_ref().unwrap(), i) {
+                    if !ok_at(ctx, sh, &r, i) || !sh.reachable(rf.as_ref(), r.as_ref().unwrap(), i) {
                         continue;
                     }
                     if step(ctx, sh, i + 1, choices, &p2, r.unwrap().volume, sink) {

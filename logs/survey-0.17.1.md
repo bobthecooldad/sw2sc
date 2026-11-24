@@ -4,7 +4,7 @@ A fix release: a sketch's loops are nested by each arc's real curve, not its cho
 so a hole inside an outward-bulging arc is a hole again.
 
 Measured:
-- **Boom** (CAT Part R loader): rebuilds from its feature tree and matches its solid exactly,
+- **Boom** (CAT wheel loader): rebuilds from its feature tree and matches its solid exactly,
   4413.955 mm3 / 4491.51 mm2 (sketch, extrude, 4-edge fillet, through-all cut, pin).
 - **Parts that matched in 0.17.0**, rechecked: shaft_3x22mm, Top_beltSupportRim_v1 and PartT8
   all still match (rebuild_triage, "matches", 0.0 %).

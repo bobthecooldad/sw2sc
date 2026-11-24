@@ -27,6 +27,8 @@ pub struct Eval {
     pub lo: Option<[f64; 3]>,
     pub hi: Option<[f64; 3]>,
     pub errors: Vec<String>,
+    /// The first body's centre of mass.
+    pub com: Option<[f64; 3]>,
 }
 
 /// SolidCraft, as the rebuild check uses it.
@@ -59,7 +61,13 @@ pub fn eval_from(d: &Value) -> Eval {
     let errors = d["timeline"].as_array().map_or(vec![], |tl| {
         tl.iter().filter_map(|s| s.get("error").filter(|e| !e.is_null() && e.as_str() != Some("")).map(|e| e.as_str().map_or(e.to_string(), String::from))).collect()
     });
-    Eval { volume: t["volume_mm3"].as_f64(), area: t["area_mm2"].as_f64(), lo: side("min", f64::min), hi: side("max", f64::max), errors }
+    let com = boxes_com(d);
+    Eval { volume: t["volume_mm3"].as_f64(), area: t["area_mm2"].as_f64(), lo: side("min", f64::min), hi: side("max", f64::max), errors, com }
+}
+
+fn boxes_com(d: &Value) -> Option<[f64; 3]> {
+    let c = d["bodies"].as_array()?.iter().find_map(|b| b.get("center_of_mass").filter(|c| c.is_array()))?;
+    Some([c[0].as_f64()?, c[1].as_f64()?, c[2].as_f64()?])
 }
 
 fn close(x: f64, y: f64) -> bool {
@@ -106,8 +114,11 @@ pub fn fully_decoded(feats: &[Feature]) -> bool {
     if feats.iter().any(|f| f.kind == "sketch" && f.sketch.as_ref().is_none_or(|s| s.planes.is_empty() || !s.problems.is_empty())) {
         return false;
     }
-    let solid = feats.iter().any(|f| ["boss", "cut", "revolve", "revcut", "sweep"].contains(&f.kind.as_str()));
-    solid && !feats.iter().any(|f| f.kind == "import")
+    // an import is a solid to build on when its body as imported is in the file
+    if feats.iter().any(|f| f.kind == "import" && f.import_body.is_none()) {
+        return false;
+    }
+    feats.iter().any(|f| ["boss", "cut", "revolve", "revcut", "sweep"].contains(&f.kind.as_str()))
 }
 
 /// Why a rebuild doesn't match, in the shape of a cause.

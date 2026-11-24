@@ -20,8 +20,8 @@
 | Part M.SLDPRT | not fully decoded | Sketch2<3>: no plane reference found; Sketch2: line 4 has 1 end points; Sketch2: line 5 has 1 end points; Sketch2: line 7 has 1 end points |
 | Part N.SLDPRT | not fully decoded | Mirror2: moMirrorPattern_c not converted yet |
 | Part K.SLDPRT | rebuilt | Boss-Extrude1 positive |
-| Part P.SLDPRT | not fully decoded | Sketch2: no plane reference found |
-| Part R.SLDPRT | not fully decoded | Sketch1: arc 3: no centre found |
+| Adapter.SLDPRT | not fully decoded | Sketch2: no plane reference found |
+| Wheel.SLDPRT | not fully decoded | Sketch1: arc 3: no centre found |
 | Base_loadCell_v1.SLDPRT | not fully decoded | Cut-Extrude2: moCut_c not converted yet |
 | FrameBracket_v2.SLDPRT | not fully decoded | M3x0.5 Tapped Hole1: hole's placement sketch not found; M3x0.5 Tapped Hole2: hole's placement sketch not found |
 | FrameBracket_v2_loadCell_v1.SLDPRT | not fully decoded | M3x0.5 Tapped Hole1: hole's placement sketch not found; M3x0.5 Tapped Hole2: hole's placement sketch not found |
@@ -173,7 +173,7 @@
 | Crank.SLDPRT | not fully decoded | Sketch2<4>: no plane reference found |
 | Cross Slide.SLDPRT | not fully decoded | Cut-Extrude1: moFromEndSpec_c not converted yet; Thread1: moSweepThread_c not converted yet; Thread2: moSweepThread_c not converted yet; Thread3: moSweepThread_c not converted yet |
 | Cylinder.SLDPRT | not fully decoded | Mirror1: moMirrorPattern_c not converted yet; Thread1: moSweepThread_c not converted yet; Sketch1: arc 1: no centre found |
-| FlyPart R.SLDPRT | not fully decoded | Mirror1: moMirrorPattern_c not converted yet; Mirror3: moMirrorPattern_c not converted yet; Sketch3<3>: no plane reference found; Sketch3<4>: no plane reference found |
+| Flywheel.SLDPRT | not fully decoded | Mirror1: moMirrorPattern_c not converted yet; Mirror3: moMirrorPattern_c not converted yet; Sketch3<3>: no plane reference found; Sketch3<4>: no plane reference found |
 | Front Cylinder Cover.SLDPRT | mismatch |  |
 | Key Way.SLDPRT | not fully decoded | Fillet2: fillet's size or edges not read; Sketch3: line 5 has 1 end points; Sketch3: line 9 has 1 end points; Sketch5: line 5 has 1 end points |
 | Pin for Crank.SLDPRT | rebuilt | Boss-Extrude1 positive |
@@ -323,7 +323,7 @@
 | Crank.SLDPRT | not fully decoded | Sketch2<4>: no plane reference found |
 | Cross Slide.SLDPRT | not fully decoded | Cut-Extrude1: moFromEndSpec_c not converted yet; Thread1: moSweepThread_c not converted yet; Thread2: moSweepThread_c not converted yet; Thread3: moSweepThread_c not converted yet |
 | Cylinder.SLDPRT | not fully decoded | Mirror1: moMirrorPattern_c not converted yet; Thread1: moSweepThread_c not converted yet; Sketch1: arc 1: no centre found |
-| FlyPart R.SLDPRT | not fully decoded | Mirror1: moMirrorPattern_c not converted yet; Mirror3: moMirrorPattern_c not converted yet; Sketch3<3>: no plane reference found; Sketch3<4>: no plane reference found |
+| Flywheel.SLDPRT | not fully decoded | Mirror1: moMirrorPattern_c not converted yet; Mirror3: moMirrorPattern_c not converted yet; Sketch3<3>: no plane reference found; Sketch3<4>: no plane reference found |
 | Front Cylinder Cover.SLDPRT | mismatch |  |
 | Key Way.SLDPRT | not fully decoded | Fillet2: fillet's size or edges not read; Sketch3: line 5 has 1 end points; Sketch3: line 9 has 1 end points; Sketch5: line 5 has 1 end points |
 | Pin for Crank.SLDPRT | rebuilt | Boss-Extrude1 positive |

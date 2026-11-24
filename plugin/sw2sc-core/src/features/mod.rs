@@ -28,7 +28,8 @@ pub const HOLE: &str = "moHoleWzd_c";
 pub const MIRRORS: [&str; 2] = ["moMirrorPattern_c", "moMirrorSolid_c"];
 pub const THREAD: &str = "moSweepThread_c";
 pub const CUT: &str = "moICE_c";
-pub const IMPORTED: [&str; 2] = ["moBaseBody_c", "moRefSurface_c"];
+/// A body (or surface) imported, or a mirror of another part file: no tree in this file.
+pub const IMPORTED: [&str; 5] = ["moBaseBody_c", "moRefSurface_c", "moMirrorStock_c", "moMBimport_c", "moSplitBody_c"];
 
 pub fn pattern_kind(cls: &str) -> Option<&'static str> {
     match cls {
@@ -41,8 +42,11 @@ pub fn pattern_kind(cls: &str) -> Option<&'static str> {
 /// A Hole Wizard hole's named parameters (SolidWorks' own names) -> what they are.
 pub fn hole_param(name: &str) -> Option<&'static str> {
     Some(match name {
-        "Hole Dia." | "Thru Hole Dia." | "Tap Drill Dia." => "diameter",
-        "Hole Depth" | "Thru Hole Depth" | "Tap Drill Depth" => "depth",
+        "Hole Dia." | "Thru Hole Dia." | "Tap Drill Dia." | "Thru Tap Drill Dia." => "diameter",
+        "Hole Depth" | "Thru Hole Depth" | "Tap Drill Depth" | "Thru Tap Drill Depth" => "depth",
+        // Polish
+        "Średnica otworu gwintowanego na wylot" => "diameter",
+        "Głębokość otworu gwintowanego na wylot" => "depth",
         "C'Sink Dia." | "Near C'Sink Dia." => "cs_diameter",
         "C'Sink Angle" | "Near C'Sink Angle" => "cs_angle",
         "C'Bore Dia." => "cb_diameter",
@@ -63,14 +67,15 @@ pub fn hole_param(name: &str) -> Option<&'static str> {
 /// Named records that are not features: folders, parameters, dimensions, handles and helper
 /// data. Every other named record is a feature, so a feature of a kind not converted yet still
 /// keeps its place in the tree as TBD instead of being skipped.
-const NOT_FEATURES: [&str; 10] = [
+const NOT_FEATURES: [&str; 13] = [
+    "moDimTolerance_c", "moAttributeDef_c", "moAttribute_c",
     "moDetailCabinet_c", "moFavoriteHandle_c", "moCompRefPlane_c", "moPointBackedUpData_c",
     "moOriginProfileFeature_c", "moPLine_c", "moVertexRef_c", "moIntegerParameter_c",
     "moScalerParameter_c", "moFoldUpDownSketchFolder_c",
 ];
 const NOT_FEATURE_ENDS: [&str; 19] = [
     "Folder_c", "Parameter_c", "Dim", "Dim_c", "Handle", "Handle_c", "Data_c", "IdRep_c", "Options_c",
-    "Region_c", "ValG", "ValG_c", "ValG2_c", "Radial_c", "Chain_c", "Ref_c", "Ref_w", "", "",
+    "Region_c", "ValG", "ValG_c", "ValG2_c", "Radial_c", "Chain_c", "Ref_c", "Ref_w", "Spec_c", "IdRepN_c",
 ];
 
 pub fn is_feature_class(cls: &str) -> bool {
@@ -260,6 +265,11 @@ pub struct Feature {
     pub dome_mm: Option<f64>,
     /// A sweep's path sketch (its profile sketch is `profile`).
     pub path: Option<String>,
+    /// A scale's factors (x, y, z).
+    pub scale: Option<[f64; 3]>,
+    /// An import's body as imported (Parasolid), and as STEP once written.
+    pub import_body: Option<Vec<u8>>,
+    pub import_step: Option<String>,
     /// A fillet's edges.
     pub edges: Vec<Edge>,
     /// For each edge, the two faces at its ends (they border its faces).

@@ -338,7 +338,7 @@ class TreeReleaseTests(unittest.TestCase):
 class RolesTests(unittest.TestCase):
     """Who may release: the idler assembly and its parts, with three people."""
 
-    ALICE, JANE, MAL = "pc\\alice", "pc\\jane", "pc\\mallory"
+    BOB, JANE, MAL = "pc\\bob", "pc\\jane", "pc\\mallory"
 
     def setUp(self):
         import shutil
@@ -364,11 +364,11 @@ class RolesTests(unittest.TestCase):
         self.assertEqual(workflow.status(self.vault)[self.shaft]["state"], workflow.RELEASED)
 
     def test_first_edit_makes_an_admin_and_only_approvers_release(self):
-        r = roles.edit(self.vault, self.ALICE, "add-approver", self.JANE)
-        self.assertEqual((r["admins"], r["approvers"]), ([self.ALICE], [self.JANE]))
-        workflow.change(self.vault, self.shaft, "submit", self.ALICE)  # anyone may submit
+        r = roles.edit(self.vault, self.BOB, "add-approver", self.JANE)
+        self.assertEqual((r["admins"], r["approvers"]), ([self.BOB], [self.JANE]))
+        workflow.change(self.vault, self.shaft, "submit", self.BOB)  # anyone may submit
         with self.assertRaises(workflow.WorkflowError):
-            workflow.change(self.vault, self.shaft, "release", self.ALICE)  # admin, but not approver
+            workflow.change(self.vault, self.shaft, "release", self.BOB)  # admin, but not approver
         with self.assertRaises(workflow.WorkflowError):
             workflow.change(self.vault, self.shaft, "reject", self.MAL, "no")
         workflow.change(self.vault, self.shaft, "release", "PC\\Jane")  # accounts compare without case
@@ -376,38 +376,38 @@ class RolesTests(unittest.TestCase):
         self.assertEqual((w["state"], w["history"][-1]["by"]), (workflow.RELEASED, self.JANE))
 
     def test_only_admins_change_roles_and_one_admin_stays(self):
-        roles.edit(self.vault, self.ALICE, "add-approver", self.JANE)
+        roles.edit(self.vault, self.BOB, "add-approver", self.JANE)
         with self.assertRaises(roles.RolesError):
             roles.edit(self.vault, self.MAL, "add-approver", self.MAL)
         with self.assertRaises(roles.RolesError):
-            roles.edit(self.vault, self.ALICE, "remove-admin", self.ALICE)
-        roles.edit(self.vault, self.ALICE, "add-admin", self.JANE)
-        roles.edit(self.vault, self.JANE, "remove-admin", self.ALICE)
+            roles.edit(self.vault, self.BOB, "remove-admin", self.BOB)
+        roles.edit(self.vault, self.BOB, "add-admin", self.JANE)
+        roles.edit(self.vault, self.JANE, "remove-admin", self.BOB)
         self.assertEqual(roles.load(self.vault)["admins"], [self.JANE])
 
     def test_four_eyes(self):
-        roles.edit(self.vault, self.ALICE, "add-approver", self.ALICE)
-        roles.edit(self.vault, self.ALICE, "add-approver", self.JANE)
-        roles.edit(self.vault, self.ALICE, "four-eyes", "", True)
-        workflow.change(self.vault, self.shaft, "submit", self.ALICE)
+        roles.edit(self.vault, self.BOB, "add-approver", self.BOB)
+        roles.edit(self.vault, self.BOB, "add-approver", self.JANE)
+        roles.edit(self.vault, self.BOB, "four-eyes", "", True)
+        workflow.change(self.vault, self.shaft, "submit", self.BOB)
         with self.assertRaises(workflow.WorkflowError):
-            workflow.change(self.vault, self.shaft, "release", self.ALICE)
+            workflow.change(self.vault, self.shaft, "release", self.BOB)
         workflow.change(self.vault, self.shaft, "release", self.JANE)
         # a whole-assembly release can't submit and release in one go under four-eyes
         plan = workflow.plan_tree(self.vault, "idler_assem_v2.sldasm.solidcraft", "release", self.JANE)
         self.assertTrue(any("four-eyes" in b for b in plan["blockers"]))
-        workflow.change_tree(self.vault, "idler_assem_v2.sldasm.solidcraft", "submit", self.ALICE)
+        workflow.change_tree(self.vault, "idler_assem_v2.sldasm.solidcraft", "submit", self.BOB)
         with self.assertRaises(workflow.WorkflowError):
-            workflow.change_tree(self.vault, "idler_assem_v2.sldasm.solidcraft", "release", self.ALICE)
+            workflow.change_tree(self.vault, "idler_assem_v2.sldasm.solidcraft", "release", self.BOB)
         workflow.change_tree(self.vault, "idler_assem_v2.sldasm.solidcraft", "release", self.JANE)
         self.assertEqual(workflow.status(self.vault)["idler_assem_v2.sldasm.solidcraft"]["state"], workflow.RELEASED)
 
     def test_damaged_roles_file_blocks_release(self):
         with open(os.path.join(self.vault, roles.ROLES), "w") as fh:
             fh.write("{ not json")
-        workflow.change(self.vault, self.shaft, "submit", self.ALICE)
+        workflow.change(self.vault, self.shaft, "submit", self.BOB)
         with self.assertRaises(workflow.WorkflowError):
-            workflow.change(self.vault, self.shaft, "release", self.ALICE)
+            workflow.change(self.vault, self.shaft, "release", self.BOB)
 
 
 class GuiServerTests(unittest.TestCase):

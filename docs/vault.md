@@ -101,7 +101,7 @@ Every part and assembly in the vault has a state and a revision.
 - Each change records who, when and the comment, and is a Git commit. Each release is also a
   Git tag, so a release can always be got back exactly: **Get this release…** in the window,
   or `vault get <vault> <item> <revision> <folder>`.
-- Each change records the account you are logged in as (for example `PC-NAME\alice`).
+- Each change records the account you are logged in as (for example `PC-NAME\bob`).
 
 ## Roles
 

@@ -8,7 +8,7 @@ DOCS = os.path.expanduser(r"~\Documents")
 SLIPPAD = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "..", "..", "..", "samples",
                        "slippad-solidworks")
 if not os.path.isdir(SLIPPAD):
-    SLIPPAD = r"samples\slippad-solidworks"
+    SLIPPAD = r"C:\Solidworks to Solidcraft\samples\slippad-solidworks"
 
 
 def sketch(points, lines=(), arcs=(), circles=()):
@@ -83,6 +83,42 @@ class ProfileTests(unittest.TestCase):
     def test_short_way_without_a_line(self):
         s = sketch({1: (5, 0), 2: (0, 5), 3: (0, 0)}, arcs=[(2, 1, 3)])
         self.assertEqual(features._arc_ends(s, 2, 1, 3), (1, 2))
+
+
+class ScaleTests(unittest.TestCase):
+    def test_factors_are_the_first_three_sizes_after_the_name(self):
+        import struct
+        name = "Scale1".encode("utf-16le")
+        rec = b"\x04\x80\xff\xfe\xff\x06" + name + bytes(8) + struct.pack("<d", 0.062) + bytes(20) + \
+            struct.pack("<3d", 1.06, 1.06, 1.06) + bytes(8)
+        self.assertEqual(features._scale_factors(rec, 0, len(rec)), (1.06, 1.06, 1.06))
+
+    def test_the_rebuild_finds_what_it_scales_about(self):
+        import json
+        import tempfile
+        from sw2sc import verify
+        cli = verify.find_cli()
+        if not cli:
+            self.skipTest("solidcraft-cli not found")
+        # an L-shaped plate, 10 mm thick, scaled 1.06 about its centre of mass (the origin, the
+        # centre of mass and the middle of its box all differ)
+        s = sketch({1: (0, 0), 2: (40, 0), 3: (40, 10), 4: (10, 10), 5: (10, 30), 6: (0, 30)},
+                   lines=[(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 1)])
+        s.name = "Sketch1"
+        boss = features.Feature("boss", "Boss-Extrude1", 1, "moExtrusion_c", depth_mm=10.0, profile="Sketch1")
+        sc = features.Feature("scale", "Scale1", 2, "moScale_c")
+        sc.scale = (1.06, 1.06, 1.06)
+        feats = [features.Feature("sketch", "Sketch1", 0, "moProfileFeature_c", sketch=s), boss, sc]
+        with tempfile.TemporaryDirectory() as tmp:
+            p = os.path.join(tmp, "pre.solidcraft")
+            json.dump(features.design("t", feats, {}, None, True, {}, upto="Boss-Extrude1"), open(p, "w"))
+            com = verify.evaluate(cli, p)["com"]
+        ref = features.design("t", feats, {}, None, True, {"scale:Scale1": com})
+        ref.pop("pending", None)
+        built = verify.rebuild(feats, ref, "t", cli)
+        self.assertIsNotNone(built)
+        g = next(x for x in built["features"] if x["type"] == "scale")
+        self.assertEqual((g["factor"], [round(c, 6) for c in g["origin"]]), ("1.06", [round(c, 6) for c in com]))
 
 
 class RealPartTests(unittest.TestCase):

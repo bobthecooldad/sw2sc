@@ -253,7 +253,7 @@ before any more field guesses.
     and a flag (1 normal, 0 construction). PCB_v1's two extra lines are a centre rectangle's
     construction diagonals. (Not used yet for arc direction.)
 46. **Handles name points by id − 1.** In dimensions and relations a point handle's id is the
-    point's id − 1 (segments too). That made Part test plate's D2 readable: points 4 and 2, 150 apart.
+    point's id − 1 (segments too). That made Plate Sand's D2 readable: points 4 and 2, 150 apart.
 47. **Relations: decoded.** After the dimensions, a list of records: u32 type, u32 2, 2 or 4 zero
     bytes (newer files: 2), `FE FF 00 00`, then handles in groups ending with `FFFF FFFF`. Types,
     from how often each property holds over all sample sketches (noise is from imperfect reads):
@@ -269,7 +269,7 @@ before any more field guesses.
 48. **Stale dimensions.** A dimension can be stored as an earlier and a current record; some
     sketches keep a stray one (2MM Pin: 6.76 mm, while KeyWords lists no sketch dimension). Only
     dimensions KeyWords lists for the sketch are used.
-49. **User check of Part test plate (0.14): the sketch floated and the offset was lost.** Opened in
+49. **User check of Plate Sand (0.14): the sketch floated and the offset was lost.** Opened in
     SolidCraft, the rectangle could be dragged off the origin, and the outer loop, a 3 mm Offset
     Entities of the inner one in SolidWorks, was held only at the corners (the R3) and not all
     the way round. Two causes:
@@ -281,7 +281,7 @@ before any more field guesses.
       relation names any outer curve except an equal length. SolidCraft has no offset
       constraint.
 50. **Segment records, 2015+ layout.** `u32 curve id`, `FF FF 1F 00 03`, …, `F0 3F`, 8 zero bytes,
-    u16 start, u16 end (point id − 1), u16 flag (1 normal, 0 construction). Part test plate: lines
+    u16 start, u16 end (point id − 1), u16 flag (1 normal, 0 construction). Plate Sand: lines
     first (inner 1–4 match their handle ids, 5 and 6 are the diagonals, flag 0), then the arcs
     (start, end). The offset loop's records carry curve ids that don't match the handles
     (record 7 holds line handle 0's ends).
@@ -295,7 +295,7 @@ before any more field guesses.
 51. **Offset written out as constraints.** The offset loop is the loop holding a curve no
     relation or dimension names; each of its lines gets `parallel` to the line D4 away plus
     `point_line_distance` driven by the parameter `Sketch2_D4`; each arc `concentric` with the
-    arc D4 larger or smaller, and `tangent` to the offset lines it meets smoothly. Part test plate's
+    arc D4 larger or smaller, and `tangent` to the offset lines it meets smoothly. Plate Sand's
     sketch now solves with 0 degrees of freedom (`sketch.inspect` headless), and D4 = 5 grows
     the part to ±80 × ±30 about the origin, as SolidWorks would.
     Mistake on the way: taking only the unnamed curves as the offset (the outer top line has an
@@ -680,8 +680,8 @@ before any more field guesses.
     which is why the 0.17.1 run was stopped blind). The survey was run as eight copies of the
     folder, one process each: 35 parts in about twenty minutes instead of over an hour.
 126. **The Grabcad samples are in the project.** The user gave
-    `<repo>\Solidworks Example Grabcad` — Rocker Arm and Bucket in
-    `cat-Part R-loader-1.snapshot.2`, PartT_7 in `griper-robot-2.snapshot.11` (the Documents copy
+    `C:\Solidworks to Solidcraft\Solidworks Example Grabcad` — Rocker Arm and Bucket in
+    `cat-wheel-loader-1.snapshot.2`, PartT_7 in `griper-robot-2.snapshot.11` (the Documents copy
     is gone). 42 of the folder's parts carry `moSketchRegion_c`; the 35 slippad parts carry none,
     which is why nothing could be read from them.
 127. **`moSketchRegion_c` decoded.** Record, then per curve `<tag> <id> FF FF FF FF 00 00`, the tag
@@ -739,3 +739,110 @@ before any more field guesses.
     design), STEP on 199 (110 identical, 89 differing only in last-digit rounding from the maths
     libraries). SolidCraft's `plugin test` opens 2MM Pin, Axle Rod, shaft_3x22mm and Boom as
     feature trees; Boom's 7 features at 4413.955 mm3.
+133. **A user part opened through the plugin came in as its solid; three items listed.** One was an
+    unused sketch (absorbed, not a blocker: now `kept` and reported as information). One was a
+    scale: its factors are three doubles near the end of its record (1.06 each, a casting
+    shrinkage), with no KeyWords dimension; converted, with the origin / centre of mass / box
+    middle tried (synthetic L-plate test in Python and Rust: the search finds the centre of mass).
+    The third is sketch text: each line is a `moDimText_c` (the words, with `<b>` markup), a
+    position and a `utCharFormat_c` (6.5 mm high), no font name (the document's default). The
+    letters' outlines aren't stored and SolidCraft would lay out its own, so the rebuild can't be
+    matched exactly: kept TBD with that reason. Parity: features 199/0, designs 87/0.
+134. **Dev branch work (no version bumps until a release).** A census of the TBDs across the samples
+    (35 parts blocked, 89 decoded) and fixes, Python and Rust alike:
+    - Imports with features after them: `FeatureBodies/LocalBodies` keeps the body as imported,
+      under its feature's name; it is written as SolidCraft's import feature with the tree after
+      it. Where the partition holds the part's solid, those local bodies are left out of the
+      reference (they were in it). A mirror of another part file (`moMirrorStock_c`) has no tree
+      here: it comes in as its solid, reported as such.
+    - `…Spec_c` records (an extrude's end conditions) are never features (one read as `D2`).
+    - A one-point circle with no centre: a missing point numbered next to it that a coincident
+      relation puts on a point read is its centre (a circle centred on the origin).
+    - An empty sketch `Sketch3<3>` is SolidWorks' copy for a second feature using Sketch3: the
+      feature uses Sketch3.
+    - A face record whose z points into the part has its y the other way from the y computed from
+      the face normal; some files' sketches use the record's own axes (a user's bracket: its side
+      sketches came out mirrored, y -80..0 against 0..80). Both are candidates now, and each
+      sketch's planes are ordered by how many of its points fall inside the part's box.
+    - The box check excused nothing: an imported blank wider than its part failed every step. It
+      is strict on a first pass and, only where that pass found nothing and the box stopped a build
+      a later cut could trim, relaxed on a second.
+    - **The time budget leaked**: it was checked on entering a step only, so once it ran out every
+      loop in progress still evaluated all its remaining options (a user's bracket "loaded" for
+      ever in the plugin). Evaluations now return nothing past it (`verify.past_deadline`, Rust
+      `Timed`). The plugin also counts evaluations as a second each where its clock reads 0 (no
+      clock permission), and shows progress ("Rebuilding the feature tree: N designs tried").
+    Results: regression on the 22 earlier matches: 21 match (Boom back; Desk-29_103 matches for the
+    first time), PartT_7 still not. Parity: features 199/0; designs 94 with 2 one-line STEP
+    differences (a point the two roundings dedupe differently). The bracket still finds no design
+    in 240 s: through-all extrudes branch over 16 faces each; reading the end conditions
+    (`moEndSpec_c`, drift-tagged after the first) is the next lever.
+135. **Parts whose rebuild found no design.** A sample of a user's own models (kept locally, not
+    named here): 46 of 200 ended with no design built. Small parts traced one by one:
+    - **KeyWords lengths are in the document's units, rounded as it shows them.** The thin
+      extrude's depth and wall, a shell's thickness, a dome's height, a pattern's spacings and a
+      thread's sizes were taken as mm: an inch part's 5.63 (inches) became 5.63 mm. Each is now
+      found in the feature's own record, which keeps it exact in metres: the record's doubles
+      that round to the shown value, the commonest kept (5.625 in, not 5.63). The unit is learned
+      from the first sketch whose KeyWords dimensions match its own, else from the first value
+      found (mm and inch only until then: a wider unit's window took an unrelated double).
+    - An extrude with no distance in its records but a KeyWords `D1` is blind to that depth (it
+      was tried as through all only; through all lists no dimension).
+    - Some files write a sketch's plane reference after it, among its own records; the one before
+      it is then another's (the origin's). That plane is a candidate too.
+    - **The plane search was a product over all sketches**, the last sketch's plane varying
+      fastest: a wrong plane for the first sketch was only changed after every combination of the
+      others had been built. A sequence that stops at a feature now marks the planes of the
+      sketches before it, and later sets with those same planes are skipped (what is built up to
+      there depends on nothing else).
+    - KeyWords `<Sketch … />` and `<Extrusion … />` written closed on themselves are not read on
+      into the next element's dimensions.
+    Results: two of the traced parts match now (an inch tube, a bearing). Regression 21/22 as
+    before; parity features 199/0 on the samples and 485/0 on a set of the user's folders. The
+    same 200-part sample through the plugin's converter: rebuilt 17 -> 20, no build 46 -> 41,
+    built but not matching 32 -> 35, TBD 32 -> 31; no crash of the converter (3 files that aren't
+    SolidWorks parts stop the test driver `convert_one` only).
+136. **Where the 41 parts with no build get stuck.** The real search, instrumented (the furthest
+    feature any plane set reached), on each: 35 run out of time, almost all deep in their tree
+    (a cut, often through all, then fillets, patterns, scales); only one stops at its first
+    feature. Traced a family of four copies of one small part (boss, boss, hole, through-all cut):
+    - **A boss read as a cut passed because it changed the solid.** Its name says boss (so the
+      boss is an alternative), but built as a cut it removed material and the search went on,
+      then spent the whole budget on the last cut. The part is 24.9 mm tall; after that cut
+      nothing could reach past 3 mm. New rule: where nothing still to come adds material (only
+      cuts, holes, fillets, chamfers, shells; not bosses, revolves, sweeps, mirrors, patterns,
+      threads, domes, scales, imports), a partial build smaller than the part's box in any
+      direction can't become the part and is dropped.
+    - **The boss's sketch is on the first boss's top face, but its plane reads through the
+      origin**: a plane object stored without a frame defaults to the origin. An extrude whose
+      sketch plane passes through the origin (and isn't the first) is now also tried starting at
+      either side of the body's box along the sketch normal: SolidCraft's extent `start_offset`
+      (picked as `start:<feature>`, written in both design writers).
+    Results: the four copies rebuild (9 s each, from a time-out). Of the 41, several others now
+    end in seconds instead of timing out, still without a match (their next cause is further on).
+    Parity: features 199/0; designs 95 with the 2 one-line STEP rounding differences accepted
+    before; Python tests 82 OK; Rust tests pass. Regression 21/22 as before (PartT_7 still not).
+137. **Publishing safely, and a roadmap for contributors.** The repository is public
+    (`github.com/bobthecooldad/sw2sc`, a separate clean export with its own short history), and
+    has been shared so others can help.
+    - Checked the public history (all four commits) for anything identifying: authors use the
+      GitHub no-reply address; no home or cloud-folder paths, e-mail addresses or private part
+      names. The first export had replaced the owner's own part names with aliases (`Part A`..),
+      with two flaws: the aliases came from an unordered set (a second export could renumber
+      them), and generic words that were also file names (`Wheel`, `Adapter`) were replaced
+      inside other words ("Flywheel" became "FlyPart R", in logs only; no code was touched).
+    - The public repository had three commits of its own (CI build and release workflow, version
+      stamping, README download link, LICENSE): brought into this branch so the next export
+      doesn't undo them.
+    - `tools/publish.py`: `check` scans files for paths into home and cloud-synced folders, e-mail
+      addresses (other than no-reply), and, from a private folder outside the repository
+      (`~/.sw2sc-private`: aliases, terms, folders of one's own files, public sample folders,
+      allowed names), private words and private file names written with their extension. `export
+      DEST` writes a commit into a clone of the public repository with every private name replaced
+      by its fixed alias (new names get the next free one, kept in the private folder), whole
+      names only, longest first, then runs the check; it never commits or pushes. The aliases the
+      first export used were recovered by matching its files line by line against the commit it
+      came from, so they stay the same. The current public repository passes the check.
+    - `ROADMAP.md` (where things stand, where help is most useful, which fixes need checking on
+      more files) and `CONTRIBUTING.md` (clean room, keeping one's own files private, Python and
+      Rust parity, checking before claiming, keeping these logs).

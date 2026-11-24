@@ -21,6 +21,10 @@ REL = 1e-3
 MAX_TRIES = 120
 TIME_BUDGET = 240   # seconds a part's rebuild search may take; past it the part keeps its solid
 _deadline = [float("inf")]
+# the box check's two passes: strict first; a second pass lets a partial build lie outside the
+# part's box when a cut still to come could trim it, only where the first pass found nothing and
+# that check stopped such a build (an imported blank wider than the part)
+_box = {"relax": False, "blocked": False}
 
 
 def find_cli() -> str | None:
@@ -216,7 +220,17 @@ def kernel_line(st: dict) -> str:
     return s
 
 
+def past_deadline() -> bool:
+    """Whether a rebuild's time budget has run out (always False outside a rebuild)."""
+    import time
+    return time.time() > _deadline[0]
+
+
 def evaluate(cli: str, path: str) -> dict | None:
+    # past a rebuild's budget nothing more is evaluated: the loops still running in the search
+    # then end at once (they evaluated every remaining option before, for minutes)
+    if past_deadline():
+        return None
     try:
         r = subprocess.run([cli, "eval", path], capture_output=True, timeout=180)
         d = json.loads(r.stdout.decode("utf-8", "replace"))
@@ -227,7 +241,9 @@ def evaluate(cli: str, path: str) -> dict | None:
     lo = [min(bx["min"][k] for bx in boxes) for k in range(3)] if boxes else None
     hi = [max(bx["max"][k] for bx in boxes) for k in range(3)] if boxes else None
     errors = [s.get("error") for s in d.get("timeline", []) if s.get("error")]
-    return {"volume": t.get("volume_mm3"), "area": t.get("area_mm2"), "lo": lo, "hi": hi, "errors": errors}
+    coms = [bd.get("center_of_mass") for bd in d.get("bodies", []) if bd.get("center_of_mass")]
+    return {"volume": t.get("volume_mm3"), "area": t.get("area_mm2"), "lo": lo, "hi": hi, "errors": errors,
+            "com": coms[0] if coms else None}
 
 
 def same(a: dict | None, b: dict | None) -> bool:
@@ -302,7 +318,10 @@ def fully_decoded(feats: list | None) -> bool:
     if any(f.kind == "sketch" and (not f.sketch.planes or f.sketch.problems) for f in feats):
         return False
     kinds = {f.kind for f in feats}
-    return bool(kinds & {"boss", "cut", "revolve", "revcut", "sweep"}) and "import" not in kinds  # fillets need a solid first
+    # an import is a solid to build on when its body as imported is in the file
+    if any(f.kind == "import" and not f.import_body for f in feats):
+        return False
+    return bool(kinds & {"boss", "cut", "revolve", "revcut", "sweep"})  # fillets need a solid first
 
 
 def rebuild(feats: list, reference: dict, name: str, cli: str | None = None) -> dict | None:
@@ -331,14 +350,22 @@ def rebuild(feats: list, reference: dict, name: str, cli: str | None = None) -> 
         rev_opts = [[(a, s) for a in range(min(8, len(features.revolve_axis_options(sks[f.profile].sketch)))) for s in (1, -1)]
                     for f in revs]
         path = os.path.join(tmp, "feat.solidcraft")
+        _box.update(relax=False, blocked=False)
         for constraints in (True, False):   # without the sketches' constraints only if they spoil it
             tries = 0
             found = _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints)
             if found:
                 return found
+            if _box["blocked"]:
+                _box["relax"] = True
+                found = _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints)
+                _box.update(relax=False, blocked=False)
+                if found:
+                    return found
         return None
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        _deadline[0] = float("inf")
 
 
 def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints):
@@ -346,6 +373,10 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
     directions); the first design whose rebuild matches `ref`, or None."""
     tries = 0
     done = set()
+    # plane sets whose sequence stopped short: (arc and revolve choices, the planes of the
+    # sketches before the feature it got stuck at). What is built up to there depends only on
+    # those, so a later set with the same planes for them stops there too and is skipped
+    stuck: list = []
     # arcs whose centre the file leaves open: none turned first, then each sketch's alone, then all
     alts = [f for f in sk_list if f.sketch.alt_centres]
     arc_opts = [{}]
@@ -356,14 +387,27 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                 arc_opts.append({"arcs:" + f.name: frozenset([n])})
     if len(alts) > 1:
         arc_opts.append({"arcs:" + f.name: frozenset(f.sketch.alt_centres) for f in alts})
-    seq = any(f.kind in ("fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell")
+    seq = any(f.kind in ("fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale")
               or f.thin_mm or f.through_all for f in feats)
     # built in sequence, each extrude's direction is chosen as it is built: one set of directions
     # is enough here. (Every other set was skipped one by one: 3 ** extrudes turns of the loop,
     # billions for a part with 20 extrudes, which spun until the time budget ran out.)
     one_set = [tuple(options[0] for _ in extr)]
+    # each sketch's planes, those that put its points inside the part's box first (a sketch on a
+    # face of the part lies on the part; a cut's outline may reach past it, so it only orders)
+    def outside(f, k):
+        if not ref or not ref.get("lo"):
+            return 0
+        (x, y, _n), t = f.sketch.planes[k][0], f.sketch.planes[k][1]
+        tol = REL * max(max(h - lo for lo, h in zip(ref["lo"], ref["hi"])), 1.0) + 1e-6
+        n_out = 0
+        for u, v in f.sketch.points.values():
+            w = [(t[i] + u * x[i] + v * y[i]) * 1000 for i in range(3)]
+            n_out += any(w[i] < ref["lo"][i] - tol or w[i] > ref["hi"][i] + tol for i in range(3))
+        return n_out
+    plane_orders = [sorted(range(len(f.sketch.planes)), key=lambda k, f=f: outside(f, k)) for f in sk_list]
     for pc, rc, ac, dc in ((pc, rc, ac, dc)
-                           for pc in itertools.product(*[range(len(f.sketch.planes)) for f in sk_list])
+                           for pc in itertools.product(*plane_orders)
                            for ac in arc_opts
                            for rc in itertools.product(*rev_opts)
                            for dc in (one_set if seq else itertools.product(options, repeat=len(extr)))):
@@ -373,6 +417,8 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                 key = (pc, tuple(sorted((k, tuple(sorted(v))) for k, v in ac.items())), rc)
                 if seq and key in done:
                     continue          # directions are chosen in _sequential: once per plane/arc/revolve choice
+                if seq and any(k0 == key[1:] and all(pc[j] == v for j, v in fixed) for k0, fixed in stuck):
+                    continue
                 tries += 1
                 if tries > MAX_TRIES:
                     return None
@@ -383,7 +429,8 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                     done.add(key)
                     # features in order: each extrude only the ways it changes the solid, each
                     # fillet or chamfer on the edges that fit (one pass, not every combination)
-                    for d in _sequential(name, feats, dict(choices), planes, constraints, cli, os.path.dirname(path), ref):
+                    reach = [-1]
+                    for d in _sequential(name, feats, dict(choices), planes, constraints, cli, os.path.dirname(path), ref, reach):
                         with open(path, "w", encoding="utf-8") as fh:
                             json.dump(d, fh)
                         if _judge(cli, path, ref):
@@ -391,6 +438,9 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                         tries += 1
                         if tries > MAX_TRIES:
                             return None
+                    if 0 <= reach[0] < len(feats) and __import__("time").time() <= _deadline[0]:
+                        before = {x.name for x in feats[:reach[0]]}
+                        stuck.append((key[1:], tuple((j, pc[j]) for j, f in enumerate(sk_list) if f.name in before)))
                     continue
                 for d in _with_fillets(name, feats, choices, planes, constraints, cli, os.path.dirname(path), {}):
                     with open(path, "w", encoding="utf-8") as fh:
@@ -458,7 +508,7 @@ def _prefix(name, feats, choices, planes, constraints, picked, upto, cli, tmp):
     return d, evaluate(cli, p)
 
 
-def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
+def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, progress=None):
     """Complete designs, built feature by feature: an extrude takes each direction that changes
     the solid built so far (a boss adds to it, a cut takes from it; a way that does nothing or
     fails is no way SolidWorks built it), a fillet or chamfer each edge set that fits (both
@@ -466,7 +516,10 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
     from . import fillets
     import math as _m
     order = [f for f in feats if f.kind in ("boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome",
-                                            "sweep", "sweepcut", "shell")]
+                                            "sweep", "sweepcut", "shell", "scale")]
+    # a scale changes the solid's size and place: before it, neither the volume bounds nor the
+    # part's box say anything about the solid built so far
+    first_scale = next((k for k, f in enumerate(order) if f.kind == "scale"), len(order))
 
     def most(f):
         """The most an extrude can add or take away: its profile's area (its loops, arcs bulging
@@ -496,7 +549,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
     def reachable(r, i):
         """Can the solid after step i still become the part? The bosses still to come add at
         most adds[i+1]; cuts, holes, chamfers and fillets only take material away."""
-        if not ref or not ref.get("volume"):
+        if not ref or not ref.get("volume") or i < first_scale:
             return True
         v, target = r["volume"], ref["volume"]
         if adds[i + 1] is not None and v + adds[i + 1] < target * (1 - REL):
@@ -506,21 +559,41 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
             return False
         return True
 
-    def ok(r):
+    # whether a cut is still to come after step i: material outside the part's box can still go
+    cut_after = [any(x.kind in ("cut", "hole", "revcut", "sweepcut") or getattr(x, "alt_kind", None) == "cut"
+                     for x in feats[feats.index(f) + 1:]) for f in order]
+
+    # whether anything still to come after step i can add material (and so grow the solid's box):
+    # cuts, holes, fillets, chamfers and shells never reach past the solid they work on
+    add_after = [any(x.kind in ("boss", "revolve", "sweep", "mirror", "pattern", "thread", "dome", "scale", "import")
+                     or getattr(x, "alt_kind", None) == "boss" for x in feats[feats.index(f) + 1:]) for f in order]
+
+    def ok(r, i):
         """A partial build that can still become the part: it built, and it lies inside the
-        part's box (later cuts, holes and fillets never make it bigger; later bosses only add)."""
+        part's box (later bosses only add, fillets and chamfers don't reach past it) unless a
+        cut still to come can trim it (an imported blank wider than the part)."""
         if not r or r["errors"] or not r["volume"]:
             return False
-        if ref and ref.get("lo") and r.get("lo"):
+        if ref and ref.get("lo") and r.get("lo") and first_scale == len(order) and not (_box["relax"] and cut_after[i]):
             size = max(max(h - lo for lo, h in zip(ref["lo"], ref["hi"])), 1.0)
             tol = REL * size
             if any(a < b - tol for a, b in zip(r["lo"], ref["lo"])) or any(a > b + tol for a, b in zip(r["hi"], ref["hi"])):
+                if cut_after[i]:
+                    _box["blocked"] = True
+                return False
+        # with nothing left that adds material, a build that falls short of the part's box can't
+        # become the part (a boss read as a cut: the part goes on past it)
+        if ref and ref.get("lo") and r.get("lo") and first_scale == len(order) and not add_after[i]:
+            tol = REL * max(max(h - lo for lo, h in zip(ref["lo"], ref["hi"])), 1.0)
+            if any(a > b + tol for a, b in zip(r["lo"], ref["lo"])) or any(a < b - tol for a, b in zip(r["hi"], ref["hi"])):
                 return False
         return True
 
     def step(i, choices, picked, vol):
         if __import__("time").time() > _deadline[0]:
             return
+        if progress is not None:
+            progress[0] = max(progress[0], feats.index(order[i]) if i < len(order) else len(feats))
         if i == len(order):
             d = features.design(name, feats, choices, planes, constraints, picked)
             d.pop("pending", None)
@@ -529,7 +602,8 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
         f = order[i]
         if f.kind in ("boss", "cut"):
             seen = []
-            first = not any(x.kind in ("boss", "cut", "revolve", "revcut", "sweep") for x in order[:i])
+            first = not any(x.kind in ("boss", "cut", "revolve", "revcut", "sweep") for x in order[:i]) and \
+                not any(x.kind == "import" for x in feats[:feats.index(f)])
             ops = [None] + ([("join" if f.alt_kind == "boss" else "cut")] if f.alt_kind and not first else [])
             # no depth in the file: through all, or up to a flat face of the body so far
             tos = [None]
@@ -553,20 +627,42 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
                     reach = [sum((p - q) * m for p, q, m in zip(cn, o, n)) for cn in corners]
                     up, down = max(reach), -min(reach)
                     spans = {"positive": up, "negative": down, "symmetric": 2 * max(up, down)}
+            # a sketch whose plane reads through the origin may be on a face of the body so far
+            # whose plane wasn't stored: it is tried from each side of the body's box along its normal
+            starts = []
+            if not first and not f.through_all and f.depth_mm:
+                sk_f = next((x for x in feats if x.name == f.profile), None)
+                pl = sk_f.sketch.planes[min((planes or {}).get(sk_f.name, 0), len(sk_f.sketch.planes) - 1)] \
+                    if sk_f and sk_f.sketch.planes else None
+                if pl and all(abs(c) < 1e-12 for c in pl[1]):
+                    _d0, r0 = _prefix(name, feats, choices, planes, constraints, picked, order[i - 1].name, cli, tmp)
+                    if r0 and r0.get("lo"):
+                        n = pl[0][2]
+                        corners = [(a, b, c) for a in (r0["lo"][0], r0["hi"][0]) for b in (r0["lo"][1], r0["hi"][1])
+                                   for c in (r0["lo"][2], r0["hi"][2])]
+                        along = [sum(p * m for p, m in zip(cn, n)) for cn in corners]
+                        for v in (max(along), min(along)):
+                            if abs(v) > 1e-6 and all(abs(v - w) > 1e-6 for w in starts):
+                                starts.append(v)
             sides = ["center", "inside", "outside"] if getattr(f, "thin_mm", None) else [None]
-            for opt, op, to, side, sp in ((o, p, t, sd, s_) for sd in sides for t in tos for p in ops
-                                          for o in ("positive", "negative", "symmetric")
-                                          for s_ in ([None] + ([spans[o]] if o in spans and spans[o] > 1e-6 else []))):
+            for opt, op, to, side, sp, st in ((o, p, t, sd, s_, s2) for sd in sides for t in tos for p in ops
+                                              for o in ("positive", "negative", "symmetric")
+                                              for s_ in ([None] + ([spans[o]] if o in spans and spans[o] > 1e-6 else []))
+                                              for s2 in [None] + starts):
                 if to is not None and (opt == "symmetric" or sp is not None):
+                    continue
+                if st is not None and (to is not None or sp is not None):
                     continue
                 c2 = dict(choices, **{f.name: (opt, op)})
                 p_to = dict(picked, **{"to:" + f.name: to}) if to is not None else picked
                 if sp is not None:
                     p_to = dict(p_to, **{"span:" + f.name: sp})
+                if st is not None:
+                    p_to = dict(p_to, **{"start:" + f.name: st})
                 if side:
                     p_to = dict(p_to, **{"thin:" + f.name: side})
                 _d, r = _prefix(name, feats, c2, planes, constraints, p_to, f.name, cli, tmp)
-                if not ok(r):
+                if not ok(r, i):
                     continue
                 if vol is not None and abs(r["volume"] - vol) <= SAME * max(1.0, vol):
                     continue
@@ -595,7 +691,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
             for face in sorted(faces, key=lambda x: not fits(x))[:16]:
                 p2 = dict(picked, **{"shell:" + f.name: [face["point"]]})
                 _d, res = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                if not ok(res) or not reachable(res, i):
+                if not ok(res, i) or not reachable(res, i):
                     continue
                 key = (round(res["volume"], 6), round(res["area"], 6))
                 if key in seen:
@@ -608,9 +704,29 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
             for swap in (False, True):
                 p2 = dict(picked, **{"swap:" + f.name: swap})
                 _d, res = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                if not ok(res) or not reachable(res, i):
+                if not ok(res, i) or not reachable(res, i):
                     continue
                 key = (round(res["volume"], 6), round(res["area"], 6))
+                if key in seen:
+                    continue
+                seen.append(key)
+                yield from step(i + 1, choices, p2, res["volume"])
+            return
+        if f.kind == "scale":
+            # about the origin, the centre of mass or the middle of the box of the solid so far
+            _d0, r0 = _prefix(name, feats, choices, planes, constraints, picked, order[i - 1].name, cli, tmp) if i else (None, None)
+            origins = [[0.0, 0.0, 0.0]]
+            if r0 and r0.get("com"):
+                origins.append(list(r0["com"]))
+            if r0 and r0.get("lo"):
+                origins.append([(a + c) / 2 for a, c in zip(r0["lo"], r0["hi"])])
+            seen = []
+            for o in origins:
+                p2 = dict(picked, **{"scale:" + f.name: o})
+                _d, res = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
+                if not ok(res, i) or not reachable(res, i):
+                    continue
+                key = (round(res["volume"], 6), round(res["area"], 6), tuple(round(x, 6) for x in (res["lo"] or [])))
                 if key in seen:
                     continue
                 seen.append(key)
@@ -634,7 +750,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
                     nn = [sgn * x for x in n]
                     p2 = dict(picked, **{"dome:" + f.name: (c, nn, r)})
                     _d, res = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                    if not ok(res) or not reachable(res, i):
+                    if not ok(res, i) or not reachable(res, i):
                         continue
                     key = (round(res["volume"], 6), round(res["area"], 6))
                     if key in seen:
@@ -678,7 +794,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
                 for p in pats[:40]:
                     p2 = dict(picked, **{"pattern:" + f.name: (p, what)})
                     _d, r = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                    if not ok(r) or not reachable(r, i):
+                    if not ok(r, i) or not reachable(r, i):
                         continue
                     key = (round(r["volume"], 6), round(r["area"], 6))
                     if key in seen:
@@ -706,7 +822,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
                     start = [p + sgn * (h / 2 - 1e-3) * a for p, a in zip(rim, ax)]
                     p2 = dict(picked, **{"thread:" + f.name: (pt, start)})
                     _d, r = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                    if not ok(r) or not reachable(r, i):
+                    if not ok(r, i) or not reachable(r, i):
                         continue
                     key = (round(r["volume"], 6), round(r["area"], 6))
                     if key in seen:
@@ -728,7 +844,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
             for plane, what in mirror_choices:
                 p2 = dict(picked, **{"mirror:" + f.name: (plane, what)})
                 _d, r = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                if not ok(r) or not reachable(r, i):
+                if not ok(r, i) or not reachable(r, i):
                     continue
                 key = (round(r["volume"], 6), round(r["area"], 6))
                 if key in seen:
@@ -755,7 +871,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
                     break
                 p2 = dict(picked, **{"hole:" + f.name: opt[:2], "holepts:" + f.name: opt[2]})
                 _d, r = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                if not ok(r) or (vol is not None and r["volume"] >= vol - SAME * max(1.0, vol)):
+                if not ok(r, i) or (vol is not None and r["volume"] >= vol - SAME * max(1.0, vol)):
                     continue
                 key = (round(r["volume"], 6), round(r["area"], 6))
                 if key in seen:
@@ -771,7 +887,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None):
             for flip in flips:
                 p2 = dict(picked, **{f.name: edges, "": amaps, "flip:" + f.name: flip})
                 _d, r = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
-                if not ok(r) or not reachable(r, i):
+                if not ok(r, i) or not reachable(r, i):
                     continue
                 yield from step(i + 1, choices, p2, r["volume"])
 
@@ -803,7 +919,11 @@ def tree_summary(feats: list | None) -> list[dict]:
     out = []
     for f in feats or []:
         status = "tbd" if f.kind == "tbd" or f.reason or (f.kind == "sketch" and (not f.sketch.planes or f.sketch.problems)) else "read"
+        if f.kind == "absorbed":
+            status = "kept"   # in the tree, making no solid (an unused sketch, a reference axis …): no blocker
         item = {"name": f.name, "kind": f.kind, "status": status}
+        if status in ("tbd", "kept") and f.reason:
+            item["why"] = f.reason
         if status == "tbd":
             item["why"] = f.reason or ("; ".join(f.sketch.problems) if f.kind == "sketch" and f.sketch.problems else
                                        "sketch plane not read" if f.kind == "sketch" else "")

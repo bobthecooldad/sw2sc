@@ -52,6 +52,9 @@ def _faces(name: str):
 def body_faces(design: dict, cli: str, tmp: str) -> list | None:
     """Every face of the design's bodies as `model.faces` gives it (name, plane_normal for a
     flat one, centroid, point)."""
+    from .verify import past_deadline
+    if past_deadline():
+        return None
     src, out, script = (os.path.join(tmp, n) for n in ("pref.solidcraft", "pref.json", "faces.json"))
     with open(src, "w", encoding="utf-8") as fh:
         json.dump(design, fh)
@@ -76,6 +79,9 @@ def body_faces(design: dict, cli: str, tmp: str) -> list | None:
 
 def body_edges(design: dict, cli: str, tmp: str) -> list | None:
     """Every edge of the design's bodies: (faces, mid point, name)."""
+    from .verify import past_deadline
+    if past_deadline():
+        return None
     src, out, script = (os.path.join(tmp, n) for n in ("pre.solidcraft", "pre.json", "edges.json"))
     with open(src, "w", encoding="utf-8") as fh:
         json.dump(design, fh)

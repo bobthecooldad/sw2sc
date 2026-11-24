@@ -1,10 +1,10 @@
-# Builds and tests on every push and pull request. A push to main whose VERSION has no release
+# Builds and tests every push to main and dev, and every pull request. A push to main whose VERSION has no release
 # yet tags it v<VERSION> and publishes a release with the plugin zip: bump VERSION to release.
 name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
   workflow_dispatch:
 

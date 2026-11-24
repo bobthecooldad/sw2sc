@@ -49,7 +49,7 @@ class SolverTests(unittest.TestCase):
 
 class ReadTests(unittest.TestCase):
     def part(self, name):
-        hits = [h for r in (r"samples", r"out\vault-grabcad")
+        hits = [h for r in (r"C:\Solidworks to Solidcraft\samples", r"C:\Solidworks to Solidcraft\out\vault-grabcad")
                 for h in glob.glob(os.path.join(r, "**", name + ".SLDPRT"), recursive=True)]
         if not hits:
             self.skipTest("sample part not on this PC")

@@ -9,24 +9,24 @@
 
 | File | Result | Container | Type | Components | Occurrences | Hidden | Features | Warnings |
 |---|---|---|---|---|---|---|---|---|
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Part Q.SLDASM | ok | v2015 | ASSEMBLY | 3 | 5 | 0 |  | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Axle Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 2 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 11 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 8 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Boom.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 7 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Bucket.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 30 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\CAT_Part R_Loader_Design.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 |  | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Connecting Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 2 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Differential.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 19 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Front Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 41 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rear Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 162 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rim.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 14 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rocker Arm Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 11 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rocker Arm Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 6 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Rocker Arm.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 6 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Screw.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 5 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Tyre.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 15 | 0 |
-| Solidworks Example Grabcad\cat-Part R-loader-1.snapshot.2\Part R Loader.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 |  | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Assem1.SLDASM | ok | v2015 | ASSEMBLY | 3 | 5 | 0 |  | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Axle Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 2 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 11 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 8 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Boom.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 7 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Bucket.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 30 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\CAT_Wheel_Loader_Design.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 |  | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Connecting Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 2 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Differential.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 19 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Front Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 41 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rear Body.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 162 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rim.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 14 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rocker Arm Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 11 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rocker Arm Rod.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 6 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Rocker Arm.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 6 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Screw.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 5 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Tyre.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 15 | 0 |
+| Solidworks Example Grabcad\cat-wheel-loader-1.snapshot.2\Wheel Loader.SLDASM | ok | v2015 | ASSEMBLY | 16 | 46 | 0 |  | 0 |
 | Solidworks Example Grabcad\concrete-pump-bracket-1.snapshot.2\132 M (2-4-6-8)  FLANSLI (BICIM A-B5) DOKME DEMIR (PIK) GOVDE.sldasm | ok | v2015 | ASSEMBLY | 5 | 6 | 0 |  | 0 |
 | Solidworks Example Grabcad\concrete-pump-bracket-1.snapshot.2\BETON BORU KELEP荅S_U SAPLAMA.sldprt | ok | cfb | PART | 1 | 1 |  | 0 | 0 |
 | Solidworks Example Grabcad\concrete-pump-bracket-1.snapshot.2\FORGED SOCKET HEAD CAP SCREW X METRIC - ANSI B18.3.1M X M12 X 1.75 X 50.sldprt | ok | cfb | PART | 1 | 1 |  | 0 | 0 |
@@ -135,7 +135,7 @@
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Crank.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 14 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Cross Slide.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 15 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Cylinder.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 24 | 0 |
-| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\FlyPart R.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 18 | 0 |
+| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Flywheel.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 18 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Front Cylinder Cover.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 2 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Key Way.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 13 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Pin for Crank.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 2 | 0 |
@@ -143,7 +143,7 @@
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Piston crank.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 8 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Piston.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 11 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Rear Cylidner Cover.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 4 | 0 |
-| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Part O.SLDASM | ok | v2015 | ASSEMBLY | 27 | 28 | 0 |  | 3 |
+| Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Rough Assembly.SLDASM | ok | v2015 | ASSEMBLY | 27 | 28 | 0 |  | 3 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Slide.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 6 | 0 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Valve Horizontal.SLDASM | ok | v2015 | ASSEMBLY | 3 | 3 | 0 |  | 3 |
 | Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Valve Lid.SLDPRT | ok | v2015 | PART | 1 | 1 |  | 13 | 0 |
@@ -267,7 +267,7 @@
 - referenced file not found next to the assembly: Gear4.SLDPRT (structure kept; its properties and feature tree are missing)
 - referenced file not found next to the assembly: ServoArm.SLDPRT (structure kept; its properties and feature tree are missing)
 
-### Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Part O.SLDASM
+### Solidworks Example Grabcad\horizontal-steam-engine-1.snapshot.54\Rough Assembly.SLDASM
 - referenced file not found next to the assembly: Valve.SLDPRT (structure kept; its properties and feature tree are missing)
 - referenced file not found next to the assembly: Valve Seal Top.SLDPRT (structure kept; its properties and feature tree are missing)
 - referenced file not found next to the assembly: Valve Seal Bottom.SLDPRT (structure kept; its properties and feature tree are missing)

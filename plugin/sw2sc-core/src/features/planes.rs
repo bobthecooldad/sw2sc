@@ -80,6 +80,16 @@ pub fn plane_record(b: &[u8], off: usize, is_new: bool) -> Option<(u32, usize)> 
     while i < b.len() && b[i] == 0 {
         i += 1;
     }
+    // some files set a flag byte (01) inside the zero run, ahead of the FF block
+    if i < b.len() && b[i] == 1 {
+        let mut j = i + 1;
+        while j < b.len() && b[j] == 0 {
+            j += 1;
+        }
+        if j - z >= 40 && b.get(j..j + 16) == Some(&[0xff; 16][..]) {
+            i = j;
+        }
+    }
     if i - z < 40 {
         return None;
     }
@@ -132,7 +142,7 @@ pub fn plane_frames(b: &[u8], recs: &[Record]) -> (ById, ByOff) {
 
 /// A face-plane record's data at s0: origin, the face's normal, a flag byte, then the sketch's
 /// x, y and z axes. The sketch faces out of the face: its normal is the face's, y = normal x x.
-pub fn face_frame_at(b: &[u8], s0: usize) -> Option<Frame> {
+pub fn face_frame_at(b: &[u8], s0: usize) -> Option<Got> {
     if s0 + 121 > b.len() {
         return None;
     }
@@ -150,7 +160,13 @@ pub fn face_frame_at(b: &[u8], s0: usize) -> Option<Frame> {
     }
     let n = normal;
     let y2 = cross(&n, &x);
-    Some(([x, y2, n], origin))
+    let first = ([x, y2, n], origin);
+    // the record's own axes: where its z points into the part its y is the other way from y2,
+    // and some files' sketches are drawn in it: a second candidate, the rebuild check chooses
+    if dot(&y, &y2) < 0.0 {
+        return Some(Got::Many(vec![first, ([x, y, cross(&x, &y)], origin)]));
+    }
+    Some(Got::One(first))
 }
 
 /// A face record whose axes aren't stored (some versions keep only the face's origin and normal,
@@ -205,7 +221,7 @@ pub fn face_candidates(b: &[u8], recs: &[Record], after: usize, end: usize) -> V
 
 /// A plane on a face (moFaceRefPlnData_c after a -1 plane reference). Found by its class, or else
 /// by its layout, for files where stray bytes have thrown the numbering off.
-pub fn face_plane(b: &[u8], recs: &[Record], after: usize) -> Option<Frame> {
+pub fn face_plane(b: &[u8], recs: &[Record], after: usize) -> Option<Got> {
     for r in recs {
         if r.offset < after {
             continue;
@@ -259,8 +275,8 @@ pub fn plane_from_ref(b: &[u8], recs: &[Record], off: usize, new_class: bool, by
         return (Some(Got::One(frame_at(b, t))), "rotation in the plane reference".into());
     }
     if pid == 0xFFFF_FFFF {
-        if let Some(f) = face_plane(b, recs, after) {
-            return (Some(Got::One(f)), "face the sketch is on".into());
+        if let Some(g) = face_plane(b, recs, after) {
+            return (Some(g), "face the sketch is on".into());
         }
         if let Some(f) = next_by_off(by_off, after) {
             return (Some(Got::One(f)), "plane object after the reference".into());
@@ -279,7 +295,7 @@ pub fn plane_from_ref(b: &[u8], recs: &[Record], off: usize, new_class: bool, by
 
 pub fn ref_shape() -> &'static Regex {
     static R: OnceLock<Regex> = OnceLock::new();
-    R.get_or_init(|| Regex::new(r"(?s-u)[\x00-\xff][\x80-\xff][\x00-\xff][\x80-\xff]\x02\x00\x00{40}").unwrap())
+    R.get_or_init(|| Regex::new(r"(?s-u)[\x00-\xff][\x80-\xff][\x00-\xff][\x80-\xff]\x02\x00(?:\x00{40}|\x00{20,39}\x01\x00{1,20})").unwrap())
 }
 
 /// Python's `pattern.finditer(b, lo, hi)`: the matches inside b[lo..hi], offsets in b.
@@ -326,8 +342,8 @@ pub fn plane_inside(b: &[u8], recs: &[Record], s: usize, e: usize, by_id: &ById,
             return (Some(Got::One(frame_at(b, t))), "rotation in its plane reference".into());
         }
         if pid == 0xFFFF_FFFF {
-            if let Some(f) = face_plane(b, recs, after) {
-                return (Some(Got::One(f)), "face it is on (after its points)".into());
+            if let Some(g) = face_plane(b, recs, after) {
+                return (Some(g), "face it is on (after its points)".into());
             }
             if let Some(f) = next_by_off(by_off, after) {
                 return (Some(Got::One(f)), "plane object after its plane reference (after its points)".into());

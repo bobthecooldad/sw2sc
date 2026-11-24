@@ -19,11 +19,21 @@ const CHUNK: usize = 1 << 20;
 
 struct HostEvaluator {
     start_ms: u64,
+    /// Evaluations so far: a second each at least, so the time budget runs out even where the
+    /// clock reads 0 (a plugin whose clock permission wasn't granted).
+    evals: std::cell::Cell<u64>,
 }
 
 impl HostEvaluator {
     /// Stage a design and run commands on it, one reply per command (None for a failed one).
     fn run(&mut self, d: &Value, commands: &[(&str, Value)]) -> Option<Vec<Value>> {
+        self.evals.set(self.evals.get() + 1);
+        let n = self.evals.get();
+        if n % 5 == 1 {
+            // the search can take minutes: say what it's doing (its budget is 240 s)
+            let f = (self.now() / sw2sc_core::verify::TIME_BUDGET).min(1.0) as f32;
+            control::progress(0.15 + 0.8 * f, &format!("Rebuilding the feature tree: {n} designs tried"));
+        }
         evaluate::reset();
         let bytes = serde_json::to_vec(d).ok()?;
         for chunk in bytes.chunks(CHUNK) {
@@ -78,7 +88,8 @@ impl Evaluator for HostEvaluator {
         if control::cancelled() {
             return f64::INFINITY; // the user cancelled: the search's time is up
         }
-        clock::now().saturating_sub(self.start_ms) as f64 / 1000.0
+        let clocked = clock::now().saturating_sub(self.start_ms) as f64 / 1000.0;
+        clocked.max(self.evals.get() as f64)
     }
 }
 
@@ -105,7 +116,7 @@ impl Guest for Importer {
             return Err(PluginError::Unsupported("assemblies are not converted by this plugin yet; open their parts".into()));
         }
         control::progress(0.15, "Reading the feature tree and the solid");
-        let mut ev = HostEvaluator { start_ms: clock::now() };
+        let mut ev = HostEvaluator { start_ms: clock::now(), evals: std::cell::Cell::new(0) };
         let (d, report) = convert_part(&sw, &name, &file.name, &mut ev).map_err(|e| PluginError::Unsupported(e))?;
         log::log(log::Level::Info, &report.summary);
         control::progress(0.95, "Writing the design");

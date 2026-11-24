@@ -252,10 +252,12 @@ pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, m
     sk.dropped.extend(one_ended);
     alternative_centres(sk);
     if tags.values().any(|v| v == "sgTextHandle") && find_in(b, b"sgTextHandle", s, e).is_some() {
-        sk.problems.push("sketch text not converted yet".into());
+        // the words, size and place are stored, not the letters' outlines (see the Python)
+        sk.problems.push("sketch text: SolidWorks keeps the words, size and place but not the letters' shapes, so SolidCraft's own lettering can't be matched to the solid exactly".into());
     }
     read_dimensions(b, &tags, sk, s, e);
     read_relations(b, &tags, sk, s, e);
+    centres_from_relations(sk);
 }
 
 fn is_one_end(x: &str) -> bool {
@@ -401,6 +403,42 @@ fn place_curves(sk: &mut Sketch, curves: &IndexMap<(String, u16), Vec<u32>>, pla
 
 pub fn py_list(v: &[u32]) -> String {
     format!("[{}]", v.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(", "))
+}
+
+/// A circle read from one point whose centre wasn't found: a missing point numbered next to the
+/// circle's point that a coincident relation (9) puts on a point read is its centre.
+fn centres_from_relations(sk: &mut Sketch) {
+    for pr in sk.problems.clone() {
+        let Some(rest) = pr.strip_prefix("arc ") else { continue };
+        let Some((cid, ends)) = rest.split_once(": no centre found (ends [") else { continue };
+        let Some(ends) = ends.strip_suffix("])") else { continue };
+        let (Ok(cid), Ok(end)) = (cid.parse::<u16>(), ends.parse::<u32>()) else { continue };
+        let mut at: Option<u32> = None;
+        for r in &sk.relations {
+            if r.kind != 9 {
+                continue;
+            }
+            for g in &r.groups {
+                let ids: Vec<u32> = g.iter().filter(|h| h.cls == "point").map(|h| h.id + 1).collect();
+                if ids.len() != 2 {
+                    continue;
+                }
+                for (a, c) in [(ids[0], ids[1]), (ids[1], ids[0])] {
+                    if (a + 1 == end || a == end + 1) && !sk.points.contains_key(&a) && sk.points.contains_key(&c) && c != end && at.is_none() {
+                        at = Some(c);
+                    }
+                }
+            }
+        }
+        let Some(at) = at else { continue };
+        let r = hypot(sk.points[&at], sk.points[&end]);
+        if r < TOL {
+            continue;
+        }
+        sk.problems.retain(|x| *x != pr);
+        sk.circles.push((at, r));
+        sk.curve_of.insert(("arc".into(), cid), format!("c{}", sk.circles.len()));
+    }
 }
 
 /// An arc's other possible centre: the mirror of the centre across the chord, kept where no line

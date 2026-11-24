@@ -3,6 +3,42 @@
 Versions follow [semantic versioning](https://semver.org). The version is in `VERSION`.
 Each release has a survey log in `logs/survey-<version>.md`.
 
+## [Unreleased]
+
+### Added
+- `tools/publish.py`: `check` finds personal data (home and cloud-folder paths, e-mail addresses,
+  and the private names and words kept in a private folder outside the repository); `export`
+  writes the repository into a clone of the public one with private names replaced by fixed
+  aliases, then checks it. Nothing is committed or pushed by it.
+- `ROADMAP.md` and `CONTRIBUTING.md`: where help is most useful, which recent fixes need checking
+  on more files, and the rules for contributing.
+- The public repository's CI build and release workflow, version stamping and LICENSE.
+- **Scale** (`moScale_c`) comes across as SolidCraft's scale: its x, y and z factors from the
+  record (KeyWords lists no dimension for it), the point it scales about (the origin, the solid's
+  centre of mass or the middle of its box) chosen by the rebuild check. Before a scale, the
+  search's volume bounds and box check are off: the solid is still to change size.
+
+### Fixed
+- Lengths from KeyWords (thin extrudes, shells, domes, pattern spacings, threads) are in the
+  document's units and rounded for display: they are now taken exact from the feature's record,
+  so inch parts no longer come out 25.4 times too small.
+- An extrude whose depth is only in KeyWords is built to that depth, not tried as through all.
+- A sketch whose plane reference is written after it is tried on that plane too.
+- The rebuild search no longer retries every combination of later sketches' planes when an early
+  sketch's plane is wrong: plane sets that repeat a prefix that already failed are skipped.
+- An extrude whose sketch isn't found is TBD (the plugin stopped on it).
+- A partial build smaller than the part, with nothing left that adds material, is dropped: a
+  boss read as a cut no longer passes because it changed the solid.
+- An extrude whose sketch plane reads through the origin is also tried starting at a face of the
+  body so far (SolidCraft's `start_offset`): sketches on faces whose plane isn't stored.
+
+### Changed
+- Features kept in the tree that make no solid (unused sketches, reference axes, cosmetic
+  threads, combines) are `kept` in the tree summary, and the plugin's import report lists them
+  as information instead of among the features not converted.
+- Sketch text says why it isn't converted: SolidWorks keeps the words, their size and place, not
+  the letters' outlines, so SolidCraft's own lettering can't be matched to the solid exactly.
+
 ## [0.17.3] - 2026-11-23
 
 A sketch's chain record is read, and a rebuild that doesn't match now says what shape its cause
@@ -101,7 +137,7 @@ A hole at a rounded end came across as a lump.
   outline and was extruded as an island: a solid lump where SolidWorks has a hole (B-021).
 
 ### Results
-- Boom (CAT Part R loader) now rebuilds from its feature tree and matches its solid exactly:
+- Boom (CAT wheel loader) now rebuilds from its feature tree and matches its solid exactly:
   sketch, an extrude, a 4-edge fillet, a through-all cut and a pin — 4413.955 mm3, 4491.51 mm2.
 
 ## [0.17.0] - 2026-11-19
@@ -427,7 +463,7 @@ Linked subassemblies.
 - Slip-Pad `Assem4`: 23 components instead of 39, 4 subassembly links. SolidCraft 0.40.1 opens
   it with no errors, finds all 23 links, and Update Links reads them all.
 - `vault bom` multiplies through levels: 4 bobbin assemblies x 4 bearings = 16 bearings.
-- GrabCAD tree: 167 designs, none failed. In the Part R loader, steam engine and office-suite
+- GrabCAD tree: 167 designs, none failed. In the wheel loader, steam engine and office-suite
   assemblies SolidCraft finds every link (subassemblies included) and Update Links fails none.
 
 ### Limits
@@ -457,7 +493,7 @@ Vault import.
 ### Results
 - Slip-Pad tree: 40 designs in about 10 seconds. SolidCraft 0.40.1 finds every link, sees it
   as unchanged, and Update Links reads all of them.
-- GrabCAD tree (7 projects): 167 designs and 100 other files, none failed. In the Part R-loader
+- GrabCAD tree (7 projects): 167 designs and 100 other files, none failed. In the wheel-loader
   assembly SolidCraft finds all 15 links.
 
 ## [0.3.0] - 2026-11-12

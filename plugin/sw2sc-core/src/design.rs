@@ -707,6 +707,10 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 if let Some(span) = pick(&format!("span:{}", f.name)).and_then(Value::as_f64) {
                     g["extent"] = json!({"convention": "total_distance", "direction": d, "distance": repr(round(span, 9))});
                 }
+                if let Some(start) = pick(&format!("start:{}", f.name)).and_then(Value::as_f64) {
+                    // starting at a face of the body so far (verify)
+                    g["extent"]["start_offset"] = json!(repr(round(start, 9)));
+                }
                 if let Some(th) = f.thin_mm.filter(|v| *v != 0.0) {
                     let mut cur: Vec<String> = (0..sk.lines.len()).filter(|n| !sk.construction.contains(n)).map(|n| format!("l{}", n + 1)).collect();
                     cur.extend((0..sk.arcs.len()).map(|n| format!("a{}", n + 1)));
@@ -787,6 +791,21 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 }
                 out.push(g);
                 first = false;
+            }
+            "scale" => {
+                let Some(got) = pick(&format!("scale:{}", f.name)).cloned() else {
+                    return pending(name, feats, out, nid, &feats[fi].name.clone());
+                };
+                let body = out.iter().find_map(|x| x.get("body_names").and_then(|b| b.get(0)).cloned());
+                let [sx, sy, sz] = f.scale.unwrap_or([1.0; 3]);
+                let mut g = json!({"id": nid, "name": f.name, "type": "scale", "suppressed": false,
+                                   "bodies": body.map_or(vec![], |b| vec![b]), "origin": got});
+                if (sx - sy).abs() < 1e-12 && (sx - sz).abs() < 1e-12 {
+                    g["factor"] = json!(repr(sx));
+                } else {
+                    g["factors"] = json!([repr(sx), repr(sy), repr(sz)]);
+                }
+                out.push(g);
             }
             "dome" => {
                 let Some(got) = pick(&format!("dome:{}", f.name)).and_then(Value::as_array).cloned() else {
@@ -909,6 +928,18 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                     g["hole"] = json!({"type": "drilled", "tip_angle": format!("{} deg", deg(h.get("tip_angle"), ""))});
                 }
                 out.push(g);
+            }
+            "import" => {
+                // the body as it was imported, the features after it built on it
+                let fm = &mut feats[fi];
+                if fm.import_step.is_none() {
+                    if let Some(body) = &fm.import_body {
+                        fm.import_step = Some(crate::step::body_step(body, &fm.name).unwrap_or_default());
+                    }
+                }
+                out.push(json!({"id": nid, "name": fm.name, "type": "import", "suppressed": false,
+                                "file": format!("{}.step", fm.name), "step": fm.import_step.clone().unwrap_or_default()}));
+                first = false;
             }
             "plane" => {
                 let ([x, y, _n], t) = f.frame.unwrap();
