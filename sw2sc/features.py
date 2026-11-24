@@ -727,8 +727,32 @@ def _read_sketch(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict
         # outlines: SolidCraft would draw its own, which the rebuild check can't match exactly
         sk.problems.append("sketch text: SolidWorks keeps the words, size and place but not the letters' shapes, so SolidCraft's own lettering can't be matched to the solid exactly")
     _read_dimensions(b, tags, sk, s, e)
+    _dimensioned_circles(sk)
     _read_relations(b, tags, sk, s, e)
     _centres_from_relations(sk)
+
+
+def _dimensioned_circles(sk: Sketch) -> None:
+    """A circle whose radius is none of the sketch's circle dimensions, where it has some: its
+    centre was taken at the wrong point (a block's second hole centred on the sketch origin, its
+    true centre on a centreline). Through the point it was read through, the one point at a
+    dimensioned radius (not another circle's centre) is its centre."""
+    radii = sorted({abs(v) / 2 for _nm, cls, v, _h in sk.dims if cls == "sgCircleDim" and v})
+    if not radii:
+        return
+    P = sk.points
+    d = lambda a, c: math.hypot(P[a][0] - P[c][0], P[a][1] - P[c][1])  # noqa: E731
+    for n, (c, r) in enumerate(sk.circles):
+        if any(abs(r - R) <= 1e-9 for R in radii):
+            continue
+        through = [q for q in sorted(P) if q != c and abs(d(c, q) - r) <= 1e-9]
+        if len(through) != 1:
+            continue
+        t = through[0]
+        centres = {cc for k, (cc, _r) in enumerate(sk.circles) if k != n}
+        hits = [(q, R) for q in sorted(P) for R in radii if q not in (t, c) and q not in centres and abs(d(q, t) - R) <= 1e-9]
+        if len(hits) == 1:
+            sk.circles[n] = hits[0]
 
 
 def _centres_from_relations(sk: Sketch) -> None:
@@ -1528,6 +1552,16 @@ def read(sw) -> list[Feature] | None:
             f.frame = by_off.get(r.offset)
             if f.frame is None:
                 f.kind, f.reason = "tbd", "plane's placement not read"
+        elif r.cls == "mo3DProfileFeature_c" and out and out[-1].cls == HOLE:
+            # a Hole Wizard hole's 3D placement sketch (holes on a face that isn't a sketch
+            # plane): its points become a sketch of points on a plane through them
+            pts = _points_3d(b, r.offset, end)
+            sk = _placement_from_3d(nm, r.offset, pts) if pts else None
+            if sk is None:
+                f = Feature("tbd", nm, r.offset, r.cls, reason="3D sketch: its points not read, or not on one plane")
+            else:
+                sk.end = end
+                f = Feature("sketch", nm, r.offset, r.cls, sketch=sk)
         else:
             f = Feature("tbd", nm, r.offset, r.cls, reason=f"{r.cls} not converted yet")
         if r.cls != SKETCH and last_sketch and not last_sketch.sketch.used:
@@ -1565,6 +1599,62 @@ _ISO_PITCH = {1.6: 0.35, 2.0: 0.4, 2.5: 0.45, 3.0: 0.5, 3.5: 0.6, 4.0: 0.7, 5.0:
               10.0: 1.5, 12.0: 1.75, 14.0: 2.0, 16.0: 2.0, 20.0: 2.5, 24.0: 3.0}
 _ISO_CLEARANCE = {1.6: 1.8, 2.0: 2.4, 2.5: 2.9, 3.0: 3.4, 3.5: 3.9, 4.0: 4.5, 5.0: 5.5, 6.0: 6.6, 8.0: 9.0,
                   10.0: 11.0, 12.0: 13.5, 14.0: 15.5, 16.0: 17.5, 20.0: 22.0, 24.0: 26.0}
+
+
+def _points_3d(b: bytes, s: int, e: int) -> list:
+    """A 3D sketch's points (metres): the coordinate triples its records write at least twice,
+    in the order first written (each point is written twice; stray bytes don't repeat)."""
+    count, order = {}, []
+    for j in range(s, max(s, e - 24)):
+        x, y, z = struct.unpack_from("<3d", b, j)
+        if not all(math.isfinite(c) and abs(c) < 10 for c in (x, y, z)) or not any(abs(c) > 1e-7 for c in (x, y, z)) \
+                or any(c != 0 and abs(c) < 1e-7 for c in (x, y, z)) or abs(math.sqrt(x * x + y * y + z * z) - 1) < 1e-9:
+            continue   # (a unit vector is a direction the records keep, not a point)
+        k = b[j:j + 24]
+        count[k] = count.get(k, 0) + 1
+        if count[k] == 2 and all(math.dist((x, y, z), q) > 1e-9 for q in order):
+            order.append((x, y, z))
+    return order
+
+
+_AXES = (((0.0, 0.0, 1.0), (1.0, 0.0, 0.0)), ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
+
+
+def _placement_from_3d(name: str, offset: int, pts: list) -> "Sketch | None":
+    """A hole's 3D placement sketch as a sketch of points on a plane through them, all frames
+    with the same origin (the first point): their own plane where they span one; where they lie
+    in a line, the planes holding it square to each world axis (the line their x); one point, the
+    three world planes. None where they aren't on one plane."""
+    sub = lambda a, c: tuple(p - q for p, q in zip(a, c))  # noqa: E731
+    dot = lambda a, c: sum(p * q for p, q in zip(a, c))  # noqa: E731
+    cross = lambda a, c: (a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0])  # noqa: E731
+    unit = lambda a: tuple(c / math.sqrt(dot(a, a)) for c in a)  # noqa: E731
+    o = pts[0]
+    far = max(pts, key=lambda p: dot(sub(p, o), sub(p, o)))
+    frames = []
+    if dot(sub(far, o), sub(far, o)) > 1e-18:
+        x = unit(sub(far, o))
+        best = max(pts, key=lambda p: dot(cross(x, sub(p, o)), cross(x, sub(p, o))))
+        c = cross(x, sub(best, o))
+        if dot(c, c) > 1e-18:
+            n = unit(c)
+            if any(abs(dot(sub(p, o), n)) > 1e-7 for p in pts):
+                return None
+            frames.append((x, cross(n, x), n))
+        else:
+            for a, _xa in _AXES:
+                if abs(dot(a, x)) < 0.999:
+                    n = unit(tuple(a[i] - dot(a, x) * x[i] for i in range(3)))
+                    frames.append((x, cross(n, x), n))
+    else:
+        frames = [(xa, cross(a, xa), a) for a, xa in _AXES]
+    sk = Sketch(name, offset)
+    x0, y0, _n0 = frames[0]
+    for k, p in enumerate(pts, 1):
+        sk.points[k] = (dot(sub(p, o), x0), dot(sub(p, o), y0))
+    for fr in frames:
+        sk.add_plane((fr, o), "a 3D sketch's points, on a plane through them")
+    return sk
 
 
 def _hole_from_name(name: str) -> float | None:
@@ -2330,12 +2420,16 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             chosen = (fillets or {}).get("holepts:" + f.name)
             if chosen:
                 pids = [p for p in pids if p in chosen] or pids
+            # its only point the sketch's origin (a hole on a part's axis): SolidCraft's fixed origin point
+            origin_only = not pids and 1 in sk.points
             g = {"id": nid, "name": f.name, "type": "hole", "suppressed": False,
                  "diameter": param_name(f.name, "diameter"),
                  "direction": [-c for c in nrm],
                  "position": [t[k] * 1000 + sk.points[pids[0]][0] * 1000 * sk.plane[0][0][k] +
-                              sk.points[pids[0]][1] * 1000 * sk.plane[0][1][k] for k in range(3)] if pids else [0, 0, 0],
-                 "points": {"sketch": ids[f.profile], "ids": [f"p{p}" for p in pids], **({"flip": True} if flip else {})}}
+                              sk.points[pids[0]][1] * 1000 * sk.plane[0][1][k] for k in range(3)] if pids else
+                 ([t[k] * 1000 for k in range(3)] if origin_only else [0, 0, 0]),
+                 "points": {"sketch": ids[f.profile], "ids": [f"p{p}" for p in pids] or (["origin"] if origin_only else []),
+                            **({"flip": True} if flip else {})}}
             h = f.hole
             if "depth" in h and not through:
                 g["depth"] = param_name(f.name, "depth")

@@ -257,6 +257,7 @@ pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, m
         sk.problems.push("sketch text: SolidWorks keeps the words, size and place but not the letters' shapes, so SolidCraft's own lettering can't be matched to the solid exactly".into());
     }
     read_dimensions(b, &tags, sk, s, e);
+    dimensioned_circles(sk);
     read_relations(b, &tags, sk, s, e);
     centres_from_relations(sk);
 }
@@ -408,6 +409,44 @@ pub fn py_list(v: &[u32]) -> String {
 
 /// A circle read from one point whose centre wasn't found: a missing point numbered next to the
 /// circle's point that a coincident relation (9) puts on a point read is its centre.
+/// A circle whose radius is none of the sketch's circle dimensions, where it has some: through
+/// the point it was read through, the one point at a dimensioned radius is its centre (see the Python).
+fn dimensioned_circles(sk: &mut Sketch) {
+    let mut radii: Vec<f64> = sk.dims.iter().filter(|d| d.cls == "sgCircleDim" && d.value != 0.0).map(|d| d.value.abs() / 2.0).collect();
+    radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    radii.dedup();
+    if radii.is_empty() {
+        return;
+    }
+    let p = sk.points.clone();
+    let d = |a: u32, c: u32| (p[&a].0 - p[&c].0).hypot(p[&a].1 - p[&c].1);
+    let mut ids: Vec<u32> = p.keys().copied().collect();
+    ids.sort();
+    for n in 0..sk.circles.len() {
+        let (c, r) = sk.circles[n];
+        if radii.iter().any(|rr| (r - rr).abs() <= 1e-9) {
+            continue;
+        }
+        let through: Vec<u32> = ids.iter().copied().filter(|&q| q != c && (d(c, q) - r).abs() <= 1e-9).collect();
+        if through.len() != 1 {
+            continue;
+        }
+        let t = through[0];
+        let centres: Vec<u32> = sk.circles.iter().enumerate().filter(|(k, _)| *k != n).map(|(_, cc)| cc.0).collect();
+        let mut hits: Vec<(u32, f64)> = Vec::new();
+        for &q in &ids {
+            for &rr in &radii {
+                if q != t && q != c && !centres.contains(&q) && (d(q, t) - rr).abs() <= 1e-9 {
+                    hits.push((q, rr));
+                }
+            }
+        }
+        if hits.len() == 1 {
+            sk.circles[n] = hits[0];
+        }
+    }
+}
+
 fn centres_from_relations(sk: &mut Sketch) {
     for pr in sk.problems.clone() {
         let Some(rest) = pr.strip_prefix("arc ") else { continue };

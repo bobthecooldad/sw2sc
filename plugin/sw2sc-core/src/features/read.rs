@@ -819,6 +819,21 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 f.kind = "tbd".into();
                 f.reason = "plane's placement not read".into();
             }
+        } else if cls == "mo3DProfileFeature_c" && out.last().is_some_and(|x| x.cls == HOLE) {
+            // a Hole Wizard hole's 3D placement sketch: its points become a sketch of points on a
+            // plane through them
+            let pts = points_3d(b, r.offset, end);
+            match if pts.is_empty() { None } else { placement_from_3d(nm, r.offset, &pts) } {
+                None => {
+                    f = Feature::new("tbd", nm, r.offset, cls);
+                    f.reason = "3D sketch: its points not read, or not on one plane".into();
+                }
+                Some(mut sk) => {
+                    sk.end = end;
+                    f = Feature::new("sketch", nm, r.offset, cls);
+                    f.sketch = Some(sk);
+                }
+            }
         } else {
             f = Feature::new("tbd", nm, r.offset, cls);
             f.reason = format!("{cls} not converted yet");
@@ -906,6 +921,93 @@ const ISO_METRIC: [(f64, f64, f64); 15] = [
 ];
 
 /// A hole's diameter (mm) from the size in its Hole Wizard name, where the record names none (see the Python).
+/// A 3D sketch's points (metres): the coordinate triples its records write at least twice, in
+/// the order first written (see the Python).
+fn points_3d(b: &[u8], s: usize, e: usize) -> Vec<[f64; 3]> {
+    let mut count: HashMap<&[u8], usize> = HashMap::new();
+    let mut order: Vec<[f64; 3]> = Vec::new();
+    let e = e.min(b.len());
+    for j in s..e.saturating_sub(24).max(s) {
+        let d = |k: usize| f64::from_le_bytes(b[j + 8 * k..j + 8 * k + 8].try_into().unwrap());
+        let p = [d(0), d(1), d(2)];
+        if !p.iter().all(|c| c.is_finite() && c.abs() < 10.0)
+            || !p.iter().any(|c| c.abs() > 1e-7)
+            || p.iter().any(|c| *c != 0.0 && c.abs() < 1e-7)
+            || ((p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() - 1.0).abs() < 1e-9
+        {
+            continue; // (a unit vector is a direction the records keep, not a point)
+        }
+        let n = count.entry(&b[j..j + 24]).or_insert(0);
+        *n += 1;
+        if *n == 2 && order.iter().all(|q| ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt() > 1e-9) {
+            order.push(p);
+        }
+    }
+    order
+}
+
+const AXES: [([f64; 3], [f64; 3]); 3] = [([0.0, 0.0, 1.0], [1.0, 0.0, 0.0]), ([0.0, 1.0, 0.0], [0.0, 0.0, 1.0]), ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0])];
+
+/// A hole's 3D placement sketch as a sketch of points on a plane through them (see the Python).
+fn placement_from_3d(name: &str, offset: usize, pts: &[[f64; 3]]) -> Option<Sketch> {
+    let sub = |a: &[f64; 3], c: &[f64; 3]| [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
+    let dot = |a: &[f64; 3], c: &[f64; 3]| a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+    let cross = |a: &[f64; 3], c: &[f64; 3]| [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
+    let unit = |a: &[f64; 3]| {
+        let l = dot(a, a).sqrt();
+        [a[0] / l, a[1] / l, a[2] / l]
+    };
+    let o = pts[0];
+    // the first point farthest from o (as Python's max keeps the first of equals)
+    let mut far = pts[0];
+    for p in pts {
+        if dot(&sub(p, &o), &sub(p, &o)) > dot(&sub(&far, &o), &sub(&far, &o)) {
+            far = *p;
+        }
+    }
+    let mut frames: Vec<[[f64; 3]; 3]> = Vec::new();
+    if dot(&sub(&far, &o), &sub(&far, &o)) > 1e-18 {
+        let x = unit(&sub(&far, &o));
+        let mut best = pts[0];
+        for p in pts {
+            let cp = cross(&x, &sub(p, &o));
+            let cb = cross(&x, &sub(&best, &o));
+            if dot(&cp, &cp) > dot(&cb, &cb) {
+                best = *p;
+            }
+        }
+        let c = cross(&x, &sub(&best, &o));
+        if dot(&c, &c) > 1e-18 {
+            let n = unit(&c);
+            if pts.iter().any(|p| dot(&sub(p, &o), &n).abs() > 1e-7) {
+                return None;
+            }
+            frames.push([x, cross(&n, &x), n]);
+        } else {
+            for (a, _xa) in AXES {
+                if dot(&a, &x).abs() < 0.999 {
+                    let k = dot(&a, &x);
+                    let n = unit(&[a[0] - k * x[0], a[1] - k * x[1], a[2] - k * x[2]]);
+                    frames.push([x, cross(&n, &x), n]);
+                }
+            }
+        }
+    } else {
+        for (a, xa) in AXES {
+            frames.push([xa, cross(&a, &xa), a]);
+        }
+    }
+    let mut sk = Sketch::new(name, offset);
+    let [x0, y0, _n0] = frames[0];
+    for (k, p) in pts.iter().enumerate() {
+        sk.points.insert(k as u32 + 1, (dot(&sub(p, &o), &x0), dot(&sub(p, &o), &y0)));
+    }
+    for fr in &frames {
+        sk.add_plane(&(*fr, o), "a 3D sketch's points, on a plane through them", false);
+    }
+    Some(sk)
+}
+
 fn hole_from_name(name: &str) -> Option<f64> {
     static C: OnceLock<Regex> = OnceLock::new();
     static T: OnceLock<Regex> = OnceLock::new();

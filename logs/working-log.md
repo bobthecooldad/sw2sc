@@ -901,3 +901,43 @@ before any more field guesses.
       the coarse pitch (ISO 261: M2 1.6, M3 2.5) or the pitch the name gives. With no depth they go
       through all; the rebuild check says whether either is right. 30 of the 69 now read fully;
       28 still have no size (holes renamed from the defaults). Parity 68/0.
+142. **3D sketches that place Hole Wizard holes** (`mo3DProfileFeature_c`, written right after the
+    hole; about 70 parts of the user's folders, 30 of the hole-blocked ones). Their records write
+    each point twice as three doubles (metres); stray triples don't repeat, except unit vectors (a
+    direction kept twice), which are skipped. The points become a sketch of points on a plane
+    through them, so the hole, the search and the writer work as for any placement sketch: their
+    own plane where they span one, the planes holding the line square to each world axis where
+    they are in a line, the three world planes for one point; all with the first point as origin,
+    so the points sit at the same place on every candidate. Points not on one plane stay TBD,
+    as do 3D sketches anywhere else. 35 of the 69 hole-blocked parts now read fully (30 before);
+    parity 68/0. The first part traced decodes but its rebuild doesn't finish in the budget.
+143. **Plain extrude-and-cut parts never reached the search's alternatives.** A steam-engine part
+    (a boss, a boss read as a cut, a cut) built too little material, though the sequential
+    search, run by hand, found it at once: the search only built parts in sequence when they had
+    fillets, holes, patterns, thin or through-all extrudes and the like; the others tried sets of
+    directions only, so a boss read as a cut, a start from a face of the body so far and a stray
+    loop left out were never tried. Every part is now built in sequence (it tries every direction
+    the plain search did, and the rest). The part rebuilds in both converters; the plate (140)
+    and the four copies of 136 still do. A change for every part, so the check queue's
+    regression set and the long sample run decide whether it stays.
+144. **A hole whose only placement point is the sketch's origin** (a tapped hole on a pin's axis)
+    was written with no points ("a hole needs 1...10000 points"): the writer leaves point 1 at the
+    origin out, as the sketch's own origin. Where it is the only point, the hole now drills at
+    SolidCraft's fixed origin point of the sketch. The pin's hole builds; its fillet is what's left
+    (F-032).
+145. **A circle centred at the wrong point, shown by its dimension.** The block of 140 has two
+    5 mm holes, not one hole and a stray circle: the second hole was read centred on the sketch
+    origin (its true centre lies on a centreline, so it was no "point on no curve", and the
+    nearest such point is the origin), with the radius to its through-point, 18.3 mm. Where a
+    circle's radius is none of the sketch's circle dimensions while it has some, the one point at
+    a dimensioned radius from its through-point (not another circle's centre) is now its centre
+    (`_dimensioned_circles`, after the dimensions are read). The block rebuilds in both
+    converters with its fillet. Parity 481/0 (samples, the hole parts, a large folder of the
+    user's parts).
+146. **The check queue's long run caught a regression** (its first): a pin that rebuilt stopped
+    finding a build after 140 sent it to the sequential search. Its second extrude, from the same
+    sketch, lies inside the first and adds nothing; the sequential search drops every way of a
+    feature that doesn't change the solid ("a way that does nothing is no way SolidWorks built
+    it"), so it had nowhere to go. Where no way of an extrude changes the solid but one builds,
+    the search now goes on from the solid as it was. The pin rebuilds again (both converters).
+

@@ -46,6 +46,11 @@ Each release has a survey log in `logs/survey-<version>.md`.
   `Diameter`, `Depth`, `C-Bore Diameter`, `C-Bore Depth` names some files use.
 - A Hole Wizard hole whose record names no size takes it from its default name (`M3 Clearance
   Hole1`, `M3 Tapped Hole1`, `Tap Drill for M2 Tap1`) with the ISO 273 and ISO 261 tables.
+- A Hole Wizard hole placed by a 3D sketch: its points are read and drilled on the plane through them.
+- Every part is rebuilt in sequence: plain extrude-and-cut parts now also get a boss read as a cut,
+  starts from a face and stray loops left out.
+- A circle whose radius matches none of its sketch's circle dimensions is centred on the point at
+  a dimensioned radius from its through-point.
 
 ### Changed
 - Features kept in the tree that make no solid (unused sketches, reference axes, cosmetic

@@ -387,11 +387,10 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                 arc_opts.append({"arcs:" + f.name: frozenset([n])})
     if len(alts) > 1:
         arc_opts.append({"arcs:" + f.name: frozenset(f.sketch.alt_centres) for f in alts})
-    sketch_of = {f.name: f.sketch for f in feats if f.kind == "sketch"}
-    seq = any(f.kind in ("fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale")
-              or f.thin_mm or f.through_all for f in feats) or \
-        any(f.kind == "boss" and sketch_of.get(f.profile) and any(outside_loops(sketch_of[f.profile], p, ref) for p in sketch_of[f.profile].planes)
-            for f in feats)   # a boss whose sketch has a loop past the part: tried without it, in sequence
+    # every part is built in sequence: each extrude tried every way it changes the solid, as a
+    # boss or a cut where its kind is open, from a face of the body so far, without a stray loop.
+    # (Plain extrude-and-cut parts used to try direction sets only, and missed all of those.)
+    seq = True
     # built in sequence, each extrude's direction is chosen as it is built: one set of directions
     # is enough here. (Every other set was skipped one by one: 3 ** extrudes turns of the loop,
     # billions for a part with 20 extrudes, which spun until the time budget ran out.)
@@ -682,6 +681,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                     if out_ids and any(not set(ids) & set(out_ids) for ids, _p in features._loops(sk_f.sketch)):
                         drops.append(out_ids)
             sides = ["center", "inside", "outside"] if getattr(f, "thin_mm", None) else [None]
+            unchanged = None
             for opt, op, to, side, sp, st, dr in ((o, p, t, sd, s_, s2, d2) for sd in sides for t in tos for p in ops
                                                   for o in ("positive", "negative", "symmetric")
                                                   for s_ in ([None] + ([spans[o]] if o in spans and spans[o] > 1e-6 else []))
@@ -706,6 +706,8 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                 if not ok(r, i):
                     continue
                 if vol is not None and abs(r["volume"] - vol) <= SAME * max(1.0, vol):
+                    if unchanged is None:
+                        unchanged = (c2, p_to, r["volume"])
                     continue
                 if not reachable(r, i):
                     continue
@@ -714,6 +716,10 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                     continue      # the same solid another way (a through-all cut): one is enough
                 seen.append(key)
                 yield from step(i + 1, c2, p_to, r["volume"])
+            # no way of it changes the solid (a boss inside one before it, from the same sketch): it
+            # adds nothing, and the rest goes on from the solid as it was
+            if not seen and unchanged is not None:
+                yield from step(i + 1, *unchanged)
             return
         if f.kind == "shell":
             # open at each flat face of the body so far (those fitting the face SolidWorks names first)

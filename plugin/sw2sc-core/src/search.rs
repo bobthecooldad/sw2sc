@@ -204,17 +204,9 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
     if alts.len() > 1 {
         arc_opts.push(alts.iter().map(|s| (format!("arcs:{}", s.0), s.2.clone())).collect());
     }
-    let seq = ctx.feats.iter().any(|f| {
-        ["fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale"].contains(&f.kind.as_str())
-            || f.thin_mm.is_some_and(|t| t != 0.0)
-            || f.through_all
-    }) || ctx.feats.iter().any(|f| {
-        // a boss whose sketch has a loop past the part: tried without it, in sequence
-        f.kind == "boss"
-            && ctx.feats.iter().find(|x| x.kind == "sketch" && Some(&x.name) == f.profile.as_ref()).and_then(|x| x.sketch.as_ref()).is_some_and(|sk| {
-                sk.planes.iter().any(|p| !outside_loops(sk, &p.0, ctx.rf.as_ref()).is_empty())
-            })
-    });
+    // every part is built in sequence (see the Python): plain extrude-and-cut parts used to try
+    // direction sets only, and missed a boss read as a cut, starts from a face, stray loops
+    let seq = true;
     let options = ["positive", "negative", "symmetric"];
     let mut tries = 0usize;
     let mut done: HashSet<String> = HashSet::new();
@@ -719,6 +711,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                 }
             }
             let sides: Vec<Option<&str>> = if f.thin_mm.is_some_and(|t| t != 0.0) { vec![Some("center"), Some("inside"), Some("outside")] } else { vec![None] };
+            let mut unchanged: Option<(Choices, Picks, Option<f64>)> = None;
             for side in &sides {
                 for to in &tos {
                     for op in &ops {
@@ -768,6 +761,9 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                                 let v = r.volume.unwrap_or(0.0);
                                 if let Some(vol) = vol {
                                     if (v - vol).abs() <= SAME * vol.max(1.0) {
+                                        if unchanged.is_none() {
+                                            unchanged = Some((c2.clone(), p_to.clone(), r.volume));
+                                        }
                                         continue;
                                     }
                                 }
@@ -786,6 +782,13 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                             }
                         }
                     }
+                }
+            }
+            // no way of it changes the solid (a boss inside one before it, from the same sketch):
+            // it adds nothing, and the rest goes on from the solid as it was
+            if seen.is_empty() {
+                if let Some((c2, p_to, v)) = unchanged {
+                    return step(ctx, sh, i + 1, &c2, &p_to, v, sink);
                 }
             }
             false

@@ -910,13 +910,21 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                         pids = sel;
                     }
                 }
+                // its only point the sketch's origin (a hole on a part's axis): SolidCraft's fixed origin point
+                let origin_only = pids.is_empty() && sk.points.contains_key(&1);
                 let position: Value = if let Some(q) = pids.first() {
                     let (u, v) = sk.points[q];
                     json!((0..3).map(|k| t[k] * 1000.0 + u * 1000.0 * px[k] + v * 1000.0 * py[k]).collect::<Vec<f64>>())
+                } else if origin_only {
+                    json!((0..3).map(|k| t[k] * 1000.0).collect::<Vec<f64>>())
                 } else {
                     json!([0, 0, 0])
                 };
-                let mut points = json!({"sketch": ids[&prof], "ids": pids.iter().map(|q| format!("p{q}")).collect::<Vec<_>>()});
+                let mut hole_ids: Vec<String> = pids.iter().map(|q| format!("p{q}")).collect();
+                if origin_only {
+                    hole_ids.push("origin".into());
+                }
+                let mut points = json!({"sketch": ids[&prof], "ids": hole_ids});
                 if flip {
                     points["flip"] = json!(true);
                 }
