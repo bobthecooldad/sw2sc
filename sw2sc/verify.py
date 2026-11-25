@@ -623,6 +623,38 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
             first = not any(x.kind in ("boss", "cut", "revolve", "revcut", "sweep") for x in order[:i]) and \
                 not any(x.kind == "import" for x in feats[:feats.index(f)])
             ops = [None] + ([("join" if f.alt_kind == "boss" else "cut")] if f.alt_kind and not first else [])
+            if getattr(f, "from_face", False):
+                # its sketch has no curves of its own (model edges it selects): an extrude of a face
+                # of the body so far, each flat one tried, both ways
+                if first:
+                    return
+                from . import fillets as _fl
+                d_pre = features.design(name, feats, choices, planes, constraints, picked, feats[feats.index(f) - 1].name)
+                d_pre.pop("pending", None)
+                faces = [x for x in (_fl.body_faces(d_pre, cli, tmp) or []) if x.get("plane_normal")][:16]
+                unchanged = None
+                for x in faces:
+                    for opt in ("positive", "negative"):
+                        for op in ops:
+                            c2 = dict(choices, **{f.name: (opt, op)})
+                            p2 = dict(picked, **{"face:" + f.name: [list(x["point"]), list(x["plane_normal"])]})
+                            _d, r = _prefix(name, feats, c2, planes, constraints, p2, f.name, cli, tmp)
+                            if not ok(r, i):
+                                continue
+                            if vol is not None and abs(r["volume"] - vol) <= SAME * max(1.0, vol):
+                                if unchanged is None:
+                                    unchanged = (c2, p2, r["volume"])
+                                continue
+                            if not reachable(r, i):
+                                continue
+                            key = (round(r["volume"], 6), round(r["area"], 6), tuple(round(v, 6) for v in (r["lo"] or []) + (r["hi"] or [])))
+                            if key in seen:
+                                continue
+                            seen.append(key)
+                            yield from step(i + 1, c2, p2, r["volume"])
+                if not seen and unchanged is not None:
+                    yield from step(i + 1, *unchanged)
+                return
             # no depth in the file: through all, or up to a flat face of the body so far
             tos = [None]
             if f.through_all and not first:

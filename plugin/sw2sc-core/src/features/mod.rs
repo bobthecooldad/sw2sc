@@ -260,6 +260,8 @@ pub struct Feature {
     pub hole: IndexMap<String, serde_json::Value>,
     /// An extrude whose name says the other kind (boss / cut): tried too.
     pub alt_kind: Option<String>,
+    /// An extrude of a sketch with no curves of its own: a face of the body's outline (chosen in the rebuild).
+    pub from_face: bool,
     /// A mirror's (or shell's) face.
     pub mirror_face: Option<FaceRef>,
     /// Planes its record names: frames.
@@ -283,6 +285,11 @@ pub struct Feature {
     pub edges: Vec<Edge>,
     /// For each edge, the two faces at its ends (they border its faces).
     pub edge_ends: Vec<Edge>,
+    /// For each fillet / chamfer edge, the line its two flat faces meet on (point, unit direction;
+    /// mm), from the part's face tags.
+    pub edge_lines: Vec<Option<[[f64; 3]; 2]>>,
+    /// A fillet's own faces in the part's solid, where all are cylinders: (point, axis, radius), mm.
+    pub round_axes: Vec<([f64; 3], [f64; 3], f64)>,
 }
 
 impl Feature {

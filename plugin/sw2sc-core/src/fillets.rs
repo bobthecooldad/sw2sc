@@ -349,7 +349,62 @@ pub fn candidates(prefix: &Value, fillet: &Feature, feats: &[Feature], ev: &mut 
         .filter(|f| f["type"] == "fillet")
         .map(|f| (f["id"].as_i64().unwrap_or(0), f["edge_names"].as_array().map_or(vec![], |a| a.iter().map(|x| x.as_str().unwrap_or("").to_string()).collect())))
         .collect();
-    solve(&fillet.edges, &sc, &design_id, &curves, known, &blends, &fillet.edge_ends, &every)
+    let mut out = solve(&fillet.edges, &sc, &design_id, &curves, known, &blends, &fillet.edge_ends, &every);
+    let mid_of = |m: &Value| -> [f64; 3] { [0, 1, 2].map(|k| m.get(k).and_then(Value::as_f64).unwrap_or(f64::NAN)) };
+    let off_axis = |m: [f64; 3], p: [f64; 3], d: [f64; 3]| -> f64 {
+        let w = [m[0] - p[0], m[1] - p[1], m[2] - p[2]];
+        let t = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+        (w[0] * w[0] + w[1] * w[1] + w[2] * w[2] - t * t).max(0.0).sqrt()
+    };
+    let names = |v: &[(Value, String)]| -> Vec<String> {
+        let mut n: Vec<String> = v.iter().map(|x| x.1.clone()).collect();
+        n.sort();
+        n
+    };
+    // the edges its own faces in the part's solid round: the nearest edge to each axis, tried first
+    if !fillet.round_axes.is_empty() {
+        let mut got: Vec<(Value, String)> = Vec::new();
+        for (p, d, r) in &fillet.round_axes {
+            let mut near: Vec<(f64, &Value, &String)> = every.iter().map(|e| (off_axis(mid_of(&e.1), *p, *d), &e.1, &e.2)).collect();
+            near.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            near.retain(|x| r * 0.999 <= x.0 && x.0 <= 3.0 * r);
+            let Some(first) = near.first() else {
+                got.clear();
+                break;
+            };
+            let item = (first.1.clone(), first.2.clone());
+            if !got.contains(&item) {
+                got.push(item);
+            }
+        }
+        if !got.is_empty() {
+            let key = names(&got);
+            out.retain(|o| names(&o.0) != key);
+            out.insert(0, (got, vec![]));
+            return out;
+        }
+    }
+    // the edges on the lines the face tags give (the sharp edges it rounds), tried first
+    if !fillet.edge_lines.is_empty() && fillet.edge_lines.iter().all(Option::is_some) {
+        let lines: Vec<[[f64; 3]; 2]> = fillet.edge_lines.iter().flatten().copied().collect();
+        let mut got: Vec<(Value, String)> = Vec::new();
+        for [p, d] in &lines {
+            for e in &every {
+                if off_axis(mid_of(&e.1), *p, *d) <= 1e-3 {
+                    let item = (e.1.clone(), e.2.clone());
+                    if !got.contains(&item) {
+                        got.push(item);
+                    }
+                }
+            }
+        }
+        if !got.is_empty() && lines.iter().all(|[p, d]| got.iter().any(|(m, _)| off_axis(mid_of(m), *p, *d) <= 1e-3)) {
+            let key = names(&got);
+            out.retain(|o| names(&o.0) != key);
+            out.insert(0, (got, vec![]));
+        }
+    }
+    out
 }
 
 fn key2(a: &str, b: &str) -> (String, String) {

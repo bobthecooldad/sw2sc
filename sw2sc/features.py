@@ -140,6 +140,7 @@ class Feature:
     chamfer_mm2: float | None = None
     hole: dict = field(default_factory=dict)  # a hole's sizes (mm, degrees) by SolidCraft's names
     alt_kind: str | None = None  # an extrude whose name says the other kind (boss / cut): tried too
+    from_face: bool = False      # an extrude of a sketch with no curves of its own: a face of the body's outline
     mirror_face: tuple | None = None  # a mirror's face: (side|end, feature id, entity|0/1)
     mirror_planes: list = field(default_factory=list)  # planes its record names: frames
     thread: dict = field(default_factory=dict)  # a thread's diameter, pitch, length (mm)
@@ -152,6 +153,8 @@ class Feature:
     import_step: str | None = field(default=None, repr=False, compare=False)    # … as STEP (made when written)
     edges: list = field(default_factory=list)  # a fillet's edges: (face, face), face = (side|end, feature id, entity|0/1)
     edge_ends: list = field(default_factory=list)  # for each edge, the two faces at its ends (they border its faces)
+    edge_lines: list = field(default_factory=list)  # for each edge, the line its two flat faces meet on (mm), from the face tags
+    round_axes: list = field(default_factory=list)  # a fillet's own faces in the part's solid, where all are cylinders: [point, axis, radius], mm
 
 
 # --- the stream ------------------------------------------------------------------------------
@@ -1442,7 +1445,7 @@ def read(sw) -> list[Feature] | None:
             if not f.thin_mm:
                 f.kind, f.reason = "tbd", "shell's thickness not read"
         elif r.cls in ("moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c", "moHelix_c", "moRefCurve_c",
-                       "moSketchBitmap_c", "moExtObject_c"):
+                       "moSketchBitmap_c", "moExtObject_c", "moDatumTarget_c", "moCoordSys_c"):
             # no solid: a cosmetic thread is an annotation, an axis or point reference geometry.
             # Kept in the tree (TBD), not written, and doesn't stop the part rebuilding
             f = Feature("absorbed", nm, r.offset, r.cls,
@@ -1577,7 +1580,102 @@ def read(sw) -> list[Feature] | None:
                                                  first=old_file)
         f.fid = _fid(b, r)
         out.append(f)
-    return _place_holes(out)
+    out = _place_holes(out)
+    _edge_lines(sw, out)
+    return out
+
+
+def _tagged_faces(sw) -> dict:
+    """The faces of the part's own solid by the tag SolidWorks puts on each (with help from
+    cadkit-kernel: the Parasolid attribute `FACE_ID_2001`, integers [kind, feature id, stamp, 0,
+    local index, ...]; as read on our own samples, kind 40 an end, 74 a boss's side, 83 a cut's
+    side, 72 a fillet's face): (kind, feature id, local) -> [(surface type, its fields)], metres."""
+    from . import geometry, parasolid
+    srcs = geometry.parasolid_sources(sw)
+    if not srcs:
+        return {}
+    try:
+        part = parasolid.read(srcs[0][1])
+    except Exception:  # noqa: BLE001
+        return {}
+    N = part.nodes
+    names = {}
+    out: dict = {}
+    for face in part.of_type("FACE"):
+        surf = N.get(face.f.get("surface"))
+        if not surf:
+            continue
+        a, hops = face.f.get("attributes_groups"), 0
+        while a and a in N and hops < 64:
+            hops += 1
+            at = N[a]
+            if at.name != "ATTRIBUTE":
+                break
+            d = at.f.get("definition")
+            if d not in names:
+                dn = N.get(d)
+                idn = N.get(dn.f.get("identifier")) if dn else None
+                v = idn.f.get("string") if idn else None
+                names[d] = "".join(v) if isinstance(v, list) else (v or "")
+            if names[d] == "FACE_ID_2001":
+                vals = []
+                for p in at.f.get("fields") or []:
+                    nv = N.get(p)
+                    if nv and nv.name == "INT_VALUES":
+                        vals += list(nv.f.get("values") or [])
+                if len(vals) >= 5:
+                    out.setdefault((vals[0], vals[1], vals[4]), []).append((surf.name, surf.f))
+            a = at.f.get("next")
+    return out
+
+
+def _plane_line(p1, n1, p2, n2):
+    """The line two planes meet on, as (a point, a unit direction), mm; None where they're parallel."""
+    d = (n1[1] * n2[2] - n1[2] * n2[1], n1[2] * n2[0] - n1[0] * n2[2], n1[0] * n2[1] - n1[1] * n2[0])
+    dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+    if dd < 1e-12:
+        return None
+    h1 = (n1[0] * p1[0] + n1[1] * p1[1] + n1[2] * p1[2]) * 1000
+    h2 = (n2[0] * p2[0] + n2[1] * p2[1] + n2[2] * p2[2]) * 1000
+    a = (n2[1] * d[2] - n2[2] * d[1], n2[2] * d[0] - n2[0] * d[2], n2[0] * d[1] - n2[1] * d[0])
+    b = (d[1] * n1[2] - d[2] * n1[1], d[2] * n1[0] - d[0] * n1[2], d[0] * n1[1] - d[1] * n1[0])
+    pt = [(h1 * a[k] + h2 * b[k]) / dd for k in range(3)]
+    ln = math.sqrt(dd)
+    return [pt, [d[k] / ln for k in range(3)]]
+
+
+def _edge_lines(sw, feats) -> None:
+    """For each fillet and chamfer edge between two flat faces, the line those faces meet on (the
+    sharp edge it rounds), found through the faces' tags in the part's own solid: the edge is then
+    found by place, whatever the sketch's curve numbering."""
+    rounds = [f for f in feats if f.kind in ("fillet", "chamfer") and f.edges]
+    if not rounds:
+        return
+    tagged = _tagged_faces(sw)
+    if not tagged:
+        return
+    planes = {k: [(tuple(fl["pvec"]), tuple(fl["normal"])) for nm, fl in v if nm == "PLANE"] for k, v in tagged.items()}
+    planes = {k: v for k, v in planes.items() if v}
+    for f in rounds:
+        # a fillet's own faces (kind 72): each a cylinder whose axis runs along the edge it rounds
+        own = [s for (kind, fid, _l), v in sorted(tagged.items(), key=lambda kv: kv[0]) if kind == 72 and fid == f.fid for s in v]
+        if f.kind == "fillet" and own and all(nm == "CYLINDER" for nm, _fl in own):
+            f.round_axes = [[[c * 1000 for c in fl["pvec"]], list(fl["axis"]), fl["radius"] * 1000] for _nm, fl in own]
+    # kind 40 an end; a side is 74 on a boss, 83 on a cut (as read on our own samples)
+    kinds = {"end": (40,), "side": (74, 83)}
+
+    def plane_of(ref):
+        for k in kinds.get(ref[0], ()):
+            got = planes.get((k, ref[1], ref[2]))
+            if got:
+                return got
+        return None
+    for f in rounds:
+        lines = []
+        for a, b in f.edges:
+            pa, pb = plane_of(a), plane_of(b)
+            lines.append(_plane_line(pa[0][0], pa[0][1], pb[0][0], pb[0][1]) if pa and pb else None)
+        f.edge_lines = lines
 
 
 def _scale_factors(b: bytes, s: int, e: int) -> tuple | None:
@@ -1743,10 +1841,18 @@ def _place_holes(feats: list) -> list:
     # empty sketch, so its curves were missed): the feature is TBD, the sketch stays in the tree as
     # read, under its own name
     empty = {f.name for f in out if f.kind == "sketch" and not (f.sketch.lines or f.sketch.arcs or f.sketch.circles)}
-    for f in out:
-        if f.kind in ("boss", "cut", "revolve", "revcut", "sweep", "sweepcut") and \
-                (f.profile in empty or getattr(f, "path", None) in empty):
-            f.kind, f.reason = "tbd", "its sketch has no curves of its own (likely model edges it selects): extruding the body's face isn't tried yet"
+    for k, f in enumerate(out):
+        if f.kind in ("boss", "cut") and f.profile in empty:
+            if not any(x.kind in ("boss", "cut", "revolve", "revcut", "sweep", "import") for x in out[:k]):
+                # the first solid feature: there is no model for it to select edges of, so its
+                # sketch's curves weren't read
+                f.kind, f.reason = "tbd", "its sketch's curves weren't read"
+            else:
+                # SolidWorks extrudes edges of the model the sketch selects: SolidCraft extrudes a
+                # face of the body (its outline projected), the face chosen in the rebuild
+                f.from_face = True
+        elif f.kind in ("revolve", "revcut", "sweep", "sweepcut") and (f.profile in empty or getattr(f, "path", None) in empty):
+            f.kind, f.reason = "tbd", "its sketch has no curves of its own (likely model edges it selects)"
     # a sketch no feature uses (SolidWorks allows them) whose plane isn't read doesn't touch the
     # solid: it stays in the tree as TBD, and isn't written
     used = {f.profile for f in out if f.profile}
@@ -2240,6 +2346,23 @@ def extrude_feature(f: Feature, fid: int, sketch_id: int, direction: str, operat
             **({"body_names": [f.name]} if operation == "new_body" else {})}
 
 
+def face_sketch(name: str, fid: int, at, body: str) -> dict:
+    """A sketch on a flat face of the body, its outline projected from the face (SolidCraft keeps
+    the projection and finds it again on every rebuild): an extrude of model edges a SolidWorks
+    sketch selects. `at` is (a point on the face, its normal), mm."""
+    p, n = at
+    a = (0.0, 0.0, 1.0) if abs(n[2]) < 0.9 else (1.0, 0.0, 0.0)
+    x = (a[1] * n[2] - a[2] * n[1], a[2] * n[0] - a[0] * n[2], a[0] * n[1] - a[1] * n[0])
+    ln = math.sqrt(sum(c * c for c in x))
+    x = tuple(c / ln for c in x)
+    y = (n[1] * x[2] - n[2] * x[1], n[2] * x[0] - n[0] * x[2], n[0] * x[1] - n[1] * x[0])
+    return {"id": fid, "name": name, "type": "sketch", "suppressed": False,
+            "plane": {"type": "custom", "plane": {"origin": list(p), "x_dir": list(x), "y_dir": list(y)}},
+            "sketch": {"points": [{"id": "origin", "pos": [0.0, 0.0], "fixed": True}], "curves": [], "constraints": [],
+                       "links": [{"id": "j1", "kind": "project", "source": {"type": "face", "body": body, "at": list(p)}}],
+                       "counters": {"j": 1, "l": 0, "p": 0}}}
+
+
 def design(name: str, feats: list[Feature], choices: dict, planes: dict | None = None,
            constraints: bool = True, fillets: dict | None = None, upto: str | None = None) -> dict:
     """A single-body SolidCraft design from fully decoded features. `choices` gives each extrude's
@@ -2248,11 +2371,16 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
     out, ids, sk_of = [], {}, {}
     nid = 1
     first = True
+    # the face each extrude of model edges is of (chosen in the rebuild), by its sketch
+    face_of = {f.profile: (fillets or {}).get("face:" + f.name) for f in feats if f.from_face and f.kind in ("boss", "cut")}
     for f in feats:
         if f.kind == "sketch":
             f.sketch.choice = (planes or {}).get(f.name, 0)
             sk = with_centres(f.sketch, choices.get("arcs:" + f.name))
-            out.append(sketch_feature(sk, nid, constraints)); ids[f.name] = nid; sk_of[f.name] = sk
+            at = face_of.get(f.name)
+            body = next((g["body_names"][0] for g in out if g.get("body_names")), None)
+            out.append(face_sketch(f.name, nid, at, body) if at and body else sketch_feature(sk, nid, constraints))
+            ids[f.name] = nid; sk_of[f.name] = sk
             f.sketch.params = sk.params   # (a copy with an arc turned holds them)
         elif f.kind in ("boss", "cut"):
             d, op = choices.get(f.name, ("positive", None))

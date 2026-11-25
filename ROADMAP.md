@@ -50,6 +50,8 @@ checks each partial build against the saved solid's volume and box (`sw2sc/verif
 - **Good first:** a part that times out, traced with the debug tools in `tools/` (`rebuild_triage.py`,
   `feature_debug.py`): which feature it stops at and why, written up as an issue.
 
+- **Per-face feature tags** (with help from cadkit-kernel): the part's own solid tags each face with the feature that made it (`FACE_ID_2001`, see `docs/clean-room.md`). Both converters now use them to find fillet edges (working log 152-153); next, checking each rebuild step face by face. Read them, and fillet edges (F-032) can be matched to the faces a fillet actually made, and each step of the rebuild checked face by face, not only by volume and box. *Medium, high value.*
+
 ### 2. Sketches read wrong or not at all
 
 - **Extrudes of a sketch with no curves of its own**: SolidWorks lets an extrude use edges of the model the sketch selects (converted entities), so its sketch record holds none. SolidCraft can extrude a body's face directly (`face: [x,y,z]`): the search should try each flat face of the body so far. Likely most of the next item. *Medium, high value.*
@@ -79,6 +81,8 @@ opens parts only. Next: assemblies in the plugin, then mates as joints (F-005), 
 (F-007), and standing models up (SolidWorks is Y-up, SolidCraft Z-up: F-012).
 
 ### 5. Geometry SolidCraft can't read yet
+
+On the public NIST CTC/FTC set (19 SolidWorks parts): every part opens; 14 of 19 volumes match NIST's own STEP within 0.1%. Three come in as surfaces (B-spline knot multiplicities SolidCraft refuses; edges up to 0.1 mm off their faces), and one test case is 0.16% under. Trees: none rebuilds yet (draft, hole placement, sketch planes, fillet and chamfer edges, rib, move face, and SolidWorks 2012 saves not numbered).
 
 Some solids come in as surfaces because SolidCraft's STEP reader refuses a face: thread-like faces
 winding many turns round a cylinder (B-007), self-intersecting tori (B-010), some trimmed cones

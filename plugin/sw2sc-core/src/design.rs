@@ -673,6 +673,21 @@ fn by_name(out: &[Value]) -> HashMap<String, Value> {
 /// stops after that feature. A feature whose choice the rebuild check makes in the design so far
 /// (a fillet's edges, a mirror's plane …) and that isn't in `picks` ends the design there, with
 /// `"pending": <its name>`.
+/// A sketch on a flat face of the body, its outline projected from the face: an extrude of model
+/// edges a SolidWorks sketch selects (see the Python). `p` a point on the face, `n` its normal, mm.
+fn face_sketch(name: &str, fid: i64, p: [f64; 3], n: [f64; 3], body: &str) -> Value {
+    let a = if n[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+    let x = [a[1] * n[2] - a[2] * n[1], a[2] * n[0] - a[0] * n[2], a[0] * n[1] - a[1] * n[0]];
+    let ln = (x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt();
+    let x = [x[0] / ln, x[1] / ln, x[2] / ln];
+    let y = [n[1] * x[2] - n[2] * x[1], n[2] * x[0] - n[0] * x[2], n[0] * x[1] - n[1] * x[0]];
+    json!({"id": fid, "name": name, "type": "sketch", "suppressed": false,
+           "plane": {"type": "custom", "plane": {"origin": p, "x_dir": x, "y_dir": y}},
+           "sketch": {"points": [{"id": "origin", "pos": [0.0, 0.0], "fixed": true}], "curves": [], "constraints": [],
+                      "links": [{"id": "j1", "kind": "project", "source": {"type": "face", "body": body, "at": p}}],
+                      "counters": {"j": 1, "l": 0, "p": 0}}})
+}
+
 pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &HashMap<String, usize>, constraints: bool, picks: &Picks, upto: Option<&str>) -> Value {
     let mut out: Vec<Value> = Vec::new();
     let mut ids: HashMap<String, i64> = HashMap::new();
@@ -680,6 +695,21 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
     let mut nid: i64 = 1;
     let mut first = true;
     let pick = |k: &str| picks.get(k).filter(|v| !v.is_null());
+    // the face each extrude of model edges is of (chosen in the rebuild), by its sketch
+    let three = |v: &Value| -> Option<[f64; 3]> {
+        let a = v.as_array()?;
+        Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?, a.get(2)?.as_f64()?])
+    };
+    let mut face_of: HashMap<String, ([f64; 3], [f64; 3])> = HashMap::new();
+    for f in feats.iter() {
+        if f.from_face && (f.kind == "boss" || f.kind == "cut") {
+            if let (Some(prof), Some(v)) = (f.profile.as_ref(), pick(&format!("face:{}", f.name))) {
+                if let (Some(p), Some(n)) = (v.get(0).and_then(three), v.get(1).and_then(three)) {
+                    face_of.insert(prof.clone(), (p, n));
+                }
+            }
+        }
+    }
     for fi in 0..feats.len() {
         let f = &feats[fi];
         let kind = f.kind.clone();
@@ -691,7 +721,15 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 let skm = fm.sketch.as_mut().unwrap();
                 skm.choice = choice;
                 let mut sk = with_centres(skm, &flips);
-                out.push(sketch_feature(&mut sk, nid, constraints));
+                let body = out.iter().find_map(|g| g.get("body_names").and_then(|b| b.get(0)).and_then(Value::as_str).map(String::from));
+                match (face_of.get(&fm.name), body) {
+                    (Some((p, n)), Some(body)) => {
+                        let g = face_sketch(&fm.name, nid, *p, *n, &body);
+                        sketch_feature(&mut sk, nid, constraints); // (its params as for any sketch)
+                        out.push(g);
+                    }
+                    _ => out.push(sketch_feature(&mut sk, nid, constraints)),
+                }
                 // (a copy with an arc turned holds them)
                 skm.params = sk.params.clone();
                 skm.dims_skipped = sk.dims_skipped.clone();

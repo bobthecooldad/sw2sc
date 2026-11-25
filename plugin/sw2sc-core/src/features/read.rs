@@ -698,7 +698,7 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 f.kind = "tbd".into();
                 f.reason = "shell's thickness not read".into();
             }
-        } else if ["moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c", "moHelix_c", "moRefCurve_c", "moSketchBitmap_c", "moExtObject_c"].contains(&cls) {
+        } else if ["moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c", "moHelix_c", "moRefCurve_c", "moSketchBitmap_c", "moExtObject_c", "moDatumTarget_c", "moCoordSys_c"].contains(&cls) {
             f = Feature::new("absorbed", nm, r.offset, cls);
             f.reason = format!("{cls}: reference geometry or annotation, no solid; not converted yet");
         } else if cls == "moCombineBodies_c" {
@@ -861,7 +861,9 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             last_sketch = Some(out.len() - 1);
         }
     }
-    Some(place_holes(out))
+    let mut out = place_holes(out);
+    edge_lines(sw, &mut out);
+    Some(out)
 }
 
 /// A Hole Wizard hole's sizes: its named parameters, lengths in mm, angles in degrees.
@@ -1040,6 +1042,134 @@ fn transpose(r: &[V3; 3]) -> [V3; 3] {
 
 /// A hole's placement sketch goes before it; transposed rotations as later candidates; unused
 /// plane-less sketches absorbed; profiles with no curves TBD; fillets after what they round.
+/// The faces of the part's own solid by the tag SolidWorks puts on each (with help from
+/// cadkit-kernel: the Parasolid attribute `FACE_ID_2001`; see the Python `_tagged_faces`):
+/// (kind, feature id, local) -> the faces' surface node indices.
+fn tagged_faces(part: &crate::parasolid::Partition) -> std::collections::BTreeMap<(i64, i64, i64), Vec<i64>> {
+    use crate::parasolid::F;
+    let chars = |f: Option<&F>| -> String {
+        match f {
+            Some(F::List(v)) => v.iter().map(F::ch).collect(),
+            Some(F::Char(c)) => c.to_string(),
+            _ => String::new(),
+        }
+    };
+    let mut names: HashMap<i64, String> = HashMap::new();
+    let mut out: std::collections::BTreeMap<(i64, i64, i64), Vec<i64>> = std::collections::BTreeMap::new();
+    for face in part.of_type("FACE") {
+        let surf = face.p("surface");
+        if part.get(surf).is_none() {
+            continue;
+        }
+        let (mut a, mut hops) = (face.p("attributes_groups"), 0);
+        while hops < 64 {
+            let Some(at) = part.get(a) else { break };
+            hops += 1;
+            if at.name != "ATTRIBUTE" {
+                break;
+            }
+            let d = at.p("definition");
+            let name = names
+                .entry(d)
+                .or_insert_with(|| part.get(d).and_then(|dn| part.get(dn.p("identifier"))).map_or(String::new(), |idn| chars(idn.get("string"))))
+                .clone();
+            if name == "FACE_ID_2001" {
+                let mut vals: Vec<i64> = Vec::new();
+                if let Some(F::List(ps)) = at.get("fields") {
+                    for p in ps {
+                        if let Some(nv) = part.get(p.ptr()) {
+                            if nv.name == "INT_VALUES" {
+                                if let Some(F::List(vs)) = nv.get("values") {
+                                    vals.extend(vs.iter().map(F::int));
+                                }
+                            }
+                        }
+                    }
+                }
+                if vals.len() >= 5 {
+                    out.entry((vals[0], vals[1], vals[4])).or_default().push(surf);
+                }
+            }
+            a = at.p("next");
+        }
+    }
+    out
+}
+
+/// The line two planes meet on, as (a point, a unit direction), mm (see the Python `_plane_line`).
+fn plane_line(p1: [f64; 3], n1: [f64; 3], p2: [f64; 3], n2: [f64; 3]) -> Option<[[f64; 3]; 2]> {
+    let d = [n1[1] * n2[2] - n1[2] * n2[1], n1[2] * n2[0] - n1[0] * n2[2], n1[0] * n2[1] - n1[1] * n2[0]];
+    let dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if dd < 1e-12 {
+        return None;
+    }
+    let h1 = (n1[0] * p1[0] + n1[1] * p1[1] + n1[2] * p1[2]) * 1000.0;
+    let h2 = (n2[0] * p2[0] + n2[1] * p2[1] + n2[2] * p2[2]) * 1000.0;
+    let a = [n2[1] * d[2] - n2[2] * d[1], n2[2] * d[0] - n2[0] * d[2], n2[0] * d[1] - n2[1] * d[0]];
+    let b = [d[1] * n1[2] - d[2] * n1[1], d[2] * n1[0] - d[0] * n1[2], d[0] * n1[1] - d[1] * n1[0]];
+    let pt = [0, 1, 2].map(|k| (h1 * a[k] + h2 * b[k]) / dd);
+    let ln = dd.sqrt();
+    Some([pt, [d[0] / ln, d[1] / ln, d[2] / ln]])
+}
+
+/// For each fillet and chamfer edge between two flat faces, the line those faces meet on; and a
+/// fillet's own faces' axes where all are cylinders (see the Python `_edge_lines`).
+fn edge_lines(sw: &SwFile, feats: &mut [Feature]) {
+    if !feats.iter().any(|f| (f.kind == "fillet" || f.kind == "chamfer") && !f.edges.is_empty()) {
+        return;
+    }
+    let srcs = crate::step::parasolid_sources(sw);
+    let Some((_n, data)) = srcs.first() else { return };
+    let Ok(part) = crate::parasolid::read(data) else { return };
+    let tagged = tagged_faces(&part);
+    if tagged.is_empty() {
+        return;
+    }
+    let planes: HashMap<(i64, i64, i64), Vec<([f64; 3], [f64; 3])>> = tagged
+        .iter()
+        .map(|(k, v)| (*k, v.iter().filter_map(|s| part.get(*s)).filter(|n| n.name == "PLANE").map(|n| (n.v("pvec"), n.v("normal"))).collect::<Vec<_>>()))
+        .filter(|(_, v)| !v.is_empty())
+        .collect();
+    for f in feats.iter_mut() {
+        if !((f.kind == "fillet" || f.kind == "chamfer") && !f.edges.is_empty()) {
+            continue;
+        }
+        // a fillet's own faces (kind 72): each a cylinder whose axis runs along the edge it rounds
+        let own: Vec<&crate::parasolid::Node> = tagged
+            .iter()
+            .filter(|((kind, fid, _), _)| *kind == 72 && *fid == f.fid as i64)
+            .flat_map(|(_, v)| v.iter().filter_map(|s| part.get(*s)))
+            .collect();
+        if f.kind == "fillet" && !own.is_empty() && own.iter().all(|n| n.name == "CYLINDER") {
+            f.round_axes = own
+                .iter()
+                .map(|n| {
+                    let p = n.v("pvec");
+                    ([p[0] * 1000.0, p[1] * 1000.0, p[2] * 1000.0], n.v("axis"), n.r("radius") * 1000.0)
+                })
+                .collect();
+        }
+    }
+    // kind 40 an end; a side is 74 on a boss, 83 on a cut (as read on our own samples)
+    let plane_of = |r: &FaceRef| -> Option<([f64; 3], [f64; 3])> {
+        let kinds: &[i64] = if r.side { &[74, 83] } else { &[40] };
+        kinds.iter().find_map(|k| planes.get(&(*k, r.fid as i64, r.v as i64)).map(|v| v[0]))
+    };
+    for f in feats.iter_mut() {
+        if !((f.kind == "fillet" || f.kind == "chamfer") && !f.edges.is_empty()) {
+            continue;
+        }
+        f.edge_lines = f
+            .edges
+            .iter()
+            .map(|(a, b)| match (plane_of(a), plane_of(b)) {
+                (Some((p1, n1)), Some((p2, n2))) => plane_line(p1, n1, p2, n2),
+                _ => None,
+            })
+            .collect();
+    }
+}
+
 fn place_holes(mut out: Vec<Feature>) -> Vec<Feature> {
     let holes: Vec<(String, usize)> = out.iter().filter(|x| x.kind == "hole").map(|x| (x.name.clone(), x.offset)).collect();
     for (name, off) in holes {
@@ -1108,13 +1238,25 @@ fn place_holes(mut out: Vec<Feature>) -> Vec<Feature> {
         .filter(|f| f.kind == "sketch" && f.sketch.as_ref().is_some_and(|s| s.lines.is_empty() && s.arcs.is_empty() && s.circles.is_empty()))
         .map(|f| f.name.clone())
         .collect();
-    for f in out.iter_mut() {
-        // (the feature is TBD; the sketch stays in the tree as read, under its own name)
-        if ["boss", "cut", "revolve", "revcut", "sweep", "sweepcut"].contains(&f.kind.as_str())
+    for k in 0..out.len() {
+        let solid_before = out[..k].iter().any(|x| ["boss", "cut", "revolve", "revcut", "sweep", "import"].contains(&x.kind.as_str()));
+        let f = &mut out[k];
+        // (the sketch stays in the tree as read, under its own name)
+        if ["boss", "cut"].contains(&f.kind.as_str()) && f.profile.as_ref().is_some_and(|p| empty.contains(p)) {
+            if !solid_before {
+                // the first solid feature: no model for it to select edges of (see the Python)
+                f.kind = "tbd".into();
+                f.reason = "its sketch's curves weren't read".into();
+            } else {
+                // SolidWorks extrudes edges of the model the sketch selects: SolidCraft extrudes a
+                // face of the body (its outline projected), the face chosen in the rebuild
+                f.from_face = true;
+            }
+        } else if ["revolve", "revcut", "sweep", "sweepcut"].contains(&f.kind.as_str())
             && (f.profile.as_ref().is_some_and(|p| empty.contains(p)) || f.path.as_ref().is_some_and(|p| empty.contains(p)))
         {
             f.kind = "tbd".into();
-            f.reason = "its sketch has no curves of its own (likely model edges it selects): extruding the body's face isn't tried yet".into();
+            f.reason = "its sketch has no curves of its own (likely model edges it selects)".into();
         }
     }
     let used: HashSet<String> = out.iter().filter_map(|f| f.profile.clone()).collect();

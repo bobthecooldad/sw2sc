@@ -52,6 +52,11 @@ Each release has a survey log in `logs/survey-<version>.md`.
 - A circle whose radius matches none of its sketch's circle dimensions is centred on the point at
   a dimensioned radius from its through-point.
 - A fillet whose edge the file gives as one face twice (a cylinder's rim) is matched to that face's edges.
+- An extrude whose sketch has no curves of its own (edges of the model it selects) is tried as an extrude of each
+  flat face of the body so far, its sketch a projection of that face.
+- Datum targets and coordinate systems are kept in the tree, making no solid.
+- Fillet edges are found from the part's own face tags (with help from cadkit-kernel): the edge each
+  fillet face of the saved solid rounds, whatever the sketch's curve numbering.
 
 ### Changed
 - Features kept in the tree that make no solid (unused sketches, reference axes, cosmetic

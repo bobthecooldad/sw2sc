@@ -959,4 +959,63 @@ before any more field guesses.
     extrude exists at all: SolidWorks can extrude edges of the model a sketch selects (converted
     entities), so the sketch holds no curves of its own; the TBD reason says so, and extruding the
     body's face (SolidCraft's `face:`) is the next thing for the search to try (ROADMAP). Parity 413/0.
+150. **Extrudes of model edges, and the NIST test set.**
+    - (The user's point.) SolidWorks can extrude edges of the model a sketch selects, so the
+      sketch holds no curves of its own. Such an extrude (not the part's first solid feature: then
+      there's no model to select from, and its curves weren't read) is now `from_face`: the search
+      tries each flat face of the body so far, both ways, and the design writes its sketch on that
+      face with SolidCraft's projected-face link (`links: [{kind: project, source: {type: face,
+      body, at}}]`; SolidCraft finds the outline again on every rebuild: checked by evaluating a
+      sketch holding only the link). Of the 22 census parts blocked by an empty sketch alone, all
+      had it on their first extrude, so none of them is helped; the rule is for the later ones.
+    - Datum targets (`moDatumTarget_c`) and coordinate systems (`moCoordSys_c`) are annotations
+      and reference geometry: kept in the tree, no solid (they blocked 5 NIST parts).
+    - **NIST CTC/FTC set** (19 SolidWorks parts, saved by SolidWorks 2012, 2015 and 2018; the
+      user's download, third-party and git-ignored). Every part opens with its solid. Its volume
+      against NIST's own STEP of the same test case: 14 of 19 within 0.1%. The other 5: CTC 02
+      (both saves) and FTC 07 come in as surfaces (SolidCraft refuses 6 of 488 faces on a B-spline
+      knot multiplicity; 62 edges lie up to 0.1 mm off their faces); CTC 03 (both) is 0.16% under.
+      Feature trees: none rebuilds yet: the 5 SolidWorks 2012 saves aren't numbered, and every
+      other has two or more of draft, hole placement, sketch planes, fillet and chamfer edges, rib,
+      move face, move/copy body. (cadkit-kernel reports 39 of 41 imported and 32 of 37 volumes
+      matching on the NIST set; its author says it is clean-room, and it may now guide us,
+      credited as a helper.)
+151. **The local model's notes on cadkit-kernel, and per-face feature tags.** The 8B model's notes
+    on cadkit-kernel's SolidWorks crates (`~/.sw2sc-checks/qwen/cadkit`) are thin and partly
+    invented (offset tables that aren't in the code), so none of them is used as a fact. Two things
+    hold: their crate is built around working back from the finished solid (modules `unblend`,
+    `unmirror`, `hoist`, `reorder`, `prefix`, `fastverify`), and, read in their code itself, the
+    face tags behind it: each face of the part's Parasolid body carries `FACE_ID_2001`, integers
+    `[kind, feature id, stamp, 0, local index, ...]`, the feature id the one in KeyWords (40 an end
+    cap, 74 a side, 72 a fillet face, as they read it). Recorded with credit in docs/clean-room.md;
+    not used yet: it is the way to match fillet edges and check each rebuild step face by face.
+152. **Fillet edges from the face tags (in progress: Python done, Rust port not written).** Read
+    on our own samples, `FACE_ID_2001` (151) holds: a boss's faces are kind 40 (ends, local 0/1)
+    and 74 (sides, local = the sketch curve id), a cut's sides kind 83, a fillet's own faces kind
+    72 (local 1..n), each with the feature id of KeyWords. A fillet record's face references
+    ("end", fid, 0|1) and ("side", fid, curve) are those same numbers, so the tags settle the
+    stand of 148: the file's curve numbers are right, our sketch reading misnumbers that cut.
+    - `features._tagged_faces(sw)`: every face of the part's Parasolid body by its tag.
+    - `features._edge_lines`: for each fillet/chamfer edge between two flat tagged faces, the
+      line the planes meet on (`edge_lines`); and for a fillet whose own faces (kind 72) are all
+      cylinders, each face's axis and radius (`round_axes`).
+    - `fillets.candidates`: the nearest edge of the build so far to each axis (1 to 3 radii away,
+      the sharp edge a round replaced) is tried first; else, where every edge has a line, the
+      edges lying on those lines; then the face matcher as before.
+    Results (Python): the training block and the solenoid pin rebuild with their fillets found
+    this way; the stand still doesn't (its last cuts, next to look at); a sensor housing times
+    out. NOT YET IN RUST: `edge_lines`/`round_axes` aren't read by the Rust port, nor used by its
+    `fillets::candidates`, and not in the parity dumps; the plugin doesn't get this until they are
+    (same code shape: `parasolid.rs` has the ATTRIBUTE/ATTRIB_DEF/INT_VALUES nodes and `Node::p`,
+    `F::List`). Then add both fields to `compare_features.py` and `dump_features.rs`.
+    - Note on the check queue: Desk-29_103 rebuilds in 70-90 s alone but times out (240 s) when
+      other rebuilds run at the same time; three "regression" failures today were that. Don't run
+      heavy rebuilds while the queue's regression step runs, or give that part more time.
+153. **Face-tag fillet edges ported to Rust** (finishing 152). `features/read.rs`: `tagged_faces`,
+    `plane_line`, `edge_lines` (fields `edge_lines`, `round_axes` on `Feature`); `fillets.rs`:
+    the same head of `candidates` (nearest edge to each fillet face's axis, else the edges on the
+    face-pair lines, then the matcher). Both fields are in the parity dumps
+    (`compare_features.py`, `dump_features.rs`); the empty face assignments are a list on both
+    sides. Parity 504/0 (samples, the user's Documents, a large Dropbox folder, the hole parts, the
+    fillet parts, the NIST set).
 

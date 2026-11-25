@@ -18,6 +18,10 @@ This converter has to stay free of proprietary code and data, so anyone can use 
 
 Another converter's code, whatever its licence, is read only once its authors say how they learned the format and that fits the rules above (public specifications and study of sample files, no SolidWorks API, SDK or Document Manager). Until then only results are compared, on the same public parts. cadkit-kernel (github.com/civilkit/cadkit-kernel, MIT OR Apache-2.0, crates `ck-sldprt` and `ck-swedit`): its author says it was made clean-room (asked 2026-11-24). It may be read as a guide; every finding it leads to is credited to it here and in the working log ("with help from cadkit-kernel"), and its code is not copied.
 
+### Findings from cadkit-kernel (credited)
+
+- *With help from cadkit-kernel* (`ck-sldprt/src/ir.rs`): each face of the part's Parasolid body carries the attribute `FACE_ID_2001`, integers `[kind, feature id, stamp, 0, local index, ...]`. The feature id is the feature's id in `swXmlContents/KeyWords`; a face two features share carries one tag per feature. Their reading of `kind` from sample files: 40 an end cap, 74 a side, 72 a fillet face. The body's `LAST_BODY_MODIFYING_FEATURE_ID` names the last feature that changed it. Not yet used here; to be checked on our own samples before it is.
+
 ## How the formats were learned
 Record each new finding here.
 

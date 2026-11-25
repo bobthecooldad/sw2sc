@@ -12,6 +12,7 @@ own solid picks between them.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import subprocess
@@ -281,7 +282,43 @@ def candidates(prefix: dict, fillet, feats: list, cli: str, tmp: str, known: lis
         if sk:
             curves[f["id"]] = [c["id"] for c in sk["sketch"]["curves"] if not c.get("construction")]
     blends = {f["id"]: f["edge_names"] for f in prefix["features"] if f.get("type") == "fillet"}
-    return solve(fillet.edges, sc, design_id, curves, known, blends, fillet.edge_ends, every)
+    out = solve(fillet.edges, sc, design_id, curves, known, blends, fillet.edge_ends, every)
+    def off_axis(m, p, d):
+        w = [m[k] - p[k] for k in range(3)]
+        t = sum(w[k] * d[k] for k in range(3))
+        return math.sqrt(max(0.0, sum(w[k] * w[k] for k in range(3)) - t * t))
+    # the edges its own faces in the part's solid round (each face a cylinder whose axis runs along
+    # its edge, 1 to 3 radii from it): the nearest edge to each axis, tried first
+    axes = getattr(fillet, "round_axes", None) or []
+    if axes:
+        got = []
+        for p, d, r in axes:
+            near = sorted(((off_axis(mid, p, d), mid, name) for _fc, mid, name in every), key=lambda x: x[0])
+            near = [x for x in near if r * 0.999 <= x[0] <= 3 * r]
+            if not near:
+                got = []
+                break
+            if (near[0][1], near[0][2]) not in got:
+                got.append((near[0][1], near[0][2]))
+        if got:
+            out = [(got, [])] + [o for o in out if sorted(n for _m, n in o[0]) != sorted(n for _m, n in got)]
+            return out
+    # the edges on the lines the face tags give (the sharp edges it rounds), tried first
+    lines = getattr(fillet, "edge_lines", None) or []
+    if lines and all(ln is not None for ln in lines):
+        got = []
+        for (p, d) in lines:
+            for _fc, mid, name in every:
+                w = [mid[k] - p[k] for k in range(3)]
+                t = sum(w[k] * d[k] for k in range(3))
+                off = math.sqrt(max(0.0, sum(w[k] * w[k] for k in range(3)) - t * t))
+                if off <= 1e-3 and (mid, name) not in got:
+                    got.append((mid, name))
+        if got and all(any(math.sqrt(max(0.0, sum((m[k] - p[k]) ** 2 for k in range(3)) - sum((m[k] - p[k]) * d[k] for k in range(3)) ** 2)) <= 1e-3
+                               for m, _n in got) for p, d in lines):
+            tagged = (got, [])
+            out = [tagged] + [o for o in out if sorted(n for _m, n in o[0]) != sorted(n for _m, n in got)]
+    return out
 
 
 def _smooth_pairs(design: dict) -> set:

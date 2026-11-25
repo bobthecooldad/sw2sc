@@ -614,6 +614,57 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                     ops.push(Some(if alt == "boss" { "join" } else { "cut" }));
                 }
             }
+            if f.from_face {
+                // its sketch has no curves of its own (model edges it selects): an extrude of a face
+                // of the body so far, each flat one tried, both ways (see the Python)
+                if first || at == 0 {
+                    return false;
+                }
+                let prev = ctx.feats[at - 1].name.clone();
+                let d_pre = ctx.design(choices, picks, Some(&prev));
+                let faces: Vec<Value> = fillets::body_faces(&d_pre, ctx.ev).into_iter().filter(|x| x.get("plane_normal").is_some_and(|n| !n.is_null())).take(16).collect();
+                let mut unchanged: Option<(Choices, Picks, Option<f64>)> = None;
+                for x in &faces {
+                    for opt in ["positive", "negative"] {
+                        for op in &ops {
+                            let mut c2 = choices.clone();
+                            c2.insert(f.name.clone(), json!([opt, op]));
+                            let p2 = picks.with(&format!("face:{}", f.name), json!([x["point"], x["plane_normal"]]));
+                            let (_d, r) = ctx.prefix(&c2, &p2, &f.name);
+                            if !ok_at(ctx, sh, &r, i) {
+                                continue;
+                            }
+                            let r = r.unwrap();
+                            if let Some(vol) = vol {
+                                if (r.volume.unwrap_or(0.0) - vol).abs() <= SAME * vol.max(1.0) {
+                                    if unchanged.is_none() {
+                                        unchanged = Some((c2.clone(), p2.clone(), r.volume));
+                                    }
+                                    continue;
+                                }
+                            }
+                            if !sh.reachable(rf.as_ref(), &r, i) {
+                                continue;
+                            }
+                            let bx: Vec<i64> = r.lo.iter().chain(r.hi.iter()).flat_map(|a| a.iter().map(|v| k6(Some(*v)))).collect();
+                            let key = (k6(r.volume), k6(r.area), bx);
+                            if seen.contains(&key) {
+                                continue;
+                            }
+                            seen.push(key);
+                            if step(ctx, sh, i + 1, &c2, &p2, r.volume, sink) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                if seen.is_empty() {
+                    if let Some((c2, p2, v)) = unchanged {
+                        return step(ctx, sh, i + 1, &c2, &p2, v, sink);
+                    }
+                }
+                return false;
+            }
             // no depth in the file: through all, or up to a flat face of the body so far
             let mut tos: Vec<Option<Value>> = vec![None];
             if f.through_all && !first {
