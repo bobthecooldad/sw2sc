@@ -112,7 +112,7 @@ impl Writer {
     }
 
     fn bcurve(&mut self, c: &Curve) -> String {
-        let (ks, ms) = compress_knots(&c.u, 0.0);
+        let (ks, ms) = compress_knots(&c.u, crate::nurbs::knot_eps(&c.u));
         let pts: Vec<String> = c.pts.iter().map(|p| self.point([p[0], p[1], p[2]])).collect();
         let (pts, knots) = (pts.join(","), ks.iter().map(|x| r(*x)).collect::<Vec<_>>().join(","));
         let mults = ms.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(",");
@@ -156,8 +156,8 @@ impl Writer {
     }
 
     fn bsurface(&mut self, s: &Surface) -> String {
-        let (uk, um) = compress_knots(&s.u, 0.0);
-        let (vk, vm) = compress_knots(&s.v, 0.0);
+        let (uk, um) = compress_knots(&s.u, crate::nurbs::knot_eps(&s.u));
+        let (vk, vm) = compress_knots(&s.v, crate::nurbs::knot_eps(&s.v));
         let mut rows = Vec::new();
         for row in &s.g {
             let ps: Vec<String> = row.iter().map(|p| self.point(*p)).collect();

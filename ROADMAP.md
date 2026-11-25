@@ -82,7 +82,7 @@ opens parts only. Next: assemblies in the plugin, then mates as joints (F-005), 
 
 ### 5. Geometry SolidCraft can't read yet
 
-On the public NIST CTC/FTC set (19 SolidWorks parts): every part opens; 14 of 19 volumes match NIST's own STEP within 0.1%. Three come in as surfaces (B-spline knot multiplicities SolidCraft refuses; edges up to 0.1 mm off their faces), and one test case is 0.16% under. Trees: none rebuilds yet (draft, hole placement, sketch planes, fillet and chamfer edges, rib, move face, and SolidWorks 2012 saves not numbered).
+On the public NIST CTC/FTC set (19 SolidWorks parts): every part opens; 14 of 19 volumes match NIST's own STEP within 0.1%. Three come in as surfaces: their own B-spline surfaces have interior knots of multiplicity equal to the degree (a C0 crease), which SolidCraft's pcurve step refuses (working log 154: knot removal or splitting the face is next), and one test case is 0.16% under. Trees: none rebuilds yet (draft, hole placement, sketch planes, fillet and chamfer edges, rib, move face, and SolidWorks 2012 saves not numbered).
 
 Some solids come in as surfaces because SolidCraft's STEP reader refuses a face: thread-like faces
 winding many turns round a cylinder (B-007), self-intersecting tori (B-010), some trimmed cones

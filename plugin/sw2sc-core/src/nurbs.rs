@@ -18,6 +18,11 @@ pub fn expand_knots(knots: &[f64], mults: &[i64]) -> Vec<f64> {
     out
 }
 
+/// Knots this close are one (a rounding error apart; see the Python).
+pub fn knot_eps(full: &[f64]) -> f64 {
+    1e-12 * full.iter().fold(1.0f64, |m, k| m.max(k.abs()))
+}
+
 pub fn compress_knots(full: &[f64], eps: f64) -> (Vec<f64>, Vec<i64>) {
     let (mut ks, mut ms): (Vec<f64>, Vec<i64>) = (vec![], vec![]);
     for &k in full {

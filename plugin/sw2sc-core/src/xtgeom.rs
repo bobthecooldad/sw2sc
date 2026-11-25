@@ -1086,11 +1086,43 @@ impl<'a> Converter<'a> {
                 return gerr("supports are not at the blend radius from the spine");
             }
             let (a, b) = (unit(sub(f0, c)), unit(sub(f1, c)));
-            let ang = dot(a, b).clamp(-1.0, 1.0).acos();
-            if !(1e-7..=PI - 1e-7).contains(&ang) {
-                return gerr("degenerate cross-section");
+            let mut ang = dot(a, b).clamp(-1.0, 1.0).acos();
+            let ta = at(&spine, lo + (hi - lo) * i.saturating_sub(1) as f64 / (rows_n - 1) as f64);
+            let tb = at(&spine, lo + (hi - lo) * (i + 1).min(rows_n - 1) as f64 / (rows_n - 1) as f64);
+            let tdir = unit(sub(tb, ta));
+            if ang < 1e-7 {
+                // the feet one point: the ball fills both supports (a pipe of the blend's radius bent
+                // round a corner): the tube of that radius round the spine (see the Python)
+                let mut g: V = match sp {
+                    Some(s) if s.get("normal").is_some() => s.v("normal"),
+                    _ => [0.0, 0.0, 1.0],
+                };
+                if dot(g, tdir).abs() > 0.999 {
+                    g = if tdir[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+                }
+                let u1 = unit(sub(g, mul(tdir, dot(g, tdir))));
+                let u2 = cross(tdir, u1);
+                rows.push(
+                    (0..cols_n)
+                        .map(|k| {
+                            let t = 2.0 * PI * k as f64 / (cols_n - 1) as f64;
+                            add(c, mul(add(mul(u1, t.cos()), mul(u2, t.sin())), r_face))
+                        })
+                        .collect::<Vec<V>>(),
+                );
+                continue;
             }
-            let bperp = unit(sub(b, mul(a, dot(a, b))));
+            let bperp = if ang > PI - 1e-7 {
+                // the feet opposite each other (a full round between parallel faces): the half
+                // circle square to the spine, on the side the face's own boundary is (see the Python)
+                let yv = unit(cross(tdir, a));
+                let near = |p: V| bpts.iter().map(|q| dist(p, *q)).fold(f64::INFINITY, f64::min);
+                let (up, down) = (near(add(c, mul(yv, r_face))), near(add(c, mul(yv, -r_face))));
+                ang = PI;
+                if up <= down { yv } else { mul(yv, -1.0) }
+            } else {
+                unit(sub(b, mul(a, dot(a, b))))
+            };
             let ext = 0.04 * ang;
             rows.push(
                 (0..cols_n)

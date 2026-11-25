@@ -83,7 +83,7 @@ class Writer:
         raise ValueError(f"curve {kind}")
 
     def bcurve(self, c: nurbs.Curve) -> str:
-        ks, ms = nurbs.compress_knots(c.U)
+        ks, ms = nurbs.compress_knots(c.U, nurbs.knot_eps(c.U))
         pts = ",".join(self.point(p) for p in c.P)
         knots = ",".join(_r(k) for k in ks)
         mults = ",".join(str(m) for m in ms)
@@ -112,8 +112,8 @@ class Writer:
         raise ValueError(f"surface {kind}")
 
     def bsurface(self, s: nurbs.Surface) -> str:
-        uk, um = nurbs.compress_knots(s.U)
-        vk, vm = nurbs.compress_knots(s.V)
+        uk, um = nurbs.compress_knots(s.U, nurbs.knot_eps(s.U))
+        vk, vm = nurbs.compress_knots(s.V, nurbs.knot_eps(s.V))
         rows = ",".join("(" + ",".join(self.point(p) for p in row) + ")" for row in s.G)
         common = (f"({','.join(map(str, um))}),({','.join(map(str, vm))}),"
                   f"({','.join(_r(k) for k in uk)}),({','.join(_r(k) for k in vk)}),.UNSPECIFIED.")

@@ -1018,4 +1018,20 @@ before any more field guesses.
     (`compare_features.py`, `dump_features.rs`); the empty face assignments are a list on both
     sides. Parity 504/0 (samples, the user's Documents, a large Dropbox folder, the hole parts, the
     fillet parts, the NIST set).
+154. **NIST parts that came in as surfaces** (CTC 02 both saves, FTC 07). Compared with
+    cadkit-kernel's rolling-ball construction (credited; it builds cross-sections from the blend's
+    own `range`, support sides and spine limits, and it collapses the same two cases below too).
+    - FTC 07's four fillets fell back to a fitted surface ("degenerate cross-section"): each joins
+      two cylinders of the blend's own radius (a pipe bent round a corner), so the ball fills both
+      and its feet are one point. The blend is then the tube of that radius round the spine: each
+      cross-section a whole circle square to the spine, started from the spine plane's normal on
+      every row (`_blend_surface_exact`, both converters). Likewise feet exactly opposite (a full
+      round between parallel faces, F-045) give a half circle, on the side the face's own boundary
+      is. No fillet of FTC 07 falls back now.
+    - STEP knots a rounding error apart (1e-12 of the knot range) are merged (`nurbs.knot_eps`,
+      both writers): written separately they don't increase.
+    - What still stops both parts: B-spline surfaces in the file itself (rational, degrees 2x3)
+      whose interior knots have multiplicity 3, the degree (a C0 crease Parasolid allows);
+      SolidCraft's pcurve step refuses them ("portable B-rep: knot multiplicity"). Next: knot
+      removal where the surface is in fact smooth there, else split the face at the crease.
 

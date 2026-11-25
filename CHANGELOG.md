@@ -57,6 +57,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
 - Datum targets and coordinate systems are kept in the tree, making no solid.
 - Fillet edges are found from the part's own face tags (with help from cadkit-kernel): the edge each
   fillet face of the saved solid rounds, whatever the sketch's curve numbering.
+- Rolling-ball fillets whose ball fills both supports (a pipe bent round a corner) are built as the tube round
+  their spine, and full rounds between parallel faces as half circles, instead of a fitted approximation.
+- STEP knots a rounding error apart are merged.
 
 ### Changed
 - Features kept in the tree that make no solid (unused sketches, reference axes, cosmetic

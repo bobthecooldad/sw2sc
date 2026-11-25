@@ -805,9 +805,33 @@ class Converter:
                 raise GeomError("supports are not at the blend radius from the spine")
             a, b = unit(sub(f0, c)), unit(sub(f1, c))
             ang = math.acos(max(-1.0, min(1.0, dot(a, b))))
-            if ang < 1e-7 or ang > math.pi - 1e-7:
-                raise GeomError("degenerate cross-section")
-            bperp = unit(sub(b, mul(a, dot(a, b))))
+            ta = _at(spine, lo + (hi - lo) * max(i - 1, 0) / (rows_n - 1))
+            tb = _at(spine, lo + (hi - lo) * min(i + 1, rows_n - 1) / (rows_n - 1))
+            tdir = unit(sub(tb, ta))
+            if ang < 1e-7:
+                # the feet one point: the ball fills both supports (a pipe of the blend's radius bent
+                # round a corner), so the blend is the tube of that radius round the spine: a whole
+                # circle square to the spine, from the spine plane's normal on every row
+                g = tuple(sp.f["normal"]) if sp is not None and "normal" in sp.f else (0.0, 0.0, 1.0)
+                if abs(dot(g, tdir)) > 0.999:
+                    g = (1.0, 0.0, 0.0) if abs(tdir[0]) < 0.9 else (0.0, 1.0, 0.0)
+                u1 = unit(sub(g, mul(tdir, dot(g, tdir))))
+                u2 = cross(tdir, u1)
+                rows.append([add(c, mul(add(mul(u1, math.cos(2 * math.pi * k / (cols_n - 1))),
+                                            mul(u2, math.sin(2 * math.pi * k / (cols_n - 1)))), r_face))
+                             for k in range(cols_n)])
+                continue
+            if ang > math.pi - 1e-7:
+                # the feet opposite each other (a full round between parallel faces): the half circle
+                # square to the spine, on the side the face's own boundary is (its end edges are
+                # that half circle)
+                yv = unit(cross(tdir, a))
+                up = min(math.dist(add(c, mul(yv, r_face)), q) for q in bpts)
+                down = min(math.dist(add(c, mul(yv, -r_face)), q) for q in bpts)
+                bperp = yv if up <= down else mul(yv, -1.0)
+                ang = math.pi
+            else:
+                bperp = unit(sub(b, mul(a, dot(a, b))))
             ext = 0.04 * ang
             rows.append([add(c, mul(add(mul(a, math.cos(-ext + (ang + 2 * ext) * k / (cols_n - 1))),
                                         mul(bperp, math.sin(-ext + (ang + 2 * ext) * k / (cols_n - 1)))), r_face))

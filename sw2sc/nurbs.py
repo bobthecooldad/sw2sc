@@ -19,6 +19,12 @@ def expand_knots(knots: list[float], mults: list[int]) -> list[float]:
     return out
 
 
+def knot_eps(full: list[float]) -> float:
+    """Knots this close are one (a rounding error apart: written separately they don't increase,
+    which a STEP reader rightly refuses)."""
+    return 1e-12 * max([1.0] + [abs(k) for k in full])
+
+
 def compress_knots(full: list[float], eps: float = 0.0) -> tuple[list[float], list[int]]:
     ks: list[float] = []
     ms: list[int] = []
