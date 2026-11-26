@@ -25,6 +25,9 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- Revolves and revolved cuts are included at their own place in the sequential rebuild, and the
+  material bounds account for later revolves. Previously the design writer emitted them but the
+  rebuild skipped them. Python and Rust, with rebuild tests; older unread centrelines remain F-039.
 - SolidWorks 2012 saves whose standard planes are kept in `Contents/Config-0` (the five NIST CTC
   2012 parts) now have their feature trees read: the stream's start number is the one that lets
   the most records be told apart. Feature names are read where the node tag's class number is past

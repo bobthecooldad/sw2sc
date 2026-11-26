@@ -1421,3 +1421,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     only on its 3D sketch. FTC 06 2018 reports no build to compare and its 2015 reference still
     does not evaluate, so reading the fillets is progress, not a success claim. Parity on public
     samples: 54 files / 43 designs, zero differences. Python: 90 tests OK; Rust: 5 tests OK.
+
+185. **Revolves were written but not rebuilt (F-033).** The feature reader and design writer had
+    revolve/revolved-cut support, but `_sequential` / `sequential` omitted both kinds from the
+    feature order, so a rebuild skipped their material while still trying later features. They are
+    now built at their own tree position in Python and Rust, and later revolves/revolved cuts are
+    included in the remaining-material bounds. The sketch record supplies the profile and candidate
+    axes; the affected public samples checked use full turns. The interrupted worker also left a
+    duplicated test class, removed before the runs. Python: 89 tests OK; Rust revolve test OK.
+    Older files whose construction centrelines are not numbered remain limited by F-039.

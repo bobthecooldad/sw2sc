@@ -597,7 +597,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
     sides for a one-sided chamfer). Revolves keep the choice in `choices`."""
     from . import fillets
     import math as _m
-    order = [f for f in feats if f.kind in ("boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "rib", "split",
+    order = [f for f in feats if f.kind in ("boss", "cut", "revolve", "revcut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "rib", "split",
                                             "sweep", "sweepcut", "shell", "scale", "draft", "moveface")]
     # a scale changes the solid's size and place: before it, neither the volume bounds nor the
     # part's box say anything about the solid built so far
@@ -623,8 +623,8 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
     adds, takes = [], []
     for i in range(len(order) + 1):
         rest = order[i:]
-        a = [most(f) for f in rest if f.kind == "boss" or getattr(f, "alt_kind", None) == "boss"]
-        t = [most(f) for f in rest if f.kind in ("cut", "hole") or getattr(f, "alt_kind", None) == "cut"]
+        a = [most(f) for f in rest if f.kind in ("boss", "revolve") or getattr(f, "alt_kind", None) == "boss"]
+        t = [most(f) for f in rest if f.kind in ("cut", "revcut", "hole") or getattr(f, "alt_kind", None) == "cut"]
         adds.append(None if any(x is None for x in a) else sum(a))
         takes.append(None if any(x is None for x in t) or any(f.kind in ("hole", "split") for f in rest) else sum(t))
 
@@ -824,6 +824,14 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
             # adds nothing, and the rest goes on from the solid as it was
             if not seen and unchanged is not None:
                 yield from step(i + 1, *unchanged)
+            return
+        if f.kind in ("revolve", "revcut"):
+            # the sketch, axis and angle come from the feature and its sketch; the outer search
+            # chooses between the axes the sketch records and the two directions
+            _d, r = _prefix(name, feats, choices, planes, constraints, picked, f.name, cli, tmp)
+            if not ok(r, i) or not reachable(r, i):
+                return
+            yield from step(i + 1, choices, picked, r["volume"])
             return
         if f.kind == "shell":
             # open at each flat face of the body so far (those fitting the face SolidWorks names first)

@@ -85,6 +85,30 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(features._arc_ends(s, 2, 1, 3), (1, 2))
 
 
+class RevolveTests(unittest.TestCase):
+    def test_sequential_builds_revolve_and_revolved_cut(self):
+        from unittest import mock
+        from sw2sc import verify
+        sk = sketch({1: (10, 0), 2: (20, 0), 3: (20, 10), 4: (10, 10)}, lines=[(1, 2), (2, 3), (3, 4), (4, 1)])
+        sk.name = "Sketch1"
+        feats = [features.Feature("sketch", "Sketch1", 0, features.SKETCH, sketch=sk),
+                 features.Feature("revolve", "Revolve1", 1, features.REVOLVE, profile="Sketch1", angle_deg=90.0),
+                 features.Feature("revcut", "Cut-Revolve1", 2, features.REVCUT, profile="Sketch1", angle_deg=270.0)]
+        choices = {"Revolve1": (0, 1), "Cut-Revolve1": (1, -1)}
+
+        def evaluated(*args):
+            volume = 100.0 if args[6] == "Revolve1" else 80.0
+            return {}, {"volume": volume, "area": volume, "errors": [], "lo": [0, 0, 0], "hi": [1, 1, 1]}
+
+        with mock.patch("sw2sc.verify._prefix", side_effect=evaluated):
+            built = list(verify._sequential("Part", feats, choices, {"Sketch1": 0}, True, "unused", "tmp"))
+        self.assertEqual(len(built), 1)
+        revolves = [f for f in built[0]["features"] if f["type"] == "revolve"]
+        self.assertEqual([(f["operation"], f["angle"]) for f in revolves], [("new_body", "90.0"), ("cut", "-270.0")])
+        self.assertEqual([f["axis"] for f in revolves],
+                         [{"type": "sketch_axis", "axis": "x"}, {"type": "sketch_axis", "axis": "y"}])
+
+
 class ScaleTests(unittest.TestCase):
     def test_factors_are_the_first_three_sizes_after_the_name(self):
         import struct

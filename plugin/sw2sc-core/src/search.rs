@@ -434,7 +434,7 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
     let order: Vec<Feature> = ctx
         .feats
         .iter()
-        .filter(|f| ["boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "rib", "split", "sweep", "sweepcut", "shell", "scale", "draft", "moveface"].contains(&f.kind.as_str()))
+        .filter(|f| ["boss", "cut", "revolve", "revcut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "rib", "split", "sweep", "sweepcut", "shell", "scale", "draft", "moveface"].contains(&f.kind.as_str()))
         .cloned()
         .collect();
     let most = |f: &Feature, feats: &[Feature]| -> Option<f64> {
@@ -457,8 +457,8 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
     let mut takes: Vec<Option<f64>> = Vec::new();
     for i in 0..=order.len() {
         let rest = &order[i..];
-        let a: Vec<Option<f64>> = rest.iter().filter(|f| f.kind == "boss" || f.alt_kind.as_deref() == Some("boss")).map(|f| most(f, ctx.feats)).collect();
-        let t: Vec<Option<f64>> = rest.iter().filter(|f| f.kind == "cut" || f.kind == "hole" || f.alt_kind.as_deref() == Some("cut")).map(|f| most(f, ctx.feats)).collect();
+        let a: Vec<Option<f64>> = rest.iter().filter(|f| f.kind == "boss" || f.kind == "revolve" || f.alt_kind.as_deref() == Some("boss")).map(|f| most(f, ctx.feats)).collect();
+        let t: Vec<Option<f64>> = rest.iter().filter(|f| f.kind == "cut" || f.kind == "revcut" || f.kind == "hole" || f.alt_kind.as_deref() == Some("cut")).map(|f| most(f, ctx.feats)).collect();
         adds.push(if a.iter().any(Option::is_none) { None } else { Some(a.iter().map(|x| x.unwrap()).sum()) });
         takes.push(if t.iter().any(Option::is_none) || rest.iter().any(|f| f.kind == "hole" || f.kind == "split") { None } else { Some(t.iter().map(|x| x.unwrap()).sum()) });
     }
@@ -945,6 +945,19 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                 }
             }
             false
+        }
+        "revolve" | "revcut" => {
+            // the sketch, axis and angle come from the feature and its sketch; the outer search
+            // chooses between the axes the sketch records and the two directions
+            let (_d, r) = ctx.prefix(choices, picks, &f.name);
+            if !ok_at(ctx, sh, &r, i) {
+                return false;
+            }
+            let r = r.unwrap();
+            if !sh.reachable(rf.as_ref(), &r, i) {
+                return false;
+            }
+            step(ctx, sh, i + 1, choices, picks, r.volume, sink)
         }
         "shell" => {
             // open at each flat face of the body so far (those fitting the face SolidWorks names first)
