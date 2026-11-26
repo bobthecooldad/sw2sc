@@ -53,7 +53,7 @@ Status: `open`, `in progress`, `fixed in x.y.z`, `wontfix`.
 | F-037 | Arc direction from the file | open | Arcs are drawn by tangent continuity or the short way round; the file's start/end order isn't decoded |
 | B-012 | The import check (0.12.0) only protects the vault window run from this branch | open | Vault.cmd runs the main checkout, still 0.10.0; a second Documents import into vault-roles happened from it |
 | F-029 | Open a second design in the SolidCraft window that is already open | fixed in 0.11.0 | Each Open starts a new SolidCraft window. The app's control channel (`doc.open`) could pass it to a running one |
-| F-030 | Keep the SolidCraft build up to date | open | Built from the checkout of 2026-11-12 (0.40.1). The installed copy on this PC is 0.30.1 |
+| F-030 | Keep the SolidCraft build up to date | in progress (unreleased) | CLI 0.50.0 built from the current checkout; full NIST rerun has the same 0 exact matches, 10 rebuild mismatches and 9 reader blockers as 0.47.0 |
 | F-024 | Package the window as a Windows app (no Python needed) | open | Today it needs Python 3.9+ |
 | F-025 | More than one approver, or approver roles | fixed in 0.9.0 | `roles.json`: admins change the roles, approvers release and reject, optional four-eyes rule. Identity is the logged-in account. A guard against mistakes, not security: anyone who can write the vault's files can edit them (Git shows it) |
 | F-027 | Stronger approvals: signed releases | open | Sign release commits and tags (Git can use GPG or SSH keys) so an approval can be checked later. Needs a key per approver |

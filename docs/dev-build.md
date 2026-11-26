@@ -2,7 +2,8 @@
 
 - **More of the feature tree converts:** Draft, Move Face, Rib, Revolve, Body Move/Copy (translation) and Split (as Split Body).
 - **SolidWorks 2012 files:** their feature trees now read (all five NIST CTC 2012 saves), including the 2012 parameter layout for Hole Wizard holes, fillets and chamfers.
-- **Parallel checks:** `feature_check.py` and `rebuild_triage.py` now use `--jobs` (default 8), with regression tests for ordered, process-safe reports.
+- **Parallel checks:** `feature_check.py` and `rebuild_triage.py` now use `--jobs` (default 8), with regression tests for ordered, process-safe reports. Triage's default per-part budget is 300 seconds.
+- **Kernel check:** the full NIST set was rerun on SolidCraft CLI 0.50.0; exact matches and decode counts are unchanged from 0.47.0.
 - **Sketches:** more sketch planes found (in our 4,000-part test set, 55 of 93 parts that had a sketch with no plane now have every plane, up from 8); curves and arc centres read from the sketch's curve records; sketches in pre-2010 files read.
 - **Holes and chamfers:** Hole Wizard placement sketches recovered; hole placement planes taken from the hole itself; chamfers on hole rims.
 - **Large imported parts (issue #1):** STEP output about 14% smaller.
@@ -27,7 +28,7 @@ Latest full eight-job run: **0 of 19 converted; 10 of 19 fully decoded and attem
 | CTC 03 | SW 2012 | rebuilds, no match | no build to compare |
 | CTC 04 | SW 2012 | rebuilds, no match | no build to compare |
 | CTC 05 | SW 2012 | rebuilds, no match | no build to compare |
-| CTC 01 | SW 2018 | rebuilds, no match | no build to compare |
+| CTC 01 | SW 2018 | rebuilds, no match | 1.8% too much material (a loop is an island, or a cut did not take) |
 | CTC 02 | SW 2018 | partly read | Fillet3; a 3D sketch |
 | CTC 03 | SW 2018 | rebuilds, no match | no build to compare |
 | CTC 04 | SW 2018 | rebuilds, no match | no build to compare |

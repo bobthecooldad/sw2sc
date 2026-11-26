@@ -1366,3 +1366,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     mismatches. The other reader blockers are FTC 06's Fillet2 (both saves), FTC 07's variable
     fillets and text, FTC 09's text (both saves), FTC 10's 3D sketch and FTC 11's text. All ten
     rebuild attempts currently report no build to compare. Report: `logs/feature-check-nist.md`.
+
+
+181. **NIST on SolidCraft 0.50.0.** The checkout was 64 commits behind; it was fast-forwarded and
+    `solidcraft-cli` rebuilt. The same full 19-part, eight-job check still gives **0 exact matches,
+    10 rebuild mismatches and 9 reader-blocked parts**, so the newer kernel does not change the
+    project's success rate or decoder queue. One mismatch signature is more informative again:
+    CTC 01 (2018) has 1.8% too much material, consistent with a loop island or a cut that did not
+    take. The other nine rebuild attempts report no build to compare. Kernel 0.47.0's report is
+    superseded by `logs/feature-check-nist.md` on 0.50.0.

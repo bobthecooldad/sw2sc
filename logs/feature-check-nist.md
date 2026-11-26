@@ -1,6 +1,6 @@
 # Feature check
 
-- kernel: solidcraft-cli 0.47.0 at C:\dev\solidcraft\target\release\solidcraft-cli.exe (checkout C:\dev\solidcraft, commit 1f8df8628 of 2026-11-23 09:46)
+- kernel: solidcraft-cli 0.50.0 at C:\dev\solidcraft\target\release\solidcraft-cli.exe (checkout C:\dev\solidcraft, commit d1fdc0b9c of 2026-11-26 20:05)
 - rebuilt, does not match: 10
 - not fully decoded: 9
 
@@ -11,7 +11,7 @@
 | nist_ctc_03_asme1_SW1201_rc.SLDPRT | mismatch | no build to compare |
 | nist_ctc_04_asme1_SW1201_rd.SLDPRT | mismatch | no build to compare |
 | nist_ctc_05_asme1_SW1201_rd.SLDPRT | mismatch | no build to compare |
-| nist_ctc_01_asme1_rd_sw1802.SLDPRT | mismatch | no build to compare |
+| nist_ctc_01_asme1_rd_sw1802.SLDPRT | mismatch | too much material (+1.8%): a loop is an island, or a cut didn't take |
 | nist_ctc_02_asme1_rc_sw1802.SLDPRT | not fully decoded | Fillet3: fillet's size or edges not read; 3DSketch1: mo3DProfileFeature_c not converted yet |
 | nist_ctc_03_asme1_rc_sw1802.SLDPRT | mismatch | no build to compare |
 | nist_ctc_04_asme1_rd_sw1802.SLDPRT | mismatch | no build to compare |
