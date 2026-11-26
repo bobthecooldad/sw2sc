@@ -22,8 +22,8 @@ python -m sw2sc survey folder1 folder2                   # convert everything, w
 python -m sw2sc vault import "D:\CAD" "D:\Vault"         # folder tree -> Git vault of linked designs (docs/vault.md)
 python -m unittest discover -s tests                     # tests
 python tools/check_steps.py <solidcraft-cli> out/step    # open converted STEP files in SolidCraft
-python tools/feature_check.py <folder>                   # rebuild each part's feature tree, compare with its solid
-python tools/rebuild_triage.py <folder> --names A,B      # where a part's rebuild stops
+python tools/feature_check.py <folder> --jobs 8          # rebuild feature trees in parallel, compare with each solid
+python tools/rebuild_triage.py <folder> --names A,B --jobs 8  # where parts' rebuilds stop
 ```
 
 Keep referenced part files next to the assembly (any subfolder works). Without them the

@@ -9,6 +9,9 @@ NIST status (all branches merged): no part rebuilds to a match yet; per-part blo
 `logs/feature-check-nist.md` and working log 173.
 
 ### Added
+- `tools/feature_check.py` and `tools/rebuild_triage.py` rebuild parts in parallel with `--jobs`
+  (default 8), preserving report order and per-part errors. Process-based regression tests cover
+  the new runners; the default matches the eight-way full checks used for recent surveys.
 - Body moves (`moMoveCopyBody_c`, a translation) convert to SolidCraft's move (NIST FTC 10's
   Body-Move/Copy1: 62.5 mm along x). A move with a turn stays to be done. Python and Rust.
 - Ribs (`moRib_c`) convert to SolidCraft's rib: the wall's sides, thickness and free-edge profile

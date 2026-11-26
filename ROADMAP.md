@@ -112,4 +112,5 @@ is the most useful check there is.
 - `plugin/tools/compare_features.py` and `compare_designs.py`: the Rust port reads and writes
   exactly as the Python does, on every part you point them at.
 - A regression set of parts that rebuild: every change keeps them rebuilding.
-- `tools/feature_check.py`: the full feature check over a folder, written to `logs/`.
+- `tools/feature_check.py --jobs 8`: the full feature check over a folder, in parallel, written to `logs/`.
+- `tools/rebuild_triage.py --jobs 8`: where several parts' rebuilds stop, checked in parallel.

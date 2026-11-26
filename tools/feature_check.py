@@ -1,7 +1,7 @@
 """Rebuild each part's decoded feature tree in SolidCraft and compare it with the solid SolidWorks
 saved (F-006).
 
-    python tools/feature_check.py FOLDER [FOLDER...] [--out logs/feature-check.md] [--keep DIR]
+    python tools/feature_check.py FOLDER [FOLDER...] [--out logs/feature-check.md] [--keep DIR] [--jobs 8]
 
 For every part whose features are all decoded (sketches, extrudes): write the features as a
 SolidCraft design, try each extrude's direction (positive, negative, symmetric) and operation
@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ProcessPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -62,12 +63,71 @@ def same(a: dict, b: dict) -> bool:
     return True
 
 
+def _check_one(args) -> dict:
+    path, cli = args
+    row = {"path": path, "status": "unreadable", "note": "", "design": None}
+    try:
+        sw = SwFile(path)
+        feats = features.read(sw)
+    except Exception as e:  # noqa: BLE001
+        row["note"] = str(e)
+        return row
+    if feats is None:
+        row["status"] = "pre-2015"
+        return row
+    if feats and all(f.kind == "import" for f in feats if f.kind != "sketch") and any(f.kind == "import" for f in feats):
+        row["status"] = "imported body"
+        return row
+    why = [f"{f.name}: {f.reason}" for f in feats if f.kind == "tbd" or (f.reason and f.kind != "absorbed")]
+    why += [f"{f.name}: imported body among features" for f in feats if f.kind == "import"]
+    why += [f"{f.name}: {f.sketch.plane_how}" for f in feats if f.kind == "sketch" and f.sketch.plane is None]
+    why += [f"{f.name}: {pr}" for f in feats if f.kind == "sketch" for pr in f.sketch.problems]
+    if not verify.fully_decoded(feats) and not why:
+        why.append("no solid feature")
+    if why:
+        row.update(status="not fully decoded", note="; ".join(why[:4]))
+        return row
+    try:
+        ref_design, _ = solidcraft.convert(path, feature_tree=False)
+    except Exception as e:  # noqa: BLE001
+        row.update(status="no reference", note=str(e))
+        return row
+    with tempfile.NamedTemporaryFile("w", suffix=".solidcraft", delete=False, encoding="utf-8") as fh:
+        json.dump(ref_design, fh)
+        ref_path = fh.name
+    try:
+        ref_design_eval = verify.evaluate(cli, ref_path) if cli else None
+    finally:
+        os.unlink(ref_path)
+    name = os.path.splitext(os.path.basename(path))[0]
+    built = verify.rebuild(feats, ref_design, name, cli)   # the CLI this check reports
+    if built:
+        used = [f"{f['name']} {f.get('extent', {}).get('direction') or f.get('angle', '')}"
+                for f in built["features"] if f["type"] in ("extrude", "revolve")]
+        row.update(status="rebuilt", note=", ".join(used), design=built)
+    else:
+        row.update(status="mismatch", note=verify.mismatch_signature(verify.LAST.get("eval"), ref_design_eval))
+    return row
+
+
+def run_checks(paths, cli, jobs=8) -> list[dict]:
+    paths = list(paths)
+    if not paths:
+        return []
+    workers = max(1, min(int(jobs), len(paths)))
+    if workers == 1:
+        return [_check_one((p, cli)) for p in paths]
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(_check_one, [(p, cli) for p in paths]))
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("folders", nargs="+")
     ap.add_argument("--out", default=os.path.join("logs", "feature-check.md"))
     ap.add_argument("--keep", help="keep the rebuilt designs here")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--jobs", type=int, default=8)
     a = ap.parse_args(argv)
     status = verify.kernel_status(CLI)   # a rebuild on a stale kernel says nothing about the checkout
     kernel = verify.kernel_line(status)
@@ -79,67 +139,41 @@ def main(argv=None) -> int:
     counts = collections.Counter()
     rows = []
     n = 0
-    for p in parts(a.folders):
-        try:
-            sw = SwFile(p)
-            feats = features.read(sw)
-        except Exception as e:  # noqa: BLE001
-            counts["unreadable"] += 1
-            rows.append((p, "unreadable", str(e)))
-            continue
-        if feats is None:
-            counts["feature stream not numbered (pre-2015)"] += 1
-            rows.append((p, "pre-2015", ""))
-            continue
-        if feats and all(f.kind == "import" for f in feats if f.kind != "sketch") and any(f.kind == "import" for f in feats):
-            counts["imported body (no tree in SolidWorks either): converts as import"] += 1
-            rows.append((p, "imported body", ""))
-            continue
-        why = [f"{f.name}: {f.reason}" for f in feats if f.kind == "tbd" or (f.reason and f.kind != "absorbed")]
-        why += [f"{f.name}: imported body among features" for f in feats if f.kind == "import"]
-        why += [f"{f.name}: {f.sketch.plane_how}" for f in feats if f.kind == "sketch" and f.sketch.plane is None]
-        why += [f"{f.name}: {pr}" for f in feats if f.kind == "sketch" for pr in f.sketch.problems]
-        if not verify.fully_decoded(feats) and not why:
-            why.append("no solid feature")
-        if why:
-            counts["not fully decoded"] += 1
-            rows.append((p, "not fully decoded", "; ".join(why[:4])))
-            continue
-        n += 1
-        if a.limit and n > a.limit:
+    labels = {
+        "pre-2015": "feature stream not numbered (pre-2015)",
+        "imported body": "imported body (no tree in SolidWorks either): converts as import",
+        "not fully decoded": "not fully decoded",
+        "no reference": "reference not converted",
+        "rebuilt": "rebuilt, matches the solid",
+        "mismatch": "rebuilt, does not match",
+        "unreadable": "unreadable",
+    }
+    remaining = iter(parts(a.folders))
+    stopped = False
+    while not stopped:
+        batch = list(itertools.islice(remaining, max(1, a.jobs))) if a.limit else list(remaining)
+        if not batch:
             break
-        try:
-            ref_design, _ = solidcraft.convert(p, feature_tree=False)
-        except Exception as e:  # noqa: BLE001
-            counts["reference not converted"] += 1
-            rows.append((p, "no reference", str(e)))
-            continue
-        ref_design_eval = None   # the reference's numbers, for a mismatch's signature
-        with tempfile.NamedTemporaryFile("w", suffix=".solidcraft", delete=False, encoding="utf-8") as fh:
-            json.dump(ref_design, fh)
-            ref_path = fh.name
-        ref_design_eval = verify.evaluate(CLI, ref_path) if CLI else None
-        os.unlink(ref_path)
-        name = os.path.splitext(os.path.basename(p))[0]
-        built = verify.rebuild(feats, ref_design, name, CLI)   # the CLI this check reports
-        if built:
-            if a.keep:
+        for row in run_checks(batch, CLI, a.jobs):
+            attempted = row["status"] in ("no reference", "rebuilt", "mismatch")
+            if attempted:
+                n += 1
+                if a.limit and n > a.limit:
+                    stopped = True
+                    break
+            counts[labels[row["status"]]] += 1
+            rows.append(row)
+            if a.keep and row["design"]:
                 with open(os.path.join(tmp, f"{n:03d}.feat.solidcraft"), "w", encoding="utf-8") as fh:
-                    json.dump(built, fh)
-            counts["rebuilt, matches the solid"] += 1
-            used = [f"{f['name']} {f.get('extent', {}).get('direction') or f.get('angle', '')}"
-                    for f in built["features"] if f["type"] in ("extrude", "revolve")]
-            rows.append((p, "rebuilt", ", ".join(used)))
-        else:
-            counts["rebuilt, does not match"] += 1
-            rows.append((p, "mismatch", verify.mismatch_signature(verify.LAST.get("eval"), ref_design_eval)))
-        print(f"{name}: {rows[-1][1]}", flush=True)   # progress: the report is written at the end
+                    json.dump(row["design"], fh)
+            if row["status"] in ("rebuilt", "mismatch"):
+                print(f"{os.path.splitext(os.path.basename(row['path']))[0]}: {row['status']}", flush=True)
     with open(a.out, "w", encoding="utf-8") as fh:
         fh.write("# Feature check\n\n" + f"- kernel: {kernel}\n" +
                  "\n".join(f"- {k}: {v}" for k, v in counts.most_common()) + "\n\n")
         fh.write("| Part | Result | Notes |\n|---|---|---|\n")
-        for p, r, note in rows:
-            fh.write(f"| {os.path.basename(p)} | {r} | {note.replace('|', '/')} |\n")
+        for row in rows:
+            fh.write(f"| {os.path.basename(row['path'])} | {row['status']} | {row['note'].replace('|', '/')} |\n")
     print(dict(counts))
     return 0
 

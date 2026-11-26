@@ -1334,3 +1334,15 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     thick", logs 163-165); 04 evaluates all 105 builds without an error and none matches (the
     holes and the cuts with no depth read are the suspects); 05 stops on Draft2: SMLib refuses the
     offset ("the new faces beside edge 55/58 that was tangent no longer meet") or moves no face.
+
+
+178. **Parallel feature checks and triage.** `feature_check.py` still walked parts one at a time;
+    recent surveys needed eight manually sharded folder copies. Both it and `rebuild_triage.py`
+    now take `--jobs` (default 8), using process pools with the resolved SolidCraft CLI passed
+    explicitly. Reports keep input order, per-part errors and the existing limit/keep/name filters.
+    Two local qwen2.5-coder drafts for each tool were rejected: they changed unrelated behaviour,
+    put the runner inside `main`, omitted required results, or reused the last part's name. New
+    regression tests were written first and failed four times on the missing options/runners; the
+    replacement implementations pass all three tests and the full Python suite (91 run, 5 skipped).
+    A real two-part NIST check with one and two jobs produced identical reports (two mismatches,
+    one not fully decoded). Two simultaneous triage jobs returned correctly named separate rows.
