@@ -1346,3 +1346,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     replacement implementations pass all three tests and the full Python suite (91 run, 5 skipped).
     A real two-part NIST check with one and two jobs produced identical reports (two mismatches,
     one not fully decoded). Two simultaneous triage jobs returned correctly named separate rows.
+
+
+179. **The design-parity baseline was stale.** The first public-branch queue reported three
+    one-line STEP differences against an allowance of two. The unmodified public base, built and
+    checked separately on the affected folders, reports exactly the same three (24 files, 9 designs,
+    3 differences). The NIST reader changes touch no STEP geometry code and introduce no new design
+    difference. The private check baseline is therefore three known differences; any additional
+    difference still fails the queue. Feature parity remained zero and the rebuild regression lost
+    no parts.

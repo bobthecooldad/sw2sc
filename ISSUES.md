@@ -31,7 +31,7 @@ Status: `open`, `in progress`, `fixed in x.y.z`, `wontfix`.
 | F-031 | Folders in the vault | fixed in 0.12.0 | Sorting only (`folders.json`); files are not moved |
 | B-011 | An import of a non-project folder copies everything into the vault | fixed in 0.12.0 | A Documents folder was imported: 17 GB copied, and the import would have removed the vault's 40 designs from another project. Now checked first |
 | F-032 | Fillets and chamfers from the file | in progress (0.16.0) | Fillets read and matched to SolidCraft's edges; 1 part rebuilt with its fillets (PartT8). Chamfers not yet; fillets of older files whose selections aren't found |
-| F-043 | Hole Wizard holes | in progress (0.17.0) | Countersinks, counterbores, drilled holes; French/Russian parameter names not yet; SolidCraft needed no change |
+| F-043 | Hole Wizard holes | in progress (unreleased) | Countersinks, counterbores, drilled holes; SolidWorks 2012 parameter values now read; French/Russian parameter names not yet; SolidCraft needed no change |
 | F-044 | Faces SolidWorks merged (a later boss's coplanar side kept the earlier face's name) | open | spring_base_v1's Fillet1 |
 | F-045 | Full round fillets (no radius) | open | SolidCraft's fillet has no full round; two rounds of half the face's width would make the shape where the kernel allows it. Key Way's Fillet2 |
 | F-046 | Draft | open | SolidCraft has solid.draft (faces, angle, neutral plane); the faces and neutral plane are still to be read. Front Body |

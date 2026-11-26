@@ -1,7 +1,8 @@
 ## What's new on dev since 0.17.3
 
 - **More of the feature tree converts:** Draft, Move Face, Rib, Revolve, Body Move/Copy (translation) and Split (as Split Body).
-- **SolidWorks 2012 files:** their feature trees now read (all five NIST CTC 2012 saves).
+- **SolidWorks 2012 files:** their feature trees now read (all five NIST CTC 2012 saves), including the 2012 parameter layout for Hole Wizard holes, fillets and chamfers.
+- **Parallel checks:** `feature_check.py` and `rebuild_triage.py` now use `--jobs` (default 8), with regression tests for ordered, process-safe reports.
 - **Sketches:** more sketch planes found (in our 4,000-part test set, 55 of 93 parts that had a sketch with no plane now have every plane, up from 8); curves and arc centres read from the sketch's curve records; sketches in pre-2010 files read.
 - **Holes and chamfers:** Hole Wizard placement sketches recovered; hole placement planes taken from the hole itself; chamfers on hole rims.
 - **Large imported parts (issue #1):** STEP output about 14% smaller.
