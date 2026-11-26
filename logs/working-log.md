@@ -1475,3 +1475,23 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     the base part that had matched with a manually raised budget now matches with the default.
     PartT8 remains the separate B-023 area-only mismatch. Full suite: 101 Python tests OK, all
     Rust tests OK.
+
+
+191. **Body Move/Copy rotations convert as rigid matrices.** The reader already returned nine
+    rotation doubles and a translation, but rejected every non-identity rotation. Both Feature
+    types now retain the rotation and `solid.move` receives its row-major 4 x 4 matrix (metres
+    converted to mm); identity rotations keep the previous translation-only output. Four public
+    parts / five affected features now read as `move` instead of TBD. One affected part is fully
+    decoded; the others have unrelated mirror, sheet-metal, loft or sketch blockers. None has an
+    exact rebuild yet. New Python and Rust tests cover a 90-degree matrix and identity output;
+    full suite: 103 Python tests OK, all Rust tests OK. The full-convert test also now excludes
+    `~$` lock files, matching the other discovery tools rather than treating them as CAD files.
+
+
+192. **Full-folder conversion batches with long timeouts.** `convert_sample.py` now accepts a
+    directory as well as a list file, uses the existing lock-file exclusion, and takes `--timeout`
+    (default unchanged at 900 seconds). Results flush after every part and aggregate progress prints
+    every ten. New tests prove directory filtering and a requested 3600-second subprocess timeout.
+    A background batch of **356 GrabCAD parts** is running with eight jobs and 3600 seconds per part;
+    its JSONL stays in the private check directory. `feature_blockers.py` separately ranks missing
+    feature classes. Results are not claimed until the batch completes.

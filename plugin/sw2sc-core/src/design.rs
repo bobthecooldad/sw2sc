@@ -894,11 +894,20 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 first = false;
             }
             "move" => {
-                // the part's body moved as SolidWorks moved it (a translation)
+                // the part's body moved as SolidWorks moved it (rotation, then translation)
                 let body = out.iter().find_map(|x| x.get("body_names").and_then(|b| b.get(0)).cloned());
+                let rotation = f.rotation.unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
                 let t = f.translate.unwrap_or([0.0; 3]);
-                out.push(json!({"id": nid, "name": f.name, "type": "move", "suppressed": false,
-                    "bodies": body.map_or(vec![], |b| vec![b]), "translate": t.map(|x| repr(round(x, 9)))}));
+                if (0..9).any(|k| (rotation[k] - if k % 4 == 0 { 1.0 } else { 0.0 }).abs() > 1e-9) {
+                    out.push(json!({"id": nid, "name": f.name, "type": "move", "suppressed": false,
+                        "bodies": body.map_or(vec![], |b| vec![b]),
+                        "matrix": [rotation[0..3].iter().copied().chain([t[0]]).collect::<Vec<_>>(),
+                                   rotation[3..6].iter().copied().chain([t[1]]).collect::<Vec<_>>(),
+                                   rotation[6..9].iter().copied().chain([t[2]]).collect::<Vec<_>>(), [0.0, 0.0, 0.0, 1.0]]}));
+                } else {
+                    out.push(json!({"id": nid, "name": f.name, "type": "move", "suppressed": false,
+                        "bodies": body.map_or(vec![], |b| vec![b]), "translate": t.map(|x| repr(round(x, 9)))}));
+                }
             }
             "scale" => {
                 let Some(got) = pick(&format!("scale:{}", f.name)).cloned() else {

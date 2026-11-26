@@ -631,7 +631,7 @@ class SubassemblyVaultTests(unittest.TestCase):
 class GrabCadTests(unittest.TestCase):
     def test_every_file_converts_and_validates(self):
         files = [f for f in glob.glob(os.path.join(GRABCAD, "**", "*"), recursive=True)
-                 if f.lower().endswith((".sldprt", ".sldasm"))]
+                 if f.lower().endswith((".sldprt", ".sldasm")) and not os.path.basename(f).startswith(("~$", ".~"))]
         self.assertGreater(len(files), 100)
         for f in files:
             with self.subTest(f=os.path.basename(f)):

@@ -44,7 +44,7 @@ Status: `open`, `in progress`, `fixed in x.y.z`, `wontfix`.
 | F-042 | ~~SolidCraft fillet limit~~: not SolidCraft's | closed (not a bug) | The idler arms' R1 fillet failed because sw2sc drew an outline arc bulging the wrong way (centre (0, 4.53) instead of its mirror (0, -0.53)), leaving a 0.1 mm wall beside the hole; SolidCraft was right to refuse it. See B-020 |
 | B-020 | An arc of an older file (2013) gets its centre's mirror image | open | idler_differential_arm (both), Sketch1: no point record at the true centre; the point taken is its mirror across the chord. Needs the older files' handle numbering (F-039) or the mirrored centre tried against the solid |
 | F-033 | Revolves and revolved cuts | in progress (unreleased) | Rebuild now includes revolves and revolved cuts at their tree position and accounts for their material bounds; older files whose centrelines aren't read remain limited by F-039 |
-| F-034 | Hole Wizard, mirrors, patterns, sweeps, threads, combine, move/copy, sheet metal | open | Listed as TBD in the tree |
+| F-034 | Hole Wizard, mirrors, patterns, sweeps, threads, combine, move/copy, sheet metal | open | Body Move/Copy translations and rotations are written as rigid matrices; independent copies and the other feature classes stay TBD |
 | F-035 | Extrudes up to a face or through all | open | No distance in the file; end condition types not decoded |
 | F-036 | Sketches whose plane isn't found, lines with one end, arcs without a centre | open | 60 / 38 / 17 parts in the sample sets |
 | F-038 | Sketch dimensions and relations | in progress (0.15.0) | Distances, radii, diameters, offsets and 15 relation types written; construction lines read; angle and point-to-line dimensions, and relations to projected model geometry not yet |

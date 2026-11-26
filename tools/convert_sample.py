@@ -1,9 +1,10 @@
 """Run the plugin's converter (`convert_one`, the Rust build) on a sample of parts in parallel,
 record each outcome, and compare with an earlier run.
 
-    python tools/convert_sample.py LIST OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--baseline OLD.jsonl]
+    python tools/convert_sample.py LIST_OR_FOLDER OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--timeout 900] [--baseline OLD.jsonl]
 
-LIST is a text file with one part path per line; the same seed picks the same sample. Exit
+LIST_OR_FOLDER is a text file with one part path per line or a folder searched recursively.
+Lock files are excluded; the same seed picks the same sample. Exit
 code 1 when a part rebuilt in the baseline and doesn't now, or the converter crashed on a part it
 didn't crash on before.
 """
@@ -21,17 +22,24 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from feature_survey import parts as model_parts  # noqa: E402
 EXE = os.path.join(ROOT, "plugin", "target", "release", "examples", "convert_one" + (".exe" if os.name == "nt" else ""))
 
 
-def run(path: str) -> dict:
+def paths_of(source: str) -> list[str]:
+    if os.path.isdir(source):
+        return list(model_parts([source]))
+    return [ln.strip() for ln in open(source, encoding="utf-8") if ln.strip().lower().endswith(".sldprt")]
+
+
+def run(path: str, timeout: int = 900) -> dict:
     t = time.time()
     try:
-        r = subprocess.run([EXE, path], capture_output=True, text=True, encoding="utf-8", timeout=900)
+        r = subprocess.run([EXE, path], capture_output=True, text=True, encoding="utf-8", timeout=timeout)
         txt = r.stdout.strip()
         rep = json.loads(txt) if txt.startswith("{") else {"error": (txt or r.stderr)[-300:]}
     except subprocess.TimeoutExpired:
-        rep = {"error": "timeout 900 s"}
+        rep = {"error": f"timeout {timeout} s"}
     except Exception as e:  # noqa: BLE001
         rep = {"error": f"{type(e).__name__}: {e}"}
     return {"file": path, "seconds": round(time.time() - t, 1), "summary": rep.get("summary"), "error": rep.get("error"),
@@ -61,17 +69,20 @@ def main(argv=None) -> int:
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=20)
+    ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--baseline")
     a = ap.parse_args(argv)
-    paths = [ln.strip() for ln in open(a.list, encoding="utf-8") if ln.strip().lower().endswith(".sldprt")]
+    paths = paths_of(a.list)
     random.Random(a.seed).shuffle(paths)
     paths = paths[:a.n]
     with ThreadPoolExecutor(a.jobs) as pool, open(a.out, "w", encoding="utf-8") as fh:
         results = []
-        for r in pool.map(run, paths):
+        for r in pool.map(lambda p: run(p, a.timeout), paths):
             fh.write(json.dumps(r) + "\n")
             fh.flush()
             results.append(r)
+            if len(results) % 10 == 0:
+                print(f"{len(results)} of {len(paths)} complete", flush=True)
     now = {r["file"]: outcome(r) for r in results}
     count = collections.Counter(now.values())
     bad = []

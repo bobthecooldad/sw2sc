@@ -779,11 +779,10 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                     f.kind = "tbd".into();
                     f.reason = "body move's transform not read".into();
                 }
-                Some((rot, _)) if (0..9).any(|k| (rot[k] - if k % 4 == 0 { 1.0 } else { 0.0 }).abs() > 1e-9) => {
-                    f.kind = "tbd".into();
-                    f.reason = "body move with a turn not converted yet".into();
+                Some((rot, t)) => {
+                    f.rotation = Some(rot);
+                    f.translate = Some(t.map(|x| x * 1000.0));
                 }
-                Some((_, t)) => f.translate = Some(t.map(|x| x * 1000.0)),
             }
         } else if cls == "moRib_c" {
             // its wall is read from its own faces in the part's solid, after the tree (ribs)

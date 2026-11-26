@@ -284,6 +284,8 @@ pub struct Feature {
     pub scale: Option<[f64; 3]>,
     /// A body move's translation (mm).
     pub translate: Option<[f64; 3]>,
+    /// A body move's rotation rows (9 values).
+    pub rotation: Option<[f64; 9]>,
     /// An import's body as imported (Parasolid), and as STEP once written.
     pub import_body: Option<Vec<u8>>,
     pub import_step: Option<String>,

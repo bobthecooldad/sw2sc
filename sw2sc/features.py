@@ -155,6 +155,7 @@ class Feature:
     path: str | None = None       # a sweep's path sketch (its profile sketch is `profile`)
     scale: tuple | None = None    # a scale's factors (x, y, z)
     translate: tuple | None = None  # a body move's translation (mm)
+    rotation: tuple | None = None   # a body move's rotation rows (9 values)
     import_body: bytes | None = field(default=None, repr=False, compare=False)  # an import's body as imported
     import_step: str | None = field(default=None, repr=False, compare=False)    # … as STEP (made when written)
     edges: list = field(default_factory=list)  # a fillet's edges: (face, face), face = (side|end, feature id, entity|0/1)
@@ -1842,10 +1843,8 @@ def read(sw) -> list[Feature] | None:
             mv = _body_move(b, r.offset, end)
             if mv is None:
                 f.kind, f.reason = "tbd", "body move's transform not read"
-            elif any(abs(mv[0][k][c] - (k == c)) > 1e-9 for k in range(3) for c in range(3)):
-                f.kind, f.reason = "tbd", "body move with a turn not converted yet"
             else:
-                f.translate = tuple(x * 1000 for x in mv[1])
+                f.rotation, f.translate = mv[0], tuple(x * 1000 for x in mv[1])
         elif r.cls == "moRib_c":
             # its wall is read from its own faces in the part's solid, after the tree (_ribs)
             f = Feature("rib", nm, r.offset, r.cls)
@@ -3130,10 +3129,19 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
                         **({"body_names": [f.name]} if op == "new_body" else {})})
             first = False
         elif f.kind == "move":
-            # the part's body moved as SolidWorks moved it (a translation)
+            # the part's body moved as SolidWorks moved it (rotation, then translation)
             body = next((x["body_names"][0] for x in out if x.get("body_names")), None)
-            out.append({"id": nid, "name": f.name, "type": "move", "suppressed": False,
-                        "bodies": [body] if body else [], "translate": [repr(round(x, 9)) for x in f.translate]})
+            rotation = f.rotation or ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+            t = f.translate or (0, 0, 0)
+            if any(abs(rotation[k][c] - (k == c)) > 1e-9 for k in range(3) for c in range(3)):
+                out.append({"id": nid, "name": f.name, "type": "move", "suppressed": False,
+                            "bodies": [body] if body else [],
+                            "matrix": [[float(x) for x in rotation[0]] + [float(t[0])],
+                                       [float(x) for x in rotation[1]] + [float(t[1])],
+                                       [float(x) for x in rotation[2]] + [float(t[2])], [0.0, 0.0, 0.0, 1.0]]})
+            else:
+                out.append({"id": nid, "name": f.name, "type": "move", "suppressed": False,
+                            "bodies": [body] if body else [], "translate": [repr(round(x, 9)) for x in t]})
         elif f.kind == "scale":
             got = (fillets or {}).get("scale:" + f.name)
             if got is None:        # the point it scales about is chosen in the design so far (verify)

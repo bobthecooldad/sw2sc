@@ -119,9 +119,10 @@ regions. Both implementations change together in every task.
 
 ### 3. Feature operations and kernel-bound cases
 
-1. **Draft (F-046), Move Face and Body Move/Copy.** NIST CTC 03 stops at `offset_face`; CTC 05
-   stops at Draft2. Determine whether the input selection is wrong or SolidCraft rejects a valid
-   operation. Curved-face draft and move rotations remain open.
+1. **Draft (F-046) and Move Face.** NIST CTC 03 stops at `offset_face`; CTC 05 stops at Draft2.
+   Determine whether the input selection is wrong or SolidCraft rejects a valid operation.
+   Body Move/Copy rotations now convert as rigid matrices; independent copies and curved-face draft
+   remain open.
 2. **Variable-radius fillets and remaining fillet surfaces.** NIST FTC 07 is the feature-tree
    case. The equal-pipe mitre fillets in CTC 02/FTC 07 are also imported-geometry kernel cases:
    the exact surface folds near the ellipse end and needs a bounded-surface or trimming solution,
@@ -151,8 +152,9 @@ Core part conversion comes first; then:
 - **Lane A — readers:** one worker per feature class or record layout.
 - **Lane B — rebuild/search:** loop nesting, end-condition use, pruning and timeout diagnosis.
 - **Lane C — STEP/kernel:** geometry failures and minimal upstream reproductions.
-- **Lane D — automation:** regression tooling, NIST reports, blocker counts and rotating private
-  external-sample batches. Only aggregate outcomes from private batches may enter public logs.
+- **Lane D — automation:** regression tooling, NIST reports, blocker counts, full-folder conversion
+  batches and rotating private external samples. Only aggregate outcomes from private batches may
+  enter public logs.
 
 A local model may summarize sanitized reports or review a bounded diff. It is not file-format
 evidence and never decides parity or acceptance. Deterministic tools and the main reviewer make

@@ -109,6 +109,31 @@ class RevolveTests(unittest.TestCase):
                          [{"type": "sketch_axis", "axis": "x"}, {"type": "sketch_axis", "axis": "y"}])
 
 
+class BodyMoveTests(unittest.TestCase):
+    def test_rotation_and_translation_become_a_rigid_matrix(self):
+        sk = sketch({1: (0, 0), 2: (10, 0), 3: (10, 10), 4: (0, 10)}, lines=[(1, 2), (2, 3), (3, 4), (4, 1)])
+        sk.name = "Sketch1"
+        feats = [features.Feature("sketch", "Sketch1", 0, features.SKETCH, sketch=sk),
+                 features.Feature("boss", "Boss-Extrude1", 1, features.BOSS, profile="Sketch1", depth_mm=5),
+                 features.Feature("move", "Body-Move/Copy1", 2, "moMoveCopyBody_c",
+                                  rotation=((0, -1, 0), (1, 0, 0), (0, 0, 1)), translate=(10, 20, 30))]
+        move = features.design("Part", feats, {}, None, True, {})["features"][-1]
+        self.assertEqual(move["matrix"], [[0.0, -1.0, 0.0, 10.0], [1.0, 0.0, 0.0, 20.0],
+                                          [0.0, 0.0, 1.0, 30.0], [0.0, 0.0, 0.0, 1.0]])
+        self.assertNotIn("translate", move)
+
+    def test_identity_move_keeps_translate(self):
+        sk = sketch({1: (0, 0), 2: (10, 0), 3: (10, 10), 4: (0, 10)}, lines=[(1, 2), (2, 3), (3, 4), (4, 1)])
+        sk.name = "Sketch1"
+        feats = [features.Feature("sketch", "Sketch1", 0, features.SKETCH, sketch=sk),
+                 features.Feature("boss", "Boss-Extrude1", 1, features.BOSS, profile="Sketch1", depth_mm=5),
+                 features.Feature("move", "Body-Move/Copy1", 2, "moMoveCopyBody_c",
+                                  rotation=((1, 0, 0), (0, 1, 0), (0, 0, 1)), translate=(10, 20, 30))]
+        move = features.design("Part", feats, {}, None, True, {})["features"][-1]
+        self.assertEqual(move["translate"], ["10", "20", "30"])
+        self.assertNotIn("matrix", move)
+
+
 class ScaleTests(unittest.TestCase):
     def test_factors_are_the_first_three_sizes_after_the_name(self):
         import struct

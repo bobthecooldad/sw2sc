@@ -10,6 +10,9 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
 15). Per-part results are in `logs/feature-check-nist.md` and working log 180.
 
 ### Added
+- `tools/convert_sample.py` accepts a whole folder as well as a list, skips lock files, and takes
+  `--timeout` for long per-part conversion runs. JSONL results are flushed after every part and
+  aggregate progress prints every ten parts.
 - The unattended check queue can run a rotating private external sample alongside the existing
   long sample, with a commit-derived seed, eight jobs and a separate regression baseline. Private
   filenames and paths stay in the private check directory; only aggregate outcomes go in public logs.
@@ -19,8 +22,9 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   default per-part budget is now 300 seconds (was 90), with a CLI regression test for the default.
 - Body and face colours from Parasolid `SDL/TYSA_COLOUR` / `SDL/TYSA_COLOUR_2` attributes are
   written as AP214 presentation styles in STEP, with identical RGB styles shared. Python and Rust.
-- Body moves (`moMoveCopyBody_c`, a translation) convert to SolidCraft's move (NIST FTC 10's
-  Body-Move/Copy1: 62.5 mm along x). A move with a turn stays to be done. Python and Rust.
+- Body moves (`moMoveCopyBody_c`) convert to SolidCraft's move: translation and rotation are
+  written as a rigid matrix, with the original translation-only form kept for identity rotations.
+  Python and Rust. Independent body copies remain to be done.
 - Ribs (`moRib_c`) convert to SolidCraft's rib: the wall's sides, thickness and free-edge profile
   are read from the rib's own faces in the part's solid (ported from cadkit-kernel
   `ck-swedit/src/rib.rs`, MIT; see THIRD_PARTY_NOTICES.md); its side and whether its ends run on
