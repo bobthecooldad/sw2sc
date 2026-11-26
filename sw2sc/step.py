@@ -56,6 +56,8 @@ class Writer:
         self.lines: list[str] = []
         self.cache: dict = {}
         self.face_sources: dict[str, str] = {}  # STEP id -> Parasolid surface type (diagnostics)
+        self.face_styles: list[tuple[str, tuple]] = []
+        self.styles: dict[tuple, str] = {}
 
     def add(self, text: str) -> str:
         self.lines.append(text)
@@ -164,7 +166,20 @@ class Writer:
         s = self.surface(f.surface)
         fid = self.add(f"ADVANCED_FACE('',({','.join(bounds)}),{s},{'.T.' if f.same_sense else '.F.'})")
         self.face_sources[fid] = f.source + (" (approx)" if f.approx else "")
+        if f.colour is not None:
+            self.face_styles.append((fid, f.colour))
         return fid
+
+    def styled_item(self, item: str, rgb: tuple) -> None:
+        if rgb not in self.styles:
+            colour = self.add(f"COLOUR_RGB('',{_r(rgb[0])},{_r(rgb[1])},{_r(rgb[2])})")
+            fill_colour = self.add(f"FILL_AREA_STYLE_COLOUR('',{colour})")
+            fill = self.add(f"FILL_AREA_STYLE('',({fill_colour}))")
+            fill_area = self.add(f"SURFACE_STYLE_FILL_AREA({fill})")
+            side = self.add(f"SURFACE_SIDE_STYLE('',({fill_area}))")
+            usage = self.add(f"SURFACE_STYLE_USAGE(.BOTH.,{side})")
+            self.styles[rgb] = self.add(f"PRESENTATION_STYLE_ASSIGNMENT(({usage}))")
+        self.add(f"STYLED_ITEM('',({self.styles[rgb]}),{item})")
 
     def shell(self, sh: Shell, closed: bool) -> str:
         faces = []
@@ -192,24 +207,31 @@ def write(bodies: list[Body], name: str, face_sources: dict | None = None) -> st
     gctx = w.add(f"(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT(({unc}))"
                  f"GLOBAL_UNIT_ASSIGNED_CONTEXT(({mm},{rad},{sr}))REPRESENTATION_CONTEXT('',''))")
     origin = w.axis2((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
-    solids, sheets = [], []
+    solids, sheets, body_styles = [], [], []
     for i, b in enumerate(bodies):
         label = _str(b.name or f"{name} body {i + 1}" if len(bodies) > 1 else (b.name or name))
+        item = None
         if b.kind == "solid" and b.outer:
             outer = w.shell(b.outer[0], True)
             if b.voids:
                 vs = [w.add(f"ORIENTED_CLOSED_SHELL('',*,{w.shell(v, True)},.F.)") for v in b.voids]
-                solids.append(w.add(f"BREP_WITH_VOIDS({label},{outer},({','.join(vs)}))"))
+                item = w.add(f"BREP_WITH_VOIDS({label},{outer},({','.join(vs)}))")
             else:
-                solids.append(w.add(f"MANIFOLD_SOLID_BREP({label},{outer})"))
+                item = w.add(f"MANIFOLD_SOLID_BREP({label},{outer})")
+            solids.append(item)
         elif b.outer:
             shells = [w.shell(sh, False) for sh in b.outer]
-            sheets.append(w.add(f"SHELL_BASED_SURFACE_MODEL({label},({','.join(shells)}))"))
+            item = w.add(f"SHELL_BASED_SURFACE_MODEL({label},({','.join(shells)}))")
+            sheets.append(item)
+        if item is not None and b.colour is not None:
+            body_styles.append((item, b.colour))
     rep = w.add(f"ADVANCED_BREP_SHAPE_REPRESENTATION({_str(name)},({','.join([origin] + solids)}),{gctx})")
     w.add(f"SHAPE_DEFINITION_REPRESENTATION({pds},{rep})")
     if sheets:
         srep = w.add(f"MANIFOLD_SURFACE_SHAPE_REPRESENTATION({_str(name)},({','.join([origin] + sheets)}),{gctx})")
         w.add(f"SHAPE_REPRESENTATION_RELATIONSHIP('','',{rep},{srep})")
+    for item, rgb in body_styles + w.face_styles:
+        w.styled_item(item, rgb)
     if face_sources is not None:
         face_sources.update(w.face_sources)
     stamp = "1970-01-01T00:00:00"  # fixed: the same part always gives the same text

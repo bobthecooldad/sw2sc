@@ -44,6 +44,10 @@ Record each new finding here.
   has 9 LIST fields, not 12; node types 163/184 (helix forms) are the other way round; a cone's
   radius grows along +axis (checked on 98 cone faces). Fields added by newer versions come from
   the schema edits each file carries.
+- **Parasolid colours:** an owner's `attributes_groups` chain can hold `SDL/TYSA_COLOUR` (faces)
+  and `SDL/TYSA_COLOUR_2` (bodies). Its `REAL_VALUES` fields begin with three finite RGB doubles
+  in the 0…1 range. Found by inspecting published sample parts; the values are carried to AP214
+  `COLOUR_RGB` / `STYLED_ITEM` chains and checked by opening the resulting STEP in SolidCraft.
 - **`Contents/Config-N-ResolvedFeatures` (feature tree, F-006):** a stream of serialized
   objects in the layout of the publicly documented MFC `CArchive` object format: a new class is
   `FF FF`, u16 schema, u16 name length, ASCII class name, then the object's fields; a later

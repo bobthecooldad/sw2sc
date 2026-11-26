@@ -17,6 +17,8 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   (default 8), preserving report order and per-part errors. Process-based regression tests cover
   the new runners; the default matches the eight-way full checks used for recent surveys. Triage's
   default per-part budget is now 300 seconds (was 90), with a CLI regression test for the default.
+- Body and face colours from Parasolid `SDL/TYSA_COLOUR` / `SDL/TYSA_COLOUR_2` attributes are
+  written as AP214 presentation styles in STEP, with identical RGB styles shared. Python and Rust.
 - Body moves (`moMoveCopyBody_c`, a translation) convert to SolidCraft's move (NIST FTC 10's
   Body-Move/Copy1: 62.5 mm along x). A move with a turn stays to be done. Python and Rust.
 - Ribs (`moRib_c`) convert to SolidCraft's rib: the wall's sides, thickness and free-edge profile

@@ -122,6 +122,7 @@ pub struct Face {
     pub loops: Vec<Loop>,
     pub approx: bool,
     pub source: String,
+    pub colour: Option<V>,
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +137,53 @@ pub struct Body {
     pub outer: Vec<Shell>,
     pub voids: Vec<Shell>,
     pub name: String,
+    pub colour: Option<V>,
+}
+
+/// The node's SDL/TYSA colour as three RGB fractions, if it has a valid one.
+pub fn colour(part: &Partition, node: &Node) -> Option<V> {
+    let mut found = None;
+    let (mut a, mut hops) = (node.p("attributes_groups"), 0);
+    while a != 0 && hops < 64 {
+        let Some(at) = part.get(a) else { break };
+        if at.name != "ATTRIBUTE" {
+            break;
+        }
+        hops += 1;
+        let name = part
+            .get(at.p("definition"))
+            .and_then(|dn| part.get(dn.p("identifier")))
+            .and_then(|idn| idn.get("string"))
+            .map(|s| match s {
+                F::List(v) => v.iter().map(F::ch).collect(),
+                F::Char(c) => c.to_string(),
+                _ => String::new(),
+            })
+            .unwrap_or_default();
+        if name == "SDL/TYSA_COLOUR" || name == "SDL/TYSA_COLOUR_2" {
+            let mut values = Vec::new();
+            if let Some(F::List(fields)) = at.get("fields") {
+                for ptr in fields {
+                    if let Some(nv) = part.get(ptr.ptr()) {
+                        if nv.name == "REAL_VALUES" {
+                            if let Some(F::List(vs)) = nv.get("values") {
+                                values.extend(vs.iter().map(F::real));
+                            }
+                        }
+                    }
+                }
+            }
+            if values.len() >= 3 && values[..3].iter().all(|v| v.is_finite()) {
+                let rgb = [values[0].clamp(0.0, 1.0), values[1].clamp(0.0, 1.0), values[2].clamp(0.0, 1.0)];
+                if name == "SDL/TYSA_COLOUR_2" {
+                    return Some(rgb);
+                }
+                found = Some(rgb);
+            }
+        }
+        a = at.p("next");
+    }
+    found
 }
 
 // --- NURBS from nodes -----------------------------------------------------------------------
@@ -1004,14 +1052,15 @@ impl<'a> Converter<'a> {
         }
         let (spec, flip, approx) = self.face_surface(sidx, &loops)?;
         let natural = (fnode.c("sense") != '-') == sense_plus(snode);
+        let colour = colour(self.p, fnode);
         if let SurfSpec::Blend(b) = spec {
             let bn = self.node(b, "missing blend")?;
             let s = self.blend_surface(bn, &loops)?;
             let spec = SurfSpec::BSpline(s);
             let same = self.orient_by_neighbours(&spec, &loops, idx);
-            return Ok(Face { surface: spec, same_sense: same, loops, approx: true, source: snode.name.clone() });
+            return Ok(Face { surface: spec, same_sense: same, loops, approx: true, source: snode.name.clone(), colour });
         }
-        Ok(Face { surface: spec, same_sense: natural != flip.unwrap_or(false), loops, approx, source: snode.name.clone() })
+        Ok(Face { surface: spec, same_sense: natural != flip.unwrap_or(false), loops, approx, source: snode.name.clone(), colour })
     }
 
     fn blend_surface(&mut self, sn: &Node, loops: &[Loop]) -> Result<Surface, GeomError> {
@@ -1301,6 +1350,7 @@ impl<'a> Converter<'a> {
             3 => "sheet",
             _ => "general",
         };
+        let colour = colour(self.p, bn);
         let mut out = Vec::new();
         let mut seen: HashSet<i64> = HashSet::new();
         let mut sheet_shells: Vec<Shell> = Vec::new();
@@ -1343,14 +1393,14 @@ impl<'a> Converter<'a> {
             if btype == "solid" && !shells.is_empty() {
                 shells.sort_by(|a, b| shell_size(b).total_cmp(&shell_size(a))); // stable, largest first
                 let rest = shells.split_off(1);
-                out.push(Body { kind: "solid".into(), outer: shells, voids: rest, name: String::new() });
+                out.push(Body { kind: "solid".into(), outer: shells, voids: rest, name: String::new(), colour });
             } else {
                 sheet_shells.extend(shells);
             }
             ri = rn.p("next");
         }
         if !sheet_shells.is_empty() {
-            out.push(Body { kind: if btype != "solid" { "sheet".into() } else { "solid".into() }, outer: sheet_shells, voids: vec![], name: String::new() });
+            out.push(Body { kind: if btype != "solid" { "sheet".into() } else { "solid".into() }, outer: sheet_shells, voids: vec![], name: String::new(), colour });
         }
         Ok(out)
     }

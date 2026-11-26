@@ -1430,3 +1430,11 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     axes; the affected public samples checked use full turns. The interrupted worker also left a
     duplicated test class, removed before the runs. Python: 89 tests OK; Rust revolve test OK.
     Older files whose construction centrelines are not numbered remain limited by F-039.
+
+186. **Body and face colours (F-014).** The generic Parasolid attribute reader kept the nodes but
+    did not put their values on the neutral bodies/faces or into STEP. Published samples show a
+    face's `SDL/TYSA_COLOUR` and a body's `SDL/TYSA_COLOUR_2`, each with three real RGB fractions
+    in 0…1. Both converters now read those values, preferring the body form where both occur, and
+    write AP214 `COLOUR_RGB` / `STYLED_ITEM` chains for the owning body or face. Identical RGB
+    values share one presentation style. SolidCraft opens the styled STEP without errors. Python:
+    90 tests OK; Rust: 4 tests OK, including body and face styles and unchanged no-colour output.

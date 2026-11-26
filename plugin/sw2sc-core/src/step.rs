@@ -60,6 +60,8 @@ struct Writer {
     dirs: HashMap<(i64, i64, i64), String>,
     vertices: HashMap<usize, String>,
     edges: HashMap<usize, String>,
+    face_styles: Vec<(String, V)>,
+    styles: HashMap<[u64; 3], String>,
 }
 
 fn k(x: f64, nd: usize) -> i64 {
@@ -234,7 +236,29 @@ impl Writer {
             bounds.push(self.add(format!("FACE_BOUND('',{ll},.T.)")));
         }
         let s = self.surface(&f.surface);
-        self.add(format!("ADVANCED_FACE('',({}),{s},{})", bounds.join(","), tf(f.same_sense)))
+        let fid = self.add(format!("ADVANCED_FACE('',({}),{s},{})", bounds.join(","), tf(f.same_sense)));
+        if let Some(rgb) = f.colour {
+            self.face_styles.push((fid.clone(), rgb));
+        }
+        fid
+    }
+
+    fn styled_item(&mut self, item: String, rgb: V) {
+        let key = rgb.map(f64::to_bits);
+        let style = if let Some(style) = self.styles.get(&key) {
+            style.clone()
+        } else {
+            let colour = self.add(format!("COLOUR_RGB('',{},{},{})", r(rgb[0]), r(rgb[1]), r(rgb[2])));
+            let fill_colour = self.add(format!("FILL_AREA_STYLE_COLOUR('',{colour})"));
+            let fill = self.add(format!("FILL_AREA_STYLE('',({fill_colour}))"));
+            let fill_area = self.add(format!("SURFACE_STYLE_FILL_AREA({fill})"));
+            let side = self.add(format!("SURFACE_SIDE_STYLE('',({fill_area}))"));
+            let usage = self.add(format!("SURFACE_STYLE_USAGE(.BOTH.,{side})"));
+            let style = self.add(format!("PRESENTATION_STYLE_ASSIGNMENT(({usage}))"));
+            self.styles.insert(key, style.clone());
+            style
+        };
+        self.add(format!("STYLED_ITEM('',({style}),{item})"));
     }
 
     fn shell(&mut self, sh: &Shell, closed: bool) -> String {
@@ -244,7 +268,7 @@ impl Writer {
 }
 
 pub fn write(bodies: &[Body], name: &str) -> String {
-    let mut w = Writer { lines: vec![], points: HashMap::new(), dirs: HashMap::new(), vertices: HashMap::new(), edges: HashMap::new() };
+    let mut w = Writer { lines: vec![], points: HashMap::new(), dirs: HashMap::new(), vertices: HashMap::new(), edges: HashMap::new(), face_styles: vec![], styles: HashMap::new() };
     let ctx = w.add("APPLICATION_CONTEXT('automotive design')".into());
     w.add(format!("APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{ctx})"));
     let pctx = w.add(format!("PRODUCT_CONTEXT('',{ctx},'mechanical')"));
@@ -262,7 +286,7 @@ pub fn write(bodies: &[Body], name: &str) -> String {
         "(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT(({unc}))GLOBAL_UNIT_ASSIGNED_CONTEXT(({mm},{rad},{sr}))REPRESENTATION_CONTEXT('',''))"
     ));
     let origin = w.axis2([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]);
-    let (mut solids, mut sheets) = (Vec::new(), Vec::new());
+    let (mut solids, mut sheets, mut body_styles) = (Vec::new(), Vec::new(), Vec::new());
     for (i, b) in bodies.iter().enumerate() {
         let label = if !b.name.is_empty() {
             st(&b.name)
@@ -271,6 +295,7 @@ pub fn write(bodies: &[Body], name: &str) -> String {
         } else {
             st(name)
         };
+        let mut item = None;
         if b.kind == "solid" && !b.outer.is_empty() {
             let outer = w.shell(&b.outer[0], true);
             if !b.voids.is_empty() {
@@ -279,13 +304,18 @@ pub fn write(bodies: &[Body], name: &str) -> String {
                     let s = w.shell(v, true);
                     vs.push(w.add(format!("ORIENTED_CLOSED_SHELL('',*,{s},.F.)")));
                 }
-                solids.push(w.add(format!("BREP_WITH_VOIDS({label},{outer},({}))", vs.join(","))));
+                item = Some(w.add(format!("BREP_WITH_VOIDS({label},{outer},({}))", vs.join(","))));
             } else {
-                solids.push(w.add(format!("MANIFOLD_SOLID_BREP({label},{outer})")));
+                item = Some(w.add(format!("MANIFOLD_SOLID_BREP({label},{outer})")));
             }
+            solids.push(item.clone().unwrap_or_default());
         } else if !b.outer.is_empty() {
             let shells: Vec<String> = b.outer.iter().map(|sh| w.shell(sh, false)).collect();
-            sheets.push(w.add(format!("SHELL_BASED_SURFACE_MODEL({label},({}))", shells.join(","))));
+            item = Some(w.add(format!("SHELL_BASED_SURFACE_MODEL({label},({}))", shells.join(","))));
+            sheets.push(item.clone().unwrap_or_default());
+        }
+        if let (Some(item), Some(rgb)) = (item, b.colour) {
+            body_styles.push((item, rgb));
         }
     }
     let items: Vec<String> = std::iter::once(origin.clone()).chain(solids).collect();
@@ -295,6 +325,10 @@ pub fn write(bodies: &[Body], name: &str) -> String {
         let items: Vec<String> = std::iter::once(origin).chain(sheets).collect();
         let srep = w.add(format!("MANIFOLD_SURFACE_SHAPE_REPRESENTATION({},({}),{gctx})", st(name), items.join(",")));
         w.add(format!("SHAPE_REPRESENTATION_RELATIONSHIP('','',{rep},{srep})"));
+    }
+    body_styles.extend(w.face_styles.clone());
+    for (item, rgb) in body_styles {
+        w.styled_item(item, rgb);
     }
     let mut out = vec![
         "ISO-10303-21;".to_string(),
@@ -454,4 +488,33 @@ pub fn part_to_step(sw: &SwFile, name: &str) -> (Option<String>, Vec<String>, us
         return (None, warnings, left_out);
     }
     (Some(write(&bodies, name)), warnings, left_out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_styles_body_and_face() {
+        let face = Face {
+            surface: SurfSpec::Plane([0.0; 3], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]),
+            same_sense: true,
+            loops: vec![],
+            approx: false,
+            source: "PLANE".into(),
+            colour: Some([0.0, 0.5, 1.0]),
+        };
+        let body = Body {
+            kind: "solid".into(),
+            outer: vec![Shell { faces: vec![face], closed: true }],
+            voids: vec![],
+            name: String::new(),
+            colour: Some([1.0, 0.25, 0.0]),
+        };
+        let text = write(&[body], "part");
+        assert_eq!(text.matches("STYLED_ITEM(").count(), 2);
+        assert_eq!(text.matches("PRESENTATION_STYLE_ASSIGNMENT(").count(), 2);
+        assert!(text.contains("COLOUR_RGB('',1.0,0.25,0.0)"));
+        assert!(text.contains("COLOUR_RGB('',0.0,0.5,1.0)"));
+    }
 }

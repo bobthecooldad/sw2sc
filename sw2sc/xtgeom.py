@@ -70,6 +70,7 @@ class Face:
     loops: list
     approx: bool = False
     source: str = ""
+    colour: tuple | None = None
 
 
 @dataclass(eq=False)
@@ -84,6 +85,35 @@ class Body:
     outer: list  # shells
     voids: list = field(default_factory=list)
     name: str = ""
+    colour: tuple | None = None
+
+
+def _colour(part: Partition, node: Node) -> tuple | None:
+    """The node's SDL/TYSA colour as three RGB fractions, if it has a valid one."""
+    found = None
+    a, hops = node.f.get("attributes_groups"), 0
+    while a and hops < 64:
+        at = part.get(a)
+        if at is None or at.name != "ATTRIBUTE":
+            break
+        hops += 1
+        dn = part.get(at.f.get("definition"))
+        ident = part.get(dn.f.get("identifier")) if dn else None
+        raw = ident.f.get("string") if ident else None
+        name = "".join(raw) if isinstance(raw, list) else (raw or "")
+        if name in ("SDL/TYSA_COLOUR", "SDL/TYSA_COLOUR_2"):
+            values = []
+            for ptr in at.f.get("fields") or []:
+                nv = part.get(ptr)
+                if nv is not None and nv.name == "REAL_VALUES":
+                    values.extend(nv.f.get("values") or [])
+            if len(values) >= 3 and all(isinstance(v, (int, float)) and math.isfinite(v) for v in values[:3]):
+                rgb = tuple(min(1.0, max(0.0, float(v))) for v in values[:3])
+                if name == "SDL/TYSA_COLOUR_2":
+                    return rgb
+                found = rgb
+        a = at.f.get("next")
+    return found
 
 
 # --- curves -------------------------------------------------------------------------------
@@ -736,14 +766,15 @@ class Converter:
             guard += 1
         spec, flip, approx = self.face_surface(sidx, loops)
         natural = (fn.f["sense"] != "-") == (snode.f.get("sense", "+") != "-")
+        colour = _colour(self.p, fn)
         if spec[0] == "blend":
             spec = ("bspline", self._blend_surface(self.p.get(spec[1]), loops))
             same = self._orient_by_neighbours(spec, loops, idx)
-            return Face(spec, same, loops, True, snode.name)
+            return Face(spec, same, loops, True, snode.name, colour)
         if approx and spec[0] == "bspline" and snode.name in ("SPUN_SURF", "SWEPT_SURF", "OFFSET_SURF", "TORUS"):
             # The sampled surface keeps the natural parameterisation, so the natural normal.
             pass
-        return Face(spec, natural != bool(flip), loops, approx, snode.name)
+        return Face(spec, natural != bool(flip), loops, approx, snode.name, colour)
 
     # ---- blends ----
     def _blend_surface(self, snode: Node, loops: list) -> nurbs.Surface:
@@ -969,6 +1000,7 @@ class Converter:
     # ---- bodies ----
     def body(self, bn: Node) -> list[Body]:
         btype = {1: "solid", 2: "wire", 3: "sheet", 6: "general"}.get(bn.f["body_type"], "general")
+        colour = _colour(self.p, bn)
         out: list[Body] = []
         seen: set[int] = set()
         sheet_shells: list[Shell] = []
@@ -1002,12 +1034,12 @@ class Converter:
                 si = sn.f["next"]
             if btype == "solid" and shells:
                 shells.sort(key=lambda sh: -_shell_size(sh))
-                out.append(Body("solid", [shells[0]], shells[1:]))
+                out.append(Body("solid", [shells[0]], shells[1:], colour=colour))
             else:
                 sheet_shells.extend(shells)
             ri = rn.f["next"]
         if sheet_shells:
-            out.append(Body("sheet" if btype != "solid" else "solid", sheet_shells, []))
+            out.append(Body("sheet" if btype != "solid" else "solid", sheet_shells, [], colour=colour))
         return out
 
     def bodies(self) -> list[Body]:

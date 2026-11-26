@@ -8,7 +8,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from sw2sc import geometry, model, nurbs, parasolid, roles, solidcraft, validate, vault, workflow  # noqa: E402
+from sw2sc import geometry, model, nurbs, parasolid, roles, solidcraft, step, validate, vault, workflow, xtgeom  # noqa: E402
 from sw2sc.swfile import SwFile  # noqa: E402
 
 
@@ -60,6 +60,36 @@ class NurbsTests(unittest.TestCase):
             self.assertAlmostEqual(math.hypot(*s(lo + (hi - lo) * i / 10)[:2]), 1.0, places=12)
 
 
+class ColourTests(unittest.TestCase):
+    def test_body_and_face_attributes(self):
+        nodes = {
+            1: parasolid.Node(79, "ATT_DEF_ID", 1, {"string": list("SDL/TYSA_COLOUR")}),
+            2: parasolid.Node(80, "ATTRIB_DEF", 2, {"identifier": 1}),
+            3: parasolid.Node(81, "ATTRIBUTE", 3, {"definition": 2, "fields": [4], "next": 5}),
+            4: parasolid.Node(83, "REAL_VALUES", 4, {"values": [1.0, 0.0, 0.0]}),
+            5: parasolid.Node(81, "ATTRIBUTE", 5, {"definition": 6, "fields": [7], "next": 0}),
+            6: parasolid.Node(80, "ATTRIB_DEF", 6, {"identifier": 8}),
+            7: parasolid.Node(83, "REAL_VALUES", 7, {"values": [0.0, 0.5, 1.0]}),
+            8: parasolid.Node(79, "ATT_DEF_ID", 8, {"string": list("SDL/TYSA_COLOUR_2")}),
+        }
+        part = parasolid.Partition("test", "test", nodes, [])
+        body = parasolid.Node(12, "BODY", 9, {"attributes_groups": 3})
+        face = parasolid.Node(14, "FACE", 10, {"attributes_groups": 3})
+        self.assertEqual(xtgeom._colour(part, body), (0.0, 0.5, 1.0))
+        nodes[5] = parasolid.Node(81, "ATTRIBUTE", 5, {"definition": 0, "fields": [], "next": 0})
+        self.assertEqual(xtgeom._colour(part, face), (1.0, 0.0, 0.0))
+
+    def test_step_styles_body_and_face(self):
+        face = xtgeom.Face(("plane", (0, 0, 0), (0, 0, 1), (1, 0, 0)), True, [],
+                           colour=(0.0, 0.5, 1.0))
+        body = xtgeom.Body("solid", [xtgeom.Shell([face], True)], colour=(1.0, 0.25, 0.0))
+        text = step.write([body], "part")
+        self.assertEqual(text.count("STYLED_ITEM("), 2)
+        self.assertEqual(text.count("PRESENTATION_STYLE_ASSIGNMENT("), 2)
+        self.assertIn("COLOUR_RGB('',1.0,0.25,0.0)", text)
+        self.assertIn("COLOUR_RGB('',0.0,0.5,1.0)", text)
+
+
 class ValidatorTests(unittest.TestCase):
     def test_bad_hidden_path(self):
         d = {"format": "solidcraft/28", "features": [], "next_id": 3,
@@ -108,6 +138,9 @@ class SlipPadTests(unittest.TestCase):
         self.assertEqual(text.count("MANIFOLD_SOLID_BREP"), 1)
         self.assertEqual(text.count("CYLINDRICAL_SURFACE"), 2)
         self.assertIn(",1.5)", text)  # 3 mm bore, in millimetres
+        self.assertEqual(text.count("STYLED_ITEM("), 4)
+        self.assertEqual(text.count("COLOUR_RGB(''"), 1)
+        self.assertIn("COLOUR_RGB('',0.792156862745098,0.8196078431372549,0.9333333333333333)", text)
 
     def test_design_carries_import_features(self):
         design, rep = solidcraft.convert(os.path.join(SLIPPAD, "idler_assem_v2.SLDASM"))
