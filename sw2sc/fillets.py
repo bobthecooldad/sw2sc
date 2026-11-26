@@ -78,8 +78,9 @@ def body_faces(design: dict, cli: str, tmp: str) -> list | None:
     return [face for r in (res if isinstance(res, list) else []) for face in r.get("faces", [])]
 
 
-def body_edges(design: dict, cli: str, tmp: str) -> list | None:
-    """Every edge of the design's bodies: (faces, mid point, name)."""
+def body_edges(design: dict, cli: str, tmp: str, raw: list | None = None) -> list | None:
+    """Every edge of the design's bodies: (faces, mid point, name). `raw` gets every edge as
+    (mid point, name), those whose faces aren't read too (a hole's bore, `F4:bore:side:2`)."""
     from .verify import past_deadline
     if past_deadline():
         return None
@@ -105,6 +106,8 @@ def body_edges(design: dict, cli: str, tmp: str) -> list | None:
     edges = []
     for r in res if isinstance(res, list) else []:
         for e in r.get("edges", []):
+            if raw is not None and e.get("mid") is not None:
+                raw.append((e["mid"], e.get("name")))
             fc = _faces(e.get("name"))
             if fc:
                 edges.append((fc, e["mid"], e["name"]))
@@ -266,7 +269,8 @@ def candidates(prefix: dict, fillet, feats: list, cli: str, tmp: str, known: lis
     """The edge sets the fillet `fillet` could round in the design `prefix` (everything before
     it), each with the assignments of SolidWorks faces that reach it. Smooth edges (an arc running on
     from a line) are no fillet's: they are left out."""
-    sc = body_edges(prefix, cli, tmp)
+    raw: list = []
+    sc = body_edges(prefix, cli, tmp, raw)
     if not sc:
         return []
     every = sc
@@ -293,8 +297,16 @@ def candidates(prefix: dict, fillet, feats: list, cli: str, tmp: str, known: lis
     if axes:
         got = []
         for p, d, r in axes:
-            near = sorted(((off_axis(mid, p, d), mid, name) for _fc, mid, name in every), key=lambda x: x[0])
-            near = [x for x in near if r * 0.999 <= x[0] <= 3 * r]
+            # (ties, a hole's two rims both a radius off: the one nearer the face's point along the axis)
+            along = lambda m, p=p, d=d: abs(sum((m[k] - p[k]) * d[k] for k in range(3)))  # noqa: E731
+            # a chamfer's cone: the edge it bevels lies at the cone's own radius (a hole's rim), not
+            # the nearest edge (the hole's drill-point edge can be a hair nearer)
+            cham = fillet.kind == "chamfer"
+            score = (lambda o, r=r: abs(o - r)) if cham else (lambda o: o)  # noqa: E731
+            # (a seam, one face meeting itself, is no edge to round)
+            near = sorted(((off_axis(mid, p, d), mid, name) for mid, name in raw if len(_split(name or "")) == 2),
+                          key=lambda x: (round(score(x[0]), 3), along(x[1])))
+            near = [x for x in near if (abs(x[0] - r) <= 0.01 if cham else r * 0.999 <= x[0] <= 3 * r)]
             if not near:
                 got = []
                 break

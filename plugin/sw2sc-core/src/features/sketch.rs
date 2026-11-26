@@ -80,11 +80,56 @@ pub fn chain_points(b: &[u8], s: usize, e: usize) -> Vec<u32> {
 /// tag or new-class header, u16 curve id, FF FF FF FF, 4 zero bytes). Where the numbering has
 /// drifted, handle classes brought in inline here take the tags in order; `learned` carries such
 /// tags from sketch to sketch.
-pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, mut learned: Option<&mut Tags>) {
+pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, learned: Option<&mut Tags>) {
+    let mut trial: Tags = learned.as_deref().cloned().unwrap_or_default();
+    let (tags2, listed) = read_sketch_once(b, base, sk, s, e, Some(&mut trial), &Tags::new());
+    // an arc tag whose two-point curves find no centre is the line class (see the Python)
+    static FAIL: OnceLock<regex::Regex> = OnceLock::new();
+    let re = FAIL.get_or_init(|| regex::Regex::new(r"^arc (\d+): no centre found \(ends \[\d+, \d+\]\)$").unwrap());
+    let fails: HashSet<u16> = sk.problems.iter().filter_map(|p| re.captures(p).and_then(|c| c[1].parse().ok())).collect();
+    if fails.len() >= 2 {
+        for (t, cids) in &listed {
+            if tags2.get(t).map(String::as_str) != Some(ARC)
+                || !cids.keys().any(|c| fails.contains(c))
+                || cids.values().any(|ps| ps.iter().collect::<HashSet<_>>().len() != 2)
+            {
+                continue;
+            }
+            let mut sk2 = Sketch::new(&sk.name, sk.offset);
+            sk2.end = sk.end;
+            let mut trial2: Tags = learned.as_deref().cloned().unwrap_or_default();
+            let force: Tags = [(*t, LINE.to_string())].into_iter().collect();
+            read_sketch_once(b, base, &mut sk2, s, e, Some(&mut trial2), &force);
+            let nc = |k: &Sketch| k.problems.iter().filter(|p| p.contains("no centre found")).count();
+            if nc(&sk2) < nc(sk) && sk2.problems.len() < sk.problems.len() {
+                *sk = sk2;
+                trial = trial2;
+            }
+            break;
+        }
+    }
+    if let Some(l) = learned {
+        l.extend(trial);
+    }
+}
+
+/// One reading of a sketch; `force` gives tags a class whatever the numbering says. Returns the
+/// tags used and each tag's curves (tag -> curve id -> points).
+#[allow(clippy::type_complexity)]
+fn read_sketch_once(
+    b: &[u8],
+    base: &Tags,
+    sk: &mut Sketch,
+    s: usize,
+    e: usize,
+    mut learned: Option<&mut Tags>,
+    force: &Tags,
+) -> (Tags, IndexMap<u32, IndexMap<u16, Vec<u32>>>) {
     let mut tags = base.clone();
     if let Some(l) = learned.as_deref() {
         tags.extend(l.iter().map(|(k, v)| (*k, v.clone())));
     }
+    tags.extend(force.iter().map(|(k, v)| (*k, v.clone())));
     let mut inline: Vec<String> = Vec::new();
     let mut unknown: IndexMap<(u32, u16), Vec<u32>> = IndexMap::new();
     let mut curves: IndexMap<(String, u16), Vec<u32>> = IndexMap::new();
@@ -94,7 +139,8 @@ pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, m
     let mut pts_order: Vec<u32> = Vec::new();
     let e2 = e.min(b.len());
     let mut from = s;
-    while let Some(i) = find_in(b, &[0xff, 0xff, 0x1f, 0x00], from, e2) {
+    // (files before about 2010 write `07` where later ones write `1F`)
+    while let Some(i) = find_point_mark(b, from, e2) {
         from = i + 1;
         let Some(j) = find_in(b, &[0x1e, 0x00], i + 30, i + 80) else { continue };
         // the point's x, y follow `F0 3F 1E 00`; newer files put 8 zero bytes before the `1E 00`
@@ -246,6 +292,7 @@ pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, m
     place_curves(sk, &curves, &plain);
     let partial: IndexMap<u16, Vec<u32>> = sk_partial(&curves);
     read_segments(b, sk, s, e, &partial);
+    curves_from_records(b, sk, s, e);
     // a line read with one end only is left out and noted
     let (one_ended, rest): (Vec<String>, Vec<String>) = sk.problems.drain(..).partition(|x| is_one_end(x));
     sk.problems = rest;
@@ -260,6 +307,7 @@ pub fn read_sketch(b: &[u8], base: &Tags, sk: &mut Sketch, s: usize, e: usize, m
     dimensioned_circles(sk);
     read_relations(b, &tags, sk, s, e);
     centres_from_relations(sk);
+    (tags, listed)
 }
 
 fn is_one_end(x: &str) -> bool {
@@ -575,6 +623,18 @@ pub fn with_centres(sk: &Sketch, flips: &[usize]) -> Sketch {
     s2
 }
 
+/// The next point record's `FF FF 1F 00` (older files: `FF FF 07 00`) in `b[lo..hi]`.
+fn find_point_mark(b: &[u8], lo: usize, hi: usize) -> Option<usize> {
+    let mut from = lo;
+    while let Some(i) = find_in(b, &[0xff, 0xff], from, hi) {
+        if i + 4 <= hi && matches!(b[i + 2], 0x07 | 0x1f) && b[i + 3] == 0 {
+            return Some(i);
+        }
+        from = i + 1;
+    }
+    None
+}
+
 /// Construction lines, from the sketch's segment records (see the Python for the layout). Used
 /// only when at least half of a sketch's normal records, and at least two, give the ends of a
 /// line or arc already read.
@@ -784,3 +844,216 @@ fn read_relations(b: &[u8], tags: &Tags, sk: &mut Sketch, s: usize, e: usize) {
     }
 }
 
+
+/// Curve-handle tags for a file whose numbering has drifted before its first sketch (NIST FTC 06),
+/// as `_handle_tags_file`: only where no handle tag in any point's list is one the numbering
+/// gives a curve class, those tags take the curve classes in the order the stream brings them in.
+pub fn handle_tags_file(b: &[u8], tags: &Tags, recs: &[crate::archive::Record]) -> Tags {
+    let curve = |c: Option<&String>| matches!(c.map(|s| s.as_str()), Some("sgLineHandle") | Some("sgArcHandle"));
+    let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut from = 0;
+    while let Some(i) = find_in(b, &[0xff, 0xff, 0x1f, 0x00], from, b.len()) {
+        from = i + 1;
+        let Some(j) = find_in(b, &[0x1e, 0x00], i + 30, i + 80) else { continue };
+        let ok = b.get(j.wrapping_sub(2)..j) == Some(&[0xf0, 0x3f][..])
+            || (j >= 10 && b[j - 10..j - 8] == [0xf0, 0x3f] && b[j - 8..j] == [0u8; 8]);
+        if j + 22 > b.len() || !ok {
+            continue;
+        }
+        let mut k = j + 22;
+        for _ in 0..16 {
+            if k + 12 > b.len() {
+                break;
+            }
+            let t = u16_at(b, k) as u32;
+            if t & 0x8000 == 0 || t == 0xFFFF || b[k + 4..k + 8] != [0xff; 4] {
+                break;
+            }
+            seen.insert(t);
+            k += 12;
+        }
+    }
+    let mut out = Tags::new();
+    if seen.is_empty() || seen.iter().any(|t| curve(tags.get(t))) {
+        return out;
+    }
+    let mut order: Vec<String> = Vec::new();
+    for r in recs {
+        if r.new_class && curve(Some(&r.cls)) && !order.contains(&r.cls) {
+            order.push(r.cls.clone());
+        }
+    }
+    if order.len() == seen.len() {
+        out.extend(seen.into_iter().zip(order));
+    }
+    out
+}
+
+/// A sketch record: a point (id, x, y, located) or a curve (id, first end, last end, flag, tail).
+enum Ent {
+    P(u32, f64, f64, bool),
+    S(u32, u16, u16, u16, [u16; 6]),
+}
+
+/// A sketch's point and curve records in order (see the Python `_entities`).
+/// Ported from cadkit-kernel crates/ck-sldprt/src/sketch.rs `entities`, MIT OR Apache-2.0.
+fn entities(b: &[u8], s: usize, e: usize) -> Vec<Ent> {
+    let e = e.min(b.len());
+    let mut heads = Vec::new();
+    let mut i = s.max(4);
+    while let Some(j) = find_in(b, &[0xff, 0xff], i, e) {
+        if j + 13 > e {
+            break;
+        }
+        if b[j + 2] <= 0x40 && b[j + 3] == 0 && (1..=8).contains(&b[j + 4]) && b[j + 5..j + 13] == [0xff; 8] {
+            heads.push(j);
+            i = j + 13;
+        } else {
+            i = j + 1;
+        }
+    }
+    let (mut w, mut wo) = (0usize, 0usize);
+    for &h in &heads {
+        let Some(r) = find_in(b, &[0xf0, 0x3f], h + 13, (h + 4096).min(b.len())) else { continue };
+        if b.get(r + 2..r + 4) == Some(&[0x1e, 0x00]) {
+            wo += 1;
+        } else if b.get(r + 2..r + 10) == Some(&[0; 8]) && b.get(r + 10..r + 12) == Some(&[0x1e, 0x00]) {
+            w += 1;
+        }
+    }
+    let zeros = if w + wo > 0 { w >= wo } else { true };
+    let mut out = Vec::new();
+    for (n, &h) in heads.iter().enumerate() {
+        let end = heads.get(n + 1).copied().unwrap_or(b.len()).min(h + 4096);
+        if b.get(h + 13..h + 17) != Some(&[0, 0, 0x80, 0xbf]) || b.get(h + 33..h + 35) != Some(&[0x80, 0xbf]) {
+            continue;
+        }
+        let pid = u32_at(b, h - 4);
+        if b.get(h + 35..h + 37) != Some(&[0, 0]) {
+            let mut o = h + 35;
+            let mut found = None;
+            while found.is_none() {
+                let Some(q) = find_in(b, &[0xf0, 0x3f], o, end) else { break };
+                let k = q + 2 + if zeros { 8 } else { 0 };
+                if (!zeros || b.get(q + 2..q + 10) == Some(&[0; 8])) && b.get(k..k + 2) == Some(&[0x1e, 0x00]) && k + 18 <= b.len() {
+                    let (x, y) = (f64_at(b, k + 2), f64_at(b, k + 10));
+                    if x.is_finite() && y.is_finite() {
+                        found = Some((x, y));
+                    }
+                }
+                o = q + 1;
+            }
+            let (x, y) = found.unwrap_or((0.0, 0.0));
+            out.push(Ent::P(pid, x, y, found.is_some()));
+            continue;
+        }
+        let Some(r) = find_in(b, &[0xf0, 0x3f], h + 13, end) else { continue };
+        let mut k = r + 2;
+        if zeros {
+            if b.get(k..k + 8) != Some(&[0; 8]) {
+                continue;
+            }
+            k += 8;
+        }
+        if b.get(k..k + 2) == Some(&[0x1e, 0x00]) {
+            if k + 18 > b.len() {
+                continue;
+            }
+            let (x, y) = (f64_at(b, k + 2), f64_at(b, k + 10));
+            if x.is_finite() && y.is_finite() {
+                out.push(Ent::P(pid, x, y, true));
+            }
+        } else if k + 32 <= b.len() {
+            let tail: [u16; 6] = std::array::from_fn(|t| u16_at(b, k + 20 + 2 * t));
+            out.push(Ent::S(pid, u16_at(b, k), u16_at(b, k + 2), u16_at(b, k + 4), tail));
+        }
+    }
+    out
+}
+
+/// Where the handle reading leaves curves unread, the sketch's curve records instead (see the
+/// Python `_curves_from_records`). After cadkit-kernel crates/ck-sldprt/src/sketch.rs
+/// `build_sketch`, MIT OR Apache-2.0.
+fn curves_from_records(b: &[u8], sk: &mut Sketch, s: usize, e: usize) {
+    static BAD: OnceLock<regex::Regex> = OnceLock::new();
+    let re = BAD.get_or_init(|| regex::Regex::new(r"^(?:arc \d+: no centre found .*|(line|arc) \d+ has \d+ (end )?points)$").unwrap());
+    let bad: Vec<String> = sk.problems.iter().filter(|p| re.is_match(p)).cloned().collect();
+    if (!sk.lines.is_empty() || !sk.arcs.is_empty() || !sk.circles.is_empty()) && bad.is_empty() {
+        return;
+    }
+    let ents = entities(b, s, e);
+    let pts: Vec<(u32, f64, f64, bool)> = ents.iter().filter_map(|x| if let Ent::P(a, b, c, d) = x { Some((*a, *b, *c, *d)) } else { None }).collect();
+    let segs: Vec<(u32, u16, u16, u16, [u16; 6])> =
+        ents.iter().filter_map(|x| if let Ent::S(a, b, c, d, t) = x { Some((*a, *b, *c, *d, *t)) } else { None }).filter(|x| x.0 != 0xFFFF_FFFF).collect();
+    if segs.is_empty() {
+        return;
+    }
+    let n = pts.len();
+    let mut first: HashMap<u32, usize> = HashMap::new();
+    for (k, x) in pts.iter().enumerate() {
+        first.entry(x.0).or_insert(k);
+    }
+    let mut points = sk.points.clone();
+    let (mut lines, mut arcs, mut circles) = (Vec::new(), Vec::new(), Vec::new());
+    let mut cons = std::collections::BTreeSet::new();
+    let mut curve_of: IndexMap<(String, u16), String> = IndexMap::new();
+    let mut dropped = Vec::new();
+    let pid = |k: usize, points: &mut IndexMap<u32, (f64, f64)>| -> Option<u32> {
+        if k >= n || !pts[k].3 || pts[k].0 == 0xFFFF_FFFF || first[&pts[k].0] != k {
+            return None;
+        }
+        points.insert(pts[k].0, (pts[k].1, pts[k].2));
+        Some(pts[k].0)
+    };
+    let dist = |p: (f64, f64), q: (f64, f64)| (p.0 - q.0).hypot(p.1 - q.1);
+    for &(cid, a, c, flag, tail) in &segs {
+        let (a, c) = (a as usize, c as usize);
+        if flag > 1 || a >= n || c >= n || cid > 0xFFFF {
+            return;
+        }
+        let (Some(pa), Some(pc)) = (pid(a, &mut points), pid(c, &mut points)) else { return };
+        if tail[1] == 0xFFFE {
+            let Some(pk) = pid(tail[0] as usize, &mut points) else { return };
+            if pk == pa || pk == pc {
+                return;
+            }
+            let r = dist(points[&pk], points[&pa]);
+            if r < TOL || (dist(points[&pk], points[&pc]) - r).abs() > 1e-6 * r.max(1e-3) {
+                return;
+            }
+            if flag == 0 {
+                dropped.push(format!("construction arc {cid}"));
+                continue;
+            }
+            if pa == pc {
+                circles.push((pk, r));
+                curve_of.insert(("arc".into(), cid as u16), format!("c{}", circles.len()));
+            } else {
+                arcs.push((pa, pc, pk));
+                curve_of.insert(("arc".into(), cid as u16), format!("a{}", arcs.len()));
+            }
+        } else if a == c {
+            return;
+        } else {
+            if dist(points[&pa], points[&pc]) < TOL {
+                return;
+            }
+            lines.push((pa, pc));
+            if flag == 0 {
+                cons.insert(lines.len() - 1);
+            }
+            curve_of.insert(("line".into(), cid as u16), format!("l{}", lines.len()));
+        }
+    }
+    if lines.is_empty() && arcs.is_empty() && circles.is_empty() {
+        return;
+    }
+    sk.points = points;
+    sk.lines = lines;
+    sk.arcs = arcs;
+    sk.circles = circles;
+    sk.construction = cons;
+    sk.curve_of = curve_of;
+    sk.problems.retain(|p| !bad.contains(p));
+    sk.dropped.extend(dropped);
+}

@@ -97,3 +97,37 @@ jobs:
           body_path: notes.md
           files: sw2sc-${{ needs.build.outputs.version }}.zip
           make_latest: true
+
+  # A push to dev replaces the rolling "dev-build" pre-release with the new plugin zip, so testers can
+  # download the current dev build without a GitHub account or building it themselves.
+  dev-build:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sw2sc-${{ needs.build.outputs.version }}
+
+      - name: Name the zip and write the notes
+        run: |
+          mv "sw2sc-${{ needs.build.outputs.version }}.zip" sw2sc-dev.zip
+          printf 'Development build of `dev` at %s (not a release; may be broken).\n\nIn SolidCraft: Preferences > Plugins > Install plugin..., choose `sw2sc-dev.zip` and allow the memory it asks for. What changed: `CHANGELOG.md` [Unreleased] and `logs/working-log.md` on the dev branch.\n' "${GITHUB_SHA::7}" > notes.md
+
+      - name: Move the dev-build tag to this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete dev-build --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes || true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-build
+          target_commitish: ${{ github.sha }}
+          name: sw2sc dev build
+          body_path: notes.md
+          files: sw2sc-dev.zip
+          prerelease: true
+          make_latest: false

@@ -55,8 +55,8 @@ checks each partial build against the saved solid's volume and box (`sw2sc/verif
 ### 2. Sketches read wrong or not at all
 
 - **Extrudes of a sketch with no curves of its own**: SolidWorks lets an extrude use edges of the model the sketch selects (converted entities), so its sketch record holds none. SolidCraft can extrude a body's face directly (`face: [x,y,z]`): the search should try each flat face of the body so far. Likely most of the next item. *Medium, high value.*
-- **Sketches whose curves aren't read at all**: the commonest blocker in a census of about 4,000 real parts (170). Their sketch records are tiny (under 1 KB, no points), Russian-language files among them: the geometry must be stored somewhere else. *Hard, high value.*
-- Sketches whose plane isn't found (93 parts in that census), lines with one end, arcs with no centre (38: each a different point missing) (F-036, F-047, B-020).
+- **Sketches whose curves aren't read at all**: the commonest blocker in a census of about 4,000 real parts (170). Their sketch records are tiny (under 1 KB, no points), Russian-language files among them: the geometry must be stored somewhere else. Files before about 2010 mark points `07` not `1F` (fixed, 15 of 71 in the sketch-curves set); the rest: sketch blocks (`moSketchBlockDef_c`, 19), points whose handle lists hold no curve handles (newer files, curves likely in segment records), centre points with an inline `moTempAxisRef_w` header. *Hard, high value.*
+- Sketches whose plane isn't found (93 parts in that census; 38 left, on external references, and shared sketches' contour choice not read), lines with one end, arcs with no centre (38: each a different point missing) (F-036, F-047, B-020).
 - Circles whose centre reads at a stray point (a circle through the origin instead of on it): the
   relations say where the centre is (`_centres_from_relations` in `sw2sc/features.py`); extending
   that to a centre that was read but disagrees with a coincident relation.
@@ -68,11 +68,12 @@ checks each partial build against the saved solid's volume and box (`sw2sc/verif
 | Feature | Notes |
 |---|---|
 | Helical sweep (a thread cut along a helix) | SolidCraft's `solid.coil` takes a profile sketch, axis, pitch and turns; the helix record (`moHelix_c`) is still to be read |
-| Draft (F-046) | SolidCraft has `solid.draft`; the faces and neutral plane are still to be read |
+| Draft (F-046) | Converted (flat faces): angle from the file, faces / neutral plane / pull matched against the part's own solid; curved faces (cones) still to do. Move Face (offset) likewise, as `offset_face`; translate / rotate still to do |
 | Full round fillet (F-045) | No full round in SolidCraft; two half-width rounds where the kernel allows |
 | Hole sizes | Holes with no named sizes (`M2 Clearance Hole1`): the sizes aren't in KeyWords either, so they must be in the hole record's layout |
 | Fillet and chamfer edges (F-032) | Older files' edge selections aren't found yet; in some parts a fillet's edges name curves of a cut's sketch that the sketch as read doesn't number (a 12-line cut numbered 1-4 and 8-15, the edges naming 5 and 6): which numbering is off is open |
-| Split, sheet metal, surfaces, cavity | Listed as TBD in the tree |
+| Split | Converted (plane or sketch-line tool); which piece is kept is searched, not read |
+| Sheet metal, surfaces, cavity | Listed as TBD in the tree |
 
 ### 4. Assemblies in the plugin
 
@@ -82,7 +83,7 @@ opens parts only. Next: assemblies in the plugin, then mates as joints (F-005), 
 
 ### 5. Geometry SolidCraft can't read yet
 
-On the public NIST CTC/FTC set (19 SolidWorks parts): every part opens; 14 of 19 volumes match NIST's own STEP within 0.1%. Three come in as surfaces: their own B-spline surfaces have interior knots of multiplicity equal to the degree (a C0 crease), which SolidCraft's pcurve step refuses (working log 154: knot removal or splitting the face is next), and one test case is 0.16% under. Trees: none rebuilds yet (draft, hole placement, sketch planes, fillet and chamfer edges, rib, move face, and SolidWorks 2012 saves not numbered).
+On the public NIST CTC/FTC set (19 SolidWorks parts): every part opens; 14 of 19 volumes match NIST's own STEP within 0.1%. Three come in as surfaces, all for one reason: a fillet where two equal pipes meet at a mitre, whose radius is just above the mitre ellipse's tightest curvature, so the exact surface folds over itself and SolidCraft refuses it (working log 155), and one test case is 0.16% under. Trees: none rebuilds yet (draft, sketch planes, fillet and chamfer edges, rib, move face, and SolidWorks 2012 saves not numbered).
 
 Some solids come in as surfaces because SolidCraft's STEP reader refuses a face: thread-like faces
 winding many turns round a cylinder (B-007), self-intersecting tori (B-010), some trimmed cones

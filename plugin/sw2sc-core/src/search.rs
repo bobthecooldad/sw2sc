@@ -434,7 +434,7 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
     let order: Vec<Feature> = ctx
         .feats
         .iter()
-        .filter(|f| ["boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "sweep", "sweepcut", "shell", "scale"].contains(&f.kind.as_str()))
+        .filter(|f| ["boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "rib", "split", "sweep", "sweepcut", "shell", "scale", "draft", "moveface"].contains(&f.kind.as_str()))
         .cloned()
         .collect();
     let most = |f: &Feature, feats: &[Feature]| -> Option<f64> {
@@ -460,7 +460,7 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
         let a: Vec<Option<f64>> = rest.iter().filter(|f| f.kind == "boss" || f.alt_kind.as_deref() == Some("boss")).map(|f| most(f, ctx.feats)).collect();
         let t: Vec<Option<f64>> = rest.iter().filter(|f| f.kind == "cut" || f.kind == "hole" || f.alt_kind.as_deref() == Some("cut")).map(|f| most(f, ctx.feats)).collect();
         adds.push(if a.iter().any(Option::is_none) { None } else { Some(a.iter().map(|x| x.unwrap()).sum()) });
-        takes.push(if t.iter().any(Option::is_none) || rest.iter().any(|f| f.kind == "hole") { None } else { Some(t.iter().map(|x| x.unwrap()).sum()) });
+        takes.push(if t.iter().any(Option::is_none) || rest.iter().any(|f| f.kind == "hole" || f.kind == "split") { None } else { Some(t.iter().map(|x| x.unwrap()).sum()) });
     }
     // a scale changes the solid's size and place: before it, neither the volume bounds nor the
     // part's box say anything about the solid built so far
@@ -470,7 +470,7 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
         .iter()
         .map(|f| {
             let at = ctx.feats.iter().position(|x| x.name == f.name).unwrap_or(0);
-            ctx.feats[at + 1..].iter().any(|x| ["cut", "hole", "revcut", "sweepcut"].contains(&x.kind.as_str()) || x.alt_kind.as_deref() == Some("cut"))
+            ctx.feats[at + 1..].iter().any(|x| ["cut", "hole", "revcut", "sweepcut", "split"].contains(&x.kind.as_str()) || x.alt_kind.as_deref() == Some("cut"))
         })
         .collect();
     // whether anything still to come after each step can add material (and so grow the solid's
@@ -480,7 +480,7 @@ fn sequential(ctx: &mut Ctx, choices: &Choices, sink: &mut Sink) -> bool {
         .map(|f| {
             let at = ctx.feats.iter().position(|x| x.name == f.name).unwrap_or(0);
             ctx.feats[at + 1..].iter().any(|x| {
-                ["boss", "revolve", "sweep", "mirror", "pattern", "thread", "dome", "scale", "import"].contains(&x.kind.as_str())
+                ["boss", "revolve", "sweep", "mirror", "pattern", "thread", "dome", "rib", "scale", "import"].contains(&x.kind.as_str())
                     || x.alt_kind.as_deref() == Some("boss")
             })
         })
@@ -502,7 +502,7 @@ impl Shared {
     /// The part's own numbers for the box check at step i, or none while a scale is still to
     /// come (or, in the second pass, a cut that could trim it).
     fn box_rf<'a>(&self, rf: Option<&'a Eval>, i: usize, relax: bool) -> Option<&'a Eval> {
-        if self.first_scale != self.order.len() || (relax && self.cut_after[i]) { None } else { rf }
+        if self.first_scale != self.order.len() || (relax && self.cut_after[i]) || self.order.get(i + 1..).is_some_and(|r| r.iter().any(|x| x.kind == "split")) { None } else { rf }
     }
 
     /// Can the solid after step i still become the part?
@@ -571,6 +571,98 @@ fn ok(rf: Option<&Eval>, r: &Option<Eval>) -> bool {
 /// Try a pick for step i: build up to the feature, and go on with it when it is a new solid that
 /// can still become the part. Returns true to stop.
 #[allow(clippy::too_many_arguments)]
+/// The ways a draft or a move face can have been made, most faces first, found by where its
+/// faces end up (see the Python `verify.face_moves`): a draft as [face points, a point of its
+/// neutral plane, its pull], a move face as [face points, +1 out / -1 in].
+pub fn face_moves(f: &Feature, faces: &[Value], lo: Option<[f64; 3]>, hi: Option<[f64; 3]>) -> Vec<Value> {
+    let v3 = |v: &Value| -> [f64; 3] { [0, 1, 2].map(|k| v[k].as_f64().unwrap_or(0.0)) };
+    let dot = |a: &[f64; 3], b: &[f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let near = |a: &[f64; 3], b: &[f64; 3]| (0..3).map(|k| (a[k] - b[k]).abs()).fold(0.0, f64::max) < 1e-5;
+    let size = match (lo, hi) {
+        (Some(l), Some(h)) => (0..3).map(|k| h[k] - l[k]).fold(1.0, f64::max),
+        _ => 1000.0,
+    };
+    let tol = 1e-6 * size + 1e-4;
+    let fin = &f.final_planes;
+    let faces: Vec<([f64; 3], [f64; 3])> = faces.iter().map(|x| (v3(&x["plane_normal"]), v3(&x["point"]))).collect();
+    if f.kind == "draft" {
+        let t = f.draft_deg.unwrap_or(0.0).to_radians();
+        // (axis, sign, level as round(level, 4)) -> points, in the order first found
+        let mut groups: Vec<((usize, i64, i64), f64, Vec<[f64; 3]>)> = Vec::new();
+        for (m, q) in &faces {
+            for ax in 0..3 {
+                if m[ax].abs() > 1e-6 {
+                    continue;
+                }
+                for s in [1i64, -1] {
+                    let mut e = [0.0; 3];
+                    e[ax] = s as f64;
+                    let n = [0, 1, 2].map(|k| m[k] * t.cos() + e[k] * t.sin());
+                    for (nn, r) in fin {
+                        if !near(nn, &n) {
+                            continue;
+                        }
+                        let h = dot(&n, &[r[0] - q[0], r[1] - q[1], r[2] - q[2]]) / t.sin();
+                        let level = q[ax] + s as f64 * h;
+                        if let (Some(l), Some(hh)) = (lo, hi) {
+                            if !(l[ax] - tol <= level && level <= hh[ax] + tol) {
+                                continue;
+                            }
+                        }
+                        let key = (ax, s, (crate::features::py_round(level, 4) * 1e4).round() as i64);
+                        let gi = match groups.iter().position(|g| g.0 == key) {
+                            Some(gi) => gi,
+                            None => {
+                                groups.push((key, crate::features::py_round(level, 4), Vec::new()));
+                                groups.len() - 1
+                            }
+                        };
+                        if !groups[gi].2.iter().any(|p| near(p, q)) {
+                            groups[gi].2.push(*q);
+                        }
+                    }
+                }
+            }
+        }
+        // most faces first; ties in key order (as the Python's sorted dict items)
+        groups.sort_by(|a, b| b.2.len().cmp(&a.2.len()).then(a.0.cmp(&b.0)));
+        return groups
+            .into_iter()
+            .map(|((ax, s, _), level, pts)| {
+                let mut o = [0.0; 3];
+                o[ax] = level;
+                let mut pull = [0.0; 3];
+                pull[ax] = s as f64;
+                json!([pts, o, pull])
+            })
+            .collect();
+    }
+    let d = f.move_mm.unwrap_or(0.0);
+    let (mut strict, mut loose): (Vec<Vec<[f64; 3]>>, Vec<Vec<[f64; 3]>>) = (vec![vec![], vec![]], vec![vec![], vec![]]);
+    for (m, q) in &faces {
+        let here = dot(m, q);
+        let stays = fin.iter().any(|(nn, r)| near(nn, m) && (dot(nn, r) - here).abs() < tol);
+        for (si, sgn) in [1.0, -1.0].into_iter().enumerate() {
+            if fin.iter().any(|(nn, r)| near(nn, m) && (dot(nn, r) - here - sgn * d).abs() < tol) {
+                loose[si].push(*q);
+                if !stays {
+                    strict[si].push(*q);
+                }
+            }
+        }
+    }
+    let mut out: Vec<(Vec<[f64; 3]>, f64, bool)> = Vec::new();
+    for (si, sgn) in [1.0, -1.0].into_iter().enumerate() {
+        for (pts, st) in [(&strict[si], true), (&loose[si], false)] {
+            if !pts.is_empty() && !out.iter().any(|o| &o.0 == pts && o.1 == sgn) {
+                out.push((pts.clone(), sgn, st));
+            }
+        }
+    }
+    out.sort_by(|a, b| (!a.2).cmp(&!b.2).then(b.0.len().cmp(&a.0.len())));
+    out.into_iter().map(|(pts, sgn, _)| json!([pts, sgn as i64])).collect()
+}
+
 fn try_pick(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, p2: Picks, seen: &mut Vec<(i64, i64)>, reach: bool, sink: &mut Sink) -> bool {
     let f = &sh.order[i];
     let (_d, r) = ctx.prefix(choices, &p2, &f.name.clone());
@@ -763,72 +855,82 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             }
             let sides: Vec<Option<&str>> = if f.thin_mm.is_some_and(|t| t != 0.0) { vec![Some("center"), Some("inside"), Some("outside")] } else { vec![None] };
             let mut unchanged: Option<(Choices, Picks, Option<f64>)> = None;
-            for side in &sides {
-                for to in &tos {
-                    for op in &ops {
-                        for opt in ["positive", "negative", "symmetric"] {
-                            let mut sps: Vec<Option<f64>> = vec![None];
-                            if let Some(&s) = spans.get(opt).filter(|s| **s > 1e-6) {
-                                sps.push(Some(s));
-                            }
-                            let combos: Vec<(Option<f64>, Option<f64>, Option<Vec<String>>)> = sps
-                                .iter()
-                                .flat_map(|sp| std::iter::once(None).chain(starts.iter().map(|s| Some(*s))).map(move |st| (*sp, st)))
-                                .flat_map(|(sp, st)| drops.iter().map(move |dr| (sp, st, dr.clone())))
-                                .collect();
-                            for (sp, st, dr) in combos {
-                                if dr.is_some() && to.is_some() {
-                                    continue;
+            // a cut may keep its profile and take the rest (SolidWorks' flip side to cut): tried last
+            let flips: Vec<bool> = if f.kind == "cut" && !first && !f.thin_mm.is_some_and(|t| t != 0.0) { vec![false, true] } else { vec![false] };
+            for &fl in &flips {
+                for side in &sides {
+                    for to in &tos {
+                        for op in &ops {
+                            for opt in ["positive", "negative", "symmetric"] {
+                                let mut sps: Vec<Option<f64>> = vec![None];
+                                if let Some(&s) = spans.get(opt).filter(|s| **s > 1e-6) {
+                                    sps.push(Some(s));
                                 }
-                                if to.is_some() && (opt == "symmetric" || sp.is_some()) {
-                                    continue;
-                                }
-                                if st.is_some() && (to.is_some() || sp.is_some()) {
-                                    continue;
-                                }
-                                let mut c2 = choices.clone();
-                                c2.insert(f.name.clone(), json!([opt, op]));
-                                let mut p_to = picks.clone();
-                                if let Some(to) = to {
-                                    p_to = p_to.with(&format!("to:{}", f.name), to.clone());
-                                }
-                                if let Some(sp) = sp {
-                                    p_to = p_to.with(&format!("span:{}", f.name), json!(sp));
-                                }
-                                if let Some(st) = st {
-                                    p_to = p_to.with(&format!("start:{}", f.name), json!(st));
-                                }
-                                if let Some(dr) = &dr {
-                                    p_to = p_to.with(&format!("drop:{}", f.name), json!(dr));
-                                }
-                                if let Some(side) = side {
-                                    p_to = p_to.with(&format!("thin:{}", f.name), json!(side));
-                                }
-                                let (_d, r) = ctx.prefix(&c2, &p_to, &f.name);
-                                if !ok_at(ctx, sh, &r, i) {
-                                    continue;
-                                }
-                                let r = r.unwrap();
-                                let v = r.volume.unwrap_or(0.0);
-                                if let Some(vol) = vol {
-                                    if (v - vol).abs() <= SAME * vol.max(1.0) {
-                                        if unchanged.is_none() {
-                                            unchanged = Some((c2.clone(), p_to.clone(), r.volume));
-                                        }
+                                let combos: Vec<(Option<f64>, Option<f64>, Option<Vec<String>>)> = sps
+                                    .iter()
+                                    .flat_map(|sp| std::iter::once(None).chain(starts.iter().map(|s| Some(*s))).map(move |st| (*sp, st)))
+                                    .flat_map(|(sp, st)| drops.iter().map(move |dr| (sp, st, dr.clone())))
+                                    .collect();
+                                for (sp, st, dr) in combos {
+                                    if fl && (to.is_some() || dr.is_some()) {
                                         continue;
                                     }
-                                }
-                                if !sh.reachable(rf.as_ref(), &r, i) {
-                                    continue;
-                                }
-                                let bx: Vec<i64> = r.lo.iter().chain(r.hi.iter()).flat_map(|a| a.iter().map(|x| k6(Some(*x)))).collect();
-                                let key = (k6(r.volume), k6(r.area), bx);
-                                if seen.contains(&key) {
-                                    continue; // the same solid another way: one is enough
-                                }
-                                seen.push(key);
-                                if step(ctx, sh, i + 1, &c2, &p_to, r.volume, sink) {
-                                    return true;
+                                    if dr.is_some() && to.is_some() {
+                                        continue;
+                                    }
+                                    if to.is_some() && (opt == "symmetric" || sp.is_some()) {
+                                        continue;
+                                    }
+                                    if st.is_some() && (to.is_some() || sp.is_some()) {
+                                        continue;
+                                    }
+                                    let mut c2 = choices.clone();
+                                    c2.insert(f.name.clone(), json!([opt, op]));
+                                    let mut p_to = picks.clone();
+                                    if let Some(to) = to {
+                                        p_to = p_to.with(&format!("to:{}", f.name), to.clone());
+                                    }
+                                    if let Some(sp) = sp {
+                                        p_to = p_to.with(&format!("span:{}", f.name), json!(sp));
+                                    }
+                                    if let Some(st) = st {
+                                        p_to = p_to.with(&format!("start:{}", f.name), json!(st));
+                                    }
+                                    if let Some(dr) = &dr {
+                                        p_to = p_to.with(&format!("drop:{}", f.name), json!(dr));
+                                    }
+                                    if let Some(side) = side {
+                                        p_to = p_to.with(&format!("thin:{}", f.name), json!(side));
+                                    }
+                                    if fl {
+                                        p_to = p_to.with(&format!("flipside:{}", f.name), json!(true));
+                                    }
+                                    let (_d, r) = ctx.prefix(&c2, &p_to, &f.name);
+                                    if !ok_at(ctx, sh, &r, i) {
+                                        continue;
+                                    }
+                                    let r = r.unwrap();
+                                    let v = r.volume.unwrap_or(0.0);
+                                    if let Some(vol) = vol {
+                                        if (v - vol).abs() <= SAME * vol.max(1.0) {
+                                            if unchanged.is_none() {
+                                                unchanged = Some((c2.clone(), p_to.clone(), r.volume));
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                    if !sh.reachable(rf.as_ref(), &r, i) {
+                                        continue;
+                                    }
+                                    let bx: Vec<i64> = r.lo.iter().chain(r.hi.iter()).flat_map(|a| a.iter().map(|x| k6(Some(*x)))).collect();
+                                    let key = (k6(r.volume), k6(r.area), bx);
+                                    if seen.contains(&key) {
+                                        continue; // the same solid another way: one is enough
+                                    }
+                                    seen.push(key);
+                                    if step(ctx, sh, i + 1, &c2, &p_to, r.volume, sink) {
+                                        return true;
+                                    }
                                 }
                             }
                         }
@@ -855,6 +957,40 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             for face in flat.into_iter().take(16) {
                 let p2 = picks.with(&format!("shell:{}", f.name), json!([face["point"]]));
                 if try_pick(ctx, sh, i, choices, p2, &mut seen, true, sink) {
+                    return true;
+                }
+            }
+            false
+        }
+        "draft" | "moveface" => {
+            // the faces of the body so far that end up as the part's own faces once drafted or moved
+            let (d0, r0) = ctx.prefix(choices, picks, &f.name.clone());
+            let faces = fillets::body_faces(&d0, ctx.ev);
+            let flat: Vec<Value> = faces.into_iter().filter(|x| x.get("plane_normal").is_some_and(|n| !n.is_null())).collect();
+            let (lo, hi) = r0.as_ref().map_or((None, None), |r| (r.lo, r.hi));
+            let v0 = r0.as_ref().and_then(|r| r.volume);
+            let mut seen: Vec<(i64, i64)> = Vec::new();
+            for opt in face_moves(&f, &flat, lo, hi).into_iter().take(8) {
+                let p2 = picks.with(&format!("{}:{}", f.kind, f.name), opt);
+                let (_d, r) = ctx.prefix(choices, &p2, &f.name);
+                if !ok_at(ctx, sh, &r, i) {
+                    continue;
+                }
+                let r = r.unwrap();
+                if !sh.reachable(rf.as_ref(), &r, i) {
+                    continue;
+                }
+                if let (Some(v0), Some(v)) = (v0, r.volume) {
+                    if v0 != 0.0 && (v - v0).abs() <= SAME * v0.max(1.0) {
+                        continue; // it changed nothing: not those faces
+                    }
+                }
+                let key = (k6(r.volume), k6(r.area));
+                if seen.contains(&key) {
+                    continue;
+                }
+                seen.push(key);
+                if step(ctx, sh, i + 1, choices, &p2, r.volume, sink) {
                     return true;
                 }
             }
@@ -904,6 +1040,17 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                 seen.push(key);
                 boxes.push(bx);
                 if step(ctx, sh, i + 1, choices, &p2, r.volume, sink) {
+                    return true;
+                }
+            }
+            false
+        }
+        "rib" => {
+            // which side of its free edge the wall fills, and whether the ends run on to the body
+            let mut seen = Vec::new();
+            for (flip, extend) in [(false, true), (true, true), (false, false), (true, false)] {
+                let p2 = picks.with(&format!("rib:{}", f.name), json!([flip, extend]));
+                if try_pick(ctx, sh, i, choices, p2, &mut seen, true, sink) {
                     return true;
                 }
             }
@@ -983,13 +1130,32 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                     }
                 }
             }
+            // every way first, then the ways that change the solid most (see the Python)
             let mut seen = Vec::new();
+            let mut ways: Vec<(f64, Picks, Option<f64>)> = Vec::new();
             for what in &whats {
                 for p in pats.iter().take(40) {
                     let p2 = picks.with(&format!("pattern:{}", f.name), json!([p, what]));
-                    if try_pick(ctx, sh, i, choices, p2, &mut seen, true, sink) {
-                        return true;
+                    let (_d, r) = ctx.prefix(choices, &p2, &f.name.clone());
+                    if !ok_at(ctx, sh, &r, i) {
+                        continue;
                     }
+                    let r = r.unwrap();
+                    if !sh.reachable(ctx.rf.as_ref(), &r, i) {
+                        continue;
+                    }
+                    let key = (k6(r.volume), k6(r.area));
+                    if seen.contains(&key) {
+                        continue;
+                    }
+                    seen.push(key);
+                    ways.push((match (vol, r.volume) { (Some(a), Some(b)) => (b - a).abs(), _ => 0.0 }, p2, r.volume));
+                }
+            }
+            ways.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+            for (_c, p2, v) in ways {
+                if step(ctx, sh, i + 1, choices, &p2, v, sink) {
+                    return true;
                 }
             }
             false
@@ -1037,6 +1203,32 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             for what in &whats {
                 for plane in &planes {
                     let p2 = picks.with(&format!("mirror:{}", f.name), json!([plane, what]));
+                    if try_pick(ctx, sh, i, choices, p2, &mut seen, true, sink) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        "split" => {
+            // each tool it may be (the planes its record names, else each straight line of its
+            // sketch), keeping both pieces, the first or the second
+            let mut tools: Vec<Value> = Vec::new();
+            for ([x, y, _n], t) in &f.mirror_planes {
+                let o = [t[0] * 1000.0, t[1] * 1000.0, t[2] * 1000.0].map(|c| round(c, 9));
+                let pl = json!({"origin": o, "x_dir": x.map(|c| round(c, 12)), "y_dir": y.map(|c| round(c, 12))});
+                let tl = json!({"plane": pl});
+                if !tools.contains(&tl) {
+                    tools.push(tl);
+                }
+            }
+            if let Some(sk) = f.profile.as_deref().and_then(|p| ctx.by_fname(p)).and_then(|x| x.sketch.clone()) {
+                tools.extend((0..sk.lines.len()).filter(|n| !sk.construction.contains(n)).map(|n| json!({"line": format!("l{}", n + 1)})));
+            }
+            let mut seen = Vec::new();
+            for tool in &tools {
+                for keep in [Value::Null, json!(0), json!(1)] {
+                    let p2 = picks.with(&format!("split:{}", f.name), json!([tool, keep]));
                     if try_pick(ctx, sh, i, choices, p2, &mut seen, true, sink) {
                         return true;
                     }

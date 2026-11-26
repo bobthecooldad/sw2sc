@@ -1034,4 +1034,283 @@ before any more field guesses.
       whose interior knots have multiplicity 3, the degree (a C0 crease Parasolid allows);
       SolidCraft's pcurve step refuses them ("portable B-rep: knot multiplicity"). Next: knot
       removal where the surface is in fact smooth there, else split the face at the crease.
+155. **Why CTC 02 and FTC 07 still come in as surfaces: one cause, a self-folding fillet.** Their
+    refused faces (6 in CTC 02, 4 in FTC 07) are all the same kind: a fillet where two cylinders of
+    equal radius meet at a mitre, bounded by two circles of the pipe radius and two ellipses (the
+    mitre). The fillet's radius is just above the ellipse's smallest radius of curvature (b^2/a):
+    CTC 02 25 mm against 24.93, FTC 07 3.048 against 2.89. The exact rolling-ball surface folds
+    over itself near the ends of the ellipse's long axis, and SolidCraft's pcurve step refuses it
+    ("portable B-rep: knot multiplicity", though the surfaces' own knots are plain: single interior
+    knots, clamped ends; the face's edges are exact circles and ellipses). The B-surface C0-knot
+    idea of 154 was a misreading (the scan took weight lists for knots). Tried and undone: building
+    only the arc of the tube the face covers (each FTC 07 face covers 19.4 degrees), which didn't
+    change it. Next: build the face only over its own spine range without the padding (the fold may
+    lie outside it), or leave out the folded strip and close the face to it; check what SolidWorks'
+    own body does there (its Parasolid face may stop short of the fold). cadkit-kernel's
+    `blend_row` collapses the same case (feet coincident) and doesn't import these either as far as
+    its code shows.
 
+
+156. **Large imported parts (public issue #1).** A 112 MB imported-body part ran the plugin out of
+    memory and fuel, then its design was over SolidCraft's 256 MiB hand-over cap (the reporter's
+    Python run: 363 MB of STEP, 89% edge B-spline curves and their points). Points, knots and
+    weights are now written to 12 significant digits (knots in full where rounding would make two
+    equal); the largest GrabCAD sample shrinks 14%. The issue's part needs about 30%, so this is a
+    first step: next, look at what else dominates (entity refs, duplicate curves) and peak memory.
+    Limits left as they are (the user: fix the cause, not the cap). Python/Rust parity was reviewed by local
+    qwen2.5-coder:14b (no mismatches) and checked with `plugin/tools/compare_step.py`.
+
+157. **Sketch curve tags calibrated file-wide** (NIST FTC 06 and others). FTC 06's sketches read points
+    but no curves: every point's handle list tags its lines 0x8426 and arcs 0x8491, where the stream's
+    numbering gives sgLineHandle 0x8196 and sgArcHandle 0x81E9 (objects before the first sketch the
+    numbering doesn't count), and both classes come in before any sketch, so the per-sketch learning
+    has nothing to learn from. `_handle_tags_file` / `handle_tags_file`: where no handle tag in any
+    point's list is one the numbering gives a curve class, the distinct tags (sorted) take the curve
+    classes in the order the stream brings them in, if the counts agree. Over the GrabCAD set it seeds
+    14 parts; 10 read exactly as before, FTC 06 (both saves), FTC 08 and FTC 09 (2015) gain their
+    curves (FTC 08 2015: 1 -> 126, FTC 09: 1 -> 70). FTC 06's Boss-Extrude1 and Revolve1 now convert.
+    Not rebuild-checked yet: the parts still have other features left (holes, fillets, Rib1).
+    Parity 19/0 on the NIST set.
+
+158. **NIST CTC SolidWorks 2012 saves read** (all five). Their feature stream has no `moRefPlane_c` (the
+    standard planes are in `Contents/Config-0`), so the plane anchor of `old_start_number` had nothing to
+    go on. `_start_by_fit` / `start_by_fit`: of the starts from Config-0's highest class number up 500,
+    the one that lets the most records be told apart in the first 30 kB (a wrong start soon names a tag
+    no class has and the records stop): CTC 01 442 against 332, CTC 02 526/430, CTC 03 352/304, CTC 05
+    445/352; CTC 04 is close on 30 kB (245/217), so the best 8 are scored again on 100 kB (1294/1086).
+    Taken only 15% clear of the next best. Second cause, broader: `_name` wanted the node tag's high
+    byte to be 0x80, and in streams whose class numbers run past 255 it is 0x81.. (CTC 01's Sketch1:
+    `D0 81 FF FE FF`), so those features were found by number but dropped. Over the 169 GrabCAD parts
+    only NIST files change, all gains: CTC 2012 None -> 22/106/37/59/44 features; FTC 06 2015 gains
+    revolves and patterns, FTC 09 2015 patterns, FTC 08 2015 has no tbd left. Parity 19/0 on NIST.
+    No cadkit-kernel code was used for this (found from the files).
+
+159. **Ribs, ported from cadkit-kernel** (`ck-swedit/src/rib.rs`, MIT OR Apache-2.0; the user allowed
+    porting 2026-11-26). The rib's faces in the part's solid (by FACE_ID_2001 feature id; on FTC 06 kind
+    77 the two sides, 74 the free edge) are all planes: the parallel pair reaching farthest are the
+    sides (FTC 06 Rib1: x = +-12.7 mm, so 25.4 mm, KeyWords' D1 = 1 in), the sketch plane midway; each
+    other face's trace in that plane runs between its vertices' extremes, and the traces chained end to
+    end are the open profile ((y, z) 97.79,-31.75 -> 46.99,-133.35 -> 34.93,-133.35). Written as a sketch
+    on the mid plane and SolidCraft's `rib` (thickness; `flip` and `extend` tried in the rebuild,
+    `extend` first). `_tagged_faces` now also gives each face's vertex points (Rust: `tagged_faces` keeps
+    the face, `face_points`). Checked: on FTC 06's Sketch1 + Boss-Extrude1 the rib builds without error
+    in every option, adding 19 067 mm3 at x +-12.7; the whole part can't be rebuild-checked while its
+    holes and fillets are tbd. Parity 19/0 (the rib's plane and chain are in the dumps).
+    Body-Move/Copy1 (FTC 10): cadkit-kernel has no SolidWorks handling of it (only Fusion and its own
+    model), so nothing to port; not done.
+
+160. **Body-Move/Copy (FTC 10), found from the file** (cadkit-kernel has nothing for it). KeyWords lists no
+    dimension; its records keep a rotation (9 doubles, rows), 8 bytes (an integer 1), then the
+    translation in metres: identity, then (0.0625, 0, 0). Checked against the saved solid: FTC 10's
+    Boss-Extrude1 built in place spans x -132.5..7.5 mm, its tagged faces in the saved solid -70.9..70.9
+    (later bosses widen it); moved 62.5 mm it spans -70..70. Written as SolidCraft's `move` of the
+    part's body; a move with a turn is left tbd until a sample shows one (the doubles after the
+    translation, 1, 0, -0.0625, 0.0155, aren't understood yet). Parity 19/0.
+161. **Draft and Move Face read and written (NIST CTC 02, 03, 05, FTC 07).** `moDraft_c`: KeyWords'
+    D1 is the angle (refined to the record's exact radians); `moMoveFace_c` with one dimension is an
+    offset, D1 its distance. Neither record's face references are decoded; instead the faces come
+    from where they end up. The drafted face keeps the tag of the feature that made it (no face is
+    tagged with the draft's id), so the search (`verify.face_moves`, Rust `search::face_moves`) takes
+    each flat face of the body so far, tilts its normal by the angle toward each axis direction, and
+    looks for that plane among the part's own flat faces; where the two planes meet gives the
+    neutral plane's level, and the faces sharing a level and pull are one draft. A move face's faces
+    are those whose plane moved by ±D1 is one of the part's (preferring faces whose old plane is gone).
+    Written as SolidCraft `draft` (custom neutral plane, pull; angle parameter `D1@Draft…` in deg)
+    and `offset_face`. SolidCraft's sign checked on a box: positive angle, pull +z tilts a side's
+    normal toward +z. All 11 features (9 in CTC 02) now read in both ports (parity checked); none
+    is tbd. Rebuilds: CTC 05 still stops at Sketch1's plane (another session's area); CTC 03 gets
+    to Move Face2, but our build up to Cut-Extrude1 already differs from the part (its Cut-Extrude1
+    faces are at 45°, ours at 22.5°/25°), so no face matches; that cut comes first. CTC 02 and FTC 07
+    have other tbd features (fillets, holes, 3D sketch, move/copy body). Not yet done: drafts of
+    curved faces (cylinder → cone), and translate/rotate move faces. Reading cadkit-kernel's
+    `draft.rs`/`moveface.rs` was blocked in this session, so this is our own method; its author has
+    since confirmed it clean-room (credit "with help from cadkit-kernel" where it guides later work).
+
+162. **CTC 03 Sketch3: a third face-plane candidate; cadkit's Move Face read.** Sketch3 sits on a
+    side face whose record's own z points into the part. Both candidates put its profile at
+    negative z, outside the part (z 0 to 162). The first candidate turned half round in its plane
+    (x and y both reversed, the face's normal kept) puts its 45° line exactly through one of the
+    part's own faces. It's now a third candidate (Python `_face_frame_at`, Rust `face_frame_at`).
+    Move Face2 still matches nothing: in our build that face's normal is (0, 0.71, 0.71), in the
+    part (0, -0.71, -0.71), so the material is on the other side. The open question is which of
+    Sketch3's two loops Cut-Extrude1 cuts (or whether the search's prefix is wrong there), not the
+    move itself. cadkit-kernel's `moveface.rs` (read, with help from cadkit-kernel) works the other
+    way round from us: it reads the preceding cut back from the final body, finds the moved faces as
+    that cut's flat faces whose edge with an earlier feature's face lies inside the body before the
+    cut, and shifts them back by D1. Nothing in it carries over directly to our sketch-driven build,
+    so nothing was ported and THIRD_PARTY_NOTICES.md isn't needed yet.
+
+163. **Flip side to cut, emulated; CTC 03's Move Face2 now finds its faces, but SolidCraft refuses
+    to move them.** CTC 03's Cut-Extrude1 keeps its profile and takes the rest (SolidWorks' "flip
+    side to cut"): only that reading makes both of its 45° faces face the way the part's do.
+    SolidCraft has no such option (none on main or any branch of `C:\dev\solidcraft`; request
+    drafted in `docs/solidcraft-requests/flip-side-cut.md`). It's emulated as a cut of a 20 m
+    square whose holes are the sketch's loops (`FLIP_SQUARE`, Python and Rust), tried for each cut
+    after every ordinary way (search pick `flipside:<cut>`). Checked on a box with a flipped circle
+    cut: 103141.59 mm³. With it, Move Face2's matching (log 157) finds one or two of the cut's faces
+    moved 5.08 in, but SolidCraft's `offset_face` refuses each set ("the wall is too thick: it
+    leaves no room inside the body", or "no face at" a point `model.faces` gave). So the search
+    gets no further than Move Face2, and CTC 03 still doesn't rebuild. Next: try the faces by their
+    `model.faces` names instead of points; ask SolidCraft about the "too thick" refusal (in the
+    request file too).
+
+164. **CTC 03 Move Face2 by face names: no help.** Giving `offset_face` the faces' `model.faces`
+    names as well (`face_names` beside the points, as SolidCraft saves it) changes nothing:
+    SolidCraft resolves the points, and the same two refusals come back. More telling: every
+    face the matching finds lies on a strip about 1.9 mm wide (x 6.35 to 8.26, at z = 111.125),
+    so the "too thick" refusal is real for our body there, and the flipped Cut-Extrude1 of log 159
+    is likely not the part's either. Change undone. Next: compare our body after Cut-Extrude1 with
+    the part face by face (which faces Cut-Extrude1 made in the part, tags 83/135), before Move Face.
+
+165. **CTC 03 Cut-Extrude1 against the part, face by face.** The part's Cut-Extrude1 faces (tags
+    83/135, local 10 to 17) are Sketch3's lines with the material inside the loops (for example
+    -z faces at z = 100.965, and +y at y = 181.127), which confirms the flip side of log 159. The
+    two -z faces at z = 116.205 are the u = 111.13 lines moved 5.08 mm: Move Face2. In the search,
+    the flipped cut toward -x (SolidCraft's "positive" for the turned Sketch3 frame) leaves about
+    80,000 mm³ against the part's 331,392 (and only cuts follow), so it's out. Toward +x
+    ("negative", through the 1.9 mm wall from x = 6.35 to 8.26 and the boss beyond) leaves
+    367,000 to 386,000 mm³, which is plausible, and Move Face2 finds the right faces there (z = 111.125,
+    moved -5.08). SolidCraft's `offset_face` refuses that move ("the wall is too thick"), and with
+    both faces says "no face at" the second. So CTC 03 now stops on SolidCraft's Offset Face, not
+    on reading: in `docs/solidcraft-requests/flip-side-cut.md`. A repro to send them: the design
+    up to Cut-Extrude1 (choices negative, Sketch3 plane 2, flipside) plus that offset.
+
+166. **A first sketch with no plane reference: the standard planes tried.** CTC 05's Sketch1 has
+    no plane reference anywhere (before it, inside it, or with the feature that uses it). A part's
+    first sketch is nearly always on Front, Top or Right, so when it has curves and no plane, all
+    three are offered and the rebuild check chooses (Python `STANDARD_PLANES`, Rust the same).
+    Only the first sketch, so other parts' searches don't grow. CTC 05 now builds through
+    Boss-Extrude1 to Cut-Extrude1 and stops at its first hole (3/8-16 Tapped Hole1, the holes
+    session's area), before Draft2.
+167. **NIST Hole Wizard holes and dropped features** (branch nist-holes-chamfers).
+    - Holes "placement sketch not found" (FTC 06, 07, 09 2015, 10): three causes. (a) KeyWords lists
+      a hole's placement sketch as `<Sketch Name="Sketch8" Type="Sketch"/>`, without `Dissectable`,
+      so `_recover` skipped it where the numbering had drifted; now taken. (b) A recovered 3D
+      placement sketch (`3DSketch2`) was read as a 2D sketch; found by name it now takes the 3D
+      route when it follows a hole (only then: 3D sweep paths stay as they were). (c) A 3D sketch's
+      points: each point has its own record, the double 1.0 (2018 saves: then 8 zero bytes), a
+      2-byte tag, x y z, then the entity kind (01 first point, 08 further points; 02/0D are a
+      line's ends). Read those first, the "written twice" guess as fallback: FTC 06's 3DSketch3
+      had 2 of its 3 points, 3DSketch4 none. The hole's sizes are also read past a 3D sketch.
+    - `_recover` required the class tag's high bit (`b[i-3] & 0x80`); in FTC 09 and FTC 08's 2015
+      saves and FrameBracket_v2 that byte is plain (tag `5f 63`), and their first extrude, first
+      sketch, fillets and patterns were silently missing (the tree looked "fully decoded" without
+      its base). Now only the node tag's bit is required; a plane found that way is a standard
+      plane and skipped. Census of 599 parts: only additions (no feature lost or changed kind).
+    - Now: every hole in the four parts converts. FTC 08 2015 is fully decoded (Cut-Extrude1,
+      Fillet7/8 were tbd only for the missing base) but stops at "Sketch1: no plane reference
+      found" (the sketch-planes work). Still tbd here: chamfers of FTC 09, fillets of FTC 08 2018,
+      and the recovered Boss-Extrude1/Fillet1 of FTC 06 2015 (sketch curves, fillet edges).
+    - Both converters; parity 204/0 on samples and GrabCAD (NIST included).
+168. **Fillet and chamfer edges written as groups** (finishing 157). FTC 09's chamfers list their own
+    faces 4, 3, 2, 1 (2015 save) or interleaved with other references (2018), so the "own faces
+    1…N, then 4N references" rule fails, and the record-run fallback finds nothing. Each edge is
+    also written as a group: `04 00 00 00 00 02 00 00` (four references), a u32, 16 bytes, then
+    side, side, end, end (side references packed 20 bytes apart in 2018 saves, 24 in 2015). Used
+    only where both other rules give nothing; a group repeated later in the record is the same
+    edge. Census diff against HEAD: 29 tbd fillets/chamfers convert (NIST CTC 02, FTC 06-10;
+    GrabCAD Rear Body, Desk-29_101, Karman_101a, Sitrak C7, NARVA, Battery box); no converted
+    feature's edges changed. Both converters, parity 204/0.
+    - Rebuild check of the target parts (none rebuilds yet, for reasons outside these features):
+      FTC 08 both saves "Sketch1 (and Sketch9): no plane reference found"; FTC 09 2018 its
+      engraved text (Sketch30); FTC 09 2015 decodes fully but stops at its first hole: the
+      placement sketch Sketch4 has only the candidate plane z=0 while the plate lies in XZ (y 0 to
+      3.04 mm): a hole placed on a model face needs that face's plane as a candidate (the
+      sketch-planes work). Its placement sketch also has 4 points at +-1.671 mm besides the
+      hole's centre; the hole search's point sets should settle that once the plane is right.
+      FTC 06 2015 still has Boss-Extrude1 (sketch curves) and Fillet1/2 tbd; FTC 07 draft,
+      VarFillet, move/copy body; FTC 10 move/copy body, Fillet2, a 3D sketch.
+169. **Hole placement planes from the hole itself (ported from cadkit-kernel's hole.rs).** The user
+    now allows cadkit-kernel's code to be used (MIT OR Apache-2.0, credited in
+    THIRD_PARTY_NOTICES.md and at each ported function). Its `hole_with` places the sketch square to
+    the hole's axis at its entry. Ours: the cylinders tagged with the hole's feature id give the
+    axis and a point (Parasolid's pvec, at the entry face here); each frame square to that
+    standard axis, set so a sketch point lies on a hole axis, is scored by how many of the
+    sketch's points do; the best (ties: origin at the world origin moved along the axis) go first,
+    at most four. FTC 09's Sketch4 now gets the Top frame at y = 3.038 mm.
+    - Two more blockers on the way: a Hole Wizard parameter name starting with a digit
+      (`15_64__0_23438__Diameter_Hole1_diameter`) is read by SolidCraft as 15 then an unknown name,
+      so the hole never built: names now start with `_` there. And KeyWords' `LPattern` /
+      `CirPattern` types weren't in the recovery table: 11 patterns of FTC 09 2015 (and those of FTC 06
+      and 08 2015) were missing.
+    - FTC 09 2015 now builds through every hole, its patterns and Cut-Extrude1, and stops at
+      Chamfer1: chamfers of the holes' rims (edges between a hole face and the boss's top face,
+      including pattern instances). Next: fillet/chamfer candidates on a hole's circular rim edges.
+    - Parity 204/0; census: only additions (patterns), FTC 09 Chamfer1's edges now name the patterns.
+170. **Chamfer1 of FTC 09: chamfers on hole rims.** Four things stood between the search and it.
+    (1) The rim edges weren't offered at all: `fillets.body_edges` keeps only edges whose two faces
+    it can name, and a hole's bore (`F4:bore:side:2@F6.1`) isn't one; the edges are now also kept
+    as (mid, name) for the geometric match. (2) The chamfer's own faces in the solid are cones
+    (kind 72), each on a hole's axis with the hole's radius, so they now fill `round_axes` like a
+    fillet's cylinders; for a chamfer the edge is the one at the cone's radius (within 0.01 mm), not
+    the nearest (the drill point's edge was 0.002 mm nearer), ties going to the one nearest the
+    cone's point along the axis, and seams (one face) left out. (3) LPattern1 (2 x 2) was built with
+    its second direction off the part (2 of its 4 holes), explored first, and the time ran out
+    before backtracking: a pattern's ways are now all tried first, then followed most-change first.
+    (4) Off-axis distances are compared to 1e-3 mm (edge mids carry a few 1e-6 of noise).
+    Chamfer1 now builds on the four top rims. Both converters; parity 204/0.
+
+## Sketch curves not read / arc centres (sketch-curves branch, 2026-11-26)
+Set: the 149 census parts blocked on "its sketch's curves weren't read" or "arc N: no centre
+found", copied to `~/.sw2sc-checks/work/sketchcurves`.
+- Point records `FF FF 07 00` (pre-2010 files) now read as `1F`. Parts with an unread sketch: 71 → 56.
+  Two-point "no centre" parts 26 → 27 (newly read sketches show their own arcs), one-point 23 → 23.
+  No part got a new problem.
+- Arc tag retried as the line class when all its two-point curves find no centre (A2773 bolt
+  Sketch2: 12 failures → 24 lines).
+- Rebuild check (12 changed parts): 2 match (tutor1, ISO20 plywood floor), 4 mismatch, 6 now stop
+  on other blockers (fillet/chamfer edges, moBlend_c, moMoveCopyBody_c, design table).
+- Parity on the set: 3 diffs; `bottom` ×2 predate this change; 57mm Altimeter's newly read
+  Sketch49 (unused, not built) picks a wrong circle centre by a different tie-break in each reader.
+- Not done: sketch blocks (`moSketchBlockDef_c`, 19 parts), points with no curve handles (newer
+  files), `moTempAxisRef_w` centre points. cadkit-kernel was not consulted: reading it was refused
+  by this session's permission check.
+- Curve records read by point position (with help from cadkit-kernel sketch.rs `entities` /
+  `build_sketch`), used where the handle reading leaves curves unread. Unread-sketch parts 56 → 47;
+  "no centre" parts (two-end 27 → 11, one-end 23 → 11); none worse. Parity: the same 3 diffs.
+  Rebuild of 23 changed parts: A2773 bolt matches; 16 build but don't match (most "no build to
+  compare" — fillets, planes, etc. downstream); 6 stop on other blockers.
+
+171. **Split features (`moSplit_c`, 36 split-only parts in the census).** Read as SolidCraft's
+    Split Body: the plane its record names (a plane reference, read like a mirror's), else a
+    straight line of the sketch before it; the rebuild search tries keeping both pieces, the
+    first (the second removed with a Remove feature) or the second. Builds before a split may
+    reach past the part's box, so the box check is skipped for them. Python and Rust port.
+    First 6-part check: 1 rebuilds and matches (a private turned part, "Circle"); the other 5
+    find no build to compare, the trees before their splits not yet matching (sketch planes,
+    through-all cuts, revolve profiles). Which piece SolidWorks keeps (`moPerBodyChooserData_c`)
+    is not decoded. No cadkit-kernel code: it has no split module.
+
+172. **Sketches with no plane found (census blocker, 93 parts).** Parts with every sketch plane
+    read: 8 before, 55 after (49, 54, 91 and 93, which have hundreds of sketches, were left out).
+    (a) A face plane reference can have a `01` flag in its zero run followed by a bare
+    `FF FF FF FF` (id -1) with no 16-byte FF block; it was rejected. Read now, the face plane follows
+    (8 → 44 parts). (b) The origin+normal plane object (4fb19d3) gave up to 6 candidates: the
+    same doubles read at shifted offsets; only the first is kept now. (c) A sketch used by a second
+    feature is written again as `SketchN<k>` with no points and no plane, only
+    `moContourChooser_c` records; it now copies SketchN's geometry and planes (44 → 55). Which
+    contours it takes is not read yet. Rebuild check (`tools/feature_check.py`): origin+normal parts
+    1 of 8 match (the other 7 run out the 240 s search budget); face-flag parts 2 of 36; shared-sketch
+    parts 0 of 10 (one more blocked by fillets). Most mismatches say "no build to compare" though
+    their evaluations do run (one part: 261 builds, none at the reference volume; the cut and the
+    circular pattern remove too much), so the planes aren't what's left. The other 38 parts: sketches
+    on external or derived references (`moSketchExtRef_w`, `moCompEdge_c`) with no stored frame;
+    the dimension records give only the normal. cadkit-kernel's `plane_refs` / `resolve_plane`
+    read the 12-double frame after a reference, which `_triads` already finds: nothing to port for
+    these. Python and Rust both; parity 0 differences on 50 parts.
+
+173. **NIST set after merging the six parallel branches (5459af2).** `logs/feature-check-nist.md`,
+    SolidCraft CLI 0.47.0. No NIST part rebuilds to a match yet; what stops each:
+    - SW2012 CTC 01-05 (trees now read): every Hole Wizard hole "hole's size not read" (2012
+      layout); CTC 01 Fillet1, CTC 05 Chamfer1.
+    - CTC 01 (2018): rebuilds, +1.8% material (a loop taken as an island, or a cut that didn't take).
+    - CTC 03, 04, 05 (2018): fully decoded, SolidCraft makes no build (CTC 03: Offset Face, 163-165).
+    - CTC 02 (2018): Fillet3, 3DSketch1 (`mo3DProfileFeature_c`).
+    - FTC 06 (2015 and 2018): Fillet2 only.
+    - FTC 07: VarFillet1/3 (`VarFillet_c`), sketch text.
+    - FTC 08 (2015 and 2018): Sketch9 "no plane reference found" only.
+    - FTC 09 (2015 and 2018), FTC 11: only sketch text (SolidWorks keeps no letter shapes, so the
+      check can't match exactly; to decide how these count).
+    - FTC 10: 3DSketch1 only.
+    Next (two workers): SW2012 hole sizes, fillets, CTC 01's extra material; FTC 08 Sketch9, the
+    no-build parts, 3D sketches.

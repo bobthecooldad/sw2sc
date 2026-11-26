@@ -176,9 +176,10 @@ fn sketch_unit(kw: &str, sk: &Sketch) -> Option<f64> {
     None
 }
 
-const KW_TYPES: [(&str, &str); 14] = [
+const KW_TYPES: [(&str, &str); 16] = [
     ("Fillet", FILLET), ("Скругление", FILLET), ("Congé", FILLET), ("Verrundung", FILLET),
     ("Filete", FILLET), ("Redondeo", FILLET), ("Raccordo", FILLET),
+    ("LPattern", "moLPattern_c"), ("CirPattern", "moCirPattern_c"),
     ("Chanfro", CHAMFER), ("Chaflán", CHAMFER), ("Smusso", CHAMFER),
     ("Chamfer", CHAMFER), ("Фаска", CHAMFER), ("Chanfrein", CHAMFER), ("Fase", CHAMFER),
 ];
@@ -199,7 +200,7 @@ fn kw_features(kw: &str) -> Vec<(String, String, Option<String>)> {
         let (e, rest) = (&c[1], &c[2]);
         let Some(n) = n_re.captures(rest) else { continue };
         let name = unescape(&n[1]);
-        if e == "Sketch" && (!rest.contains(r#"Dissectable="true""#) || ORIGIN_NAMES.contains(&name.as_str())) {
+        if e == "Sketch" && ((!rest.contains(r#"Dissectable="true""#) && !rest.contains(r#"Type="Sketch""#)) || ORIGIN_NAMES.contains(&name.as_str())) {
             continue;
         }
         out.push((e.to_string(), name, t_re.captures(rest).map(|t| unescape(&t[1]))));
@@ -303,8 +304,13 @@ fn recover(b: &[u8], named: Vec<Named>, kw: &str) -> Vec<Named> {
             if at < 4 {
                 break;
             }
-            if b[at - 1] & 0x80 != 0 && b[at - 3] & 0x80 != 0 && !taken.contains(&(at - 4)) {
+            // (the class tag's high bit too, except where the numbering has run past it; a plane
+            // found that way is a standard one: see the Python)
+            if b[at - 1] & 0x80 != 0 && !taken.contains(&(at - 4)) {
                 let mut c = cls.clone().or_else(|| tag_cls.get(&u16_at(b, at - 4)).map(|s| s.to_string()));
+                if b[at - 3] & 0x80 == 0 && (c.as_deref() == Some("moRefPlane_c") || t == Some("Plane")) {
+                    break;
+                }
                 if (e == "Extrusion" || e == "Cut") && !matches!(c.as_deref(), Some(BOSS) | Some(CUT) | Some("moCut_c")) {
                     // an extrude is a boss or a cut, whatever a drifted tag says
                     c = if e == "Cut" || says_cut(nm) {
@@ -401,7 +407,7 @@ fn edge_refs(b: &[u8], recs: &[Record], k: Option<usize>, end: usize, fids: &Has
         }
         n_faces = n + 1;
     }
-    let refs: Vec<RawRef> = if n_faces > 0 && raw.len() >= 4 * n_faces {
+    let mut refs: Vec<RawRef> = if n_faces > 0 && raw.len() >= 4 * n_faces {
         raw[..4 * n_faces].to_vec()
     } else if let Some(k) = k {
         let (mut stop, mut started) = (end, false);
@@ -416,10 +422,14 @@ fn edge_refs(b: &[u8], recs: &[Record], k: Option<usize>, end: usize, fids: &Has
             }
             started = started || ref_rec;
         }
-        raw.into_iter().filter(|r| r.4 < stop).collect()
+        raw.iter().filter(|r| r.4 < stop).copied().collect()
     } else {
-        return vec![];
+        vec![]
     };
+    if refs.is_empty() || refs.len() % 4 != 0 {
+        // else the groups each edge is written in (FTC 09's chamfers)
+        refs = edge_groups(b, &raw, s0, end);
+    }
     if refs.is_empty() || refs.len() % 4 != 0 {
         return vec![];
     }
@@ -435,6 +445,30 @@ fn edge_refs(b: &[u8], recs: &[Record], k: Option<usize>, end: usize, fids: &Has
     }
     let faces: Vec<FaceRef> = refs.iter().map(|r| FaceRef { side: !named.contains(&r.0), fid: r.1, v: r.2 }).collect();
     faces.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect()
+}
+
+const GROUP_HEAD: [u8; 8] = [4, 0, 0, 0, 0, 2, 0, 0];
+
+/// A fillet's or chamfer's edges where its own faces aren't numbered 1…N in order: each edge a
+/// group headed `04 00 00 00 00 02 00 00`, a u32 and 16 bytes, then its four face references;
+/// a group repeated later is the same edge (see the Python).
+fn edge_groups(b: &[u8], raw: &[RawRef], s0: usize, end: usize) -> Vec<RawRef> {
+    let mut out: Vec<RawRef> = Vec::new();
+    let mut j = find_in(b, &GROUP_HEAD, s0, end);
+    while let Some(at) = j {
+        let head = at + GROUP_HEAD.len();
+        let inside: Vec<RawRef> = raw.iter().filter(|r| head < r.4 && r.4 < head + 40 + 4 * 24).take(4).copied().collect();
+        if inside.len() < 4 || inside[0].4 > head + 40 {
+            return vec![];
+        }
+        let key: Vec<(u16, u32, u32, u32)> = inside.iter().map(|r| (r.0, r.1, r.2, r.3)).collect();
+        let repeated = out.chunks(4).any(|c| c.iter().map(|r| (r.0, r.1, r.2, r.3)).collect::<Vec<_>>() == key);
+        if !repeated {
+            out.extend(inside.iter().copied());
+        }
+        j = find_in(b, &GROUP_HEAD, inside[3].4 + 20, end);
+    }
+    out
 }
 
 /// An extrude's depth: the value of its first length parameter, or else of its first distance
@@ -520,7 +554,8 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
         }
     }
     let named = recover(b, named, &kw);
-    let mut learned: Tags = Tags::new();
+    // seeded from the whole file where its numbering drifted before the first sketch
+    let mut learned: Tags = super::sketch::handle_tags_file(b, &tags, &recs);
     // the unit KeyWords shows lengths in (as mm), once a value has shown it
     let mut unit: Option<f64> = None;
     let mut local: Option<std::collections::HashMap<String, Vec<u8>>> = None;
@@ -537,9 +572,11 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             k = Some(rec_offsets.partition_point(|&o| o <= r.offset).saturating_sub(1));
         }
         let cls = r.cls.as_str();
+        // a Hole Wizard's 3D placement sketch found by name (KeyWords lists it as a sketch)
+        let hole_3d = cls == SKETCH && k0.is_none() && nm.starts_with("3D") && out.last().is_some_and(|x| x.cls == HOLE);
         let last_name = last_sketch.map(|i| out[i].name.clone());
         let mut f: Feature;
-        if cls == SKETCH {
+        if cls == SKETCH && !hole_3d {
             let k = k.unwrap();
             let mut sk = Sketch::new(nm, r.offset);
             sk.end = end;
@@ -677,7 +714,7 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
         } else if cls == HOLE {
             // its placement sketch and profile sketch follow it; its sizes are named parameters
             f = Feature::new("hole", nm, r.offset, cls);
-            let stop = named[n + 1..].iter().find(|x| x.1.cls != SKETCH).map_or(b.len(), |x| x.1.offset);
+            let stop = named[n + 1..].iter().find(|x| x.1.cls != SKETCH && x.1.cls != "mo3DProfileFeature_c").map_or(b.len(), |x| x.1.offset);
             f.hole = hole_params(b, r.offset, stop);
             if !f.hole.contains_key("diameter") {
                 if let Some(d) = hole_from_name(nm) {
@@ -729,6 +766,40 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             if f.scale.is_none() {
                 f.kind = "tbd".into();
                 f.reason = "scale's factors not read".into();
+            }
+        } else if cls == "moMoveCopyBody_c" {
+            // a body moved: a rotation (9 doubles), 8 bytes, the translation (3 doubles, m)
+            f = Feature::new("move", nm, r.offset, cls);
+            match body_move(b, r.offset, end) {
+                None => {
+                    f.kind = "tbd".into();
+                    f.reason = "body move's transform not read".into();
+                }
+                Some((rot, _)) if (0..9).any(|k| (rot[k] - if k % 4 == 0 { 1.0 } else { 0.0 }).abs() > 1e-9) => {
+                    f.kind = "tbd".into();
+                    f.reason = "body move with a turn not converted yet".into();
+                }
+                Some((_, t)) => f.translate = Some(t.map(|x| x * 1000.0)),
+            }
+        } else if cls == "moRib_c" {
+            // its wall is read from its own faces in the part's solid, after the tree (ribs)
+            f = Feature::new("rib", nm, r.offset, cls);
+        } else if cls == "moDraft_c" || cls == "moMoveFace_c" {
+            // a draft: KeyWords' D1 its angle; a move face (offset): D1 its distance. Which faces,
+            // and a draft's neutral plane and pull, are found from the part's own solid (search)
+            let draft = cls == "moDraft_c";
+            f = Feature::new(if draft { "draft" } else { "moveface" }, nm, r.offset, cls);
+            let dims: Vec<(String, String)> = kw_feature(&kw, nm).map(|i| kw_dims(&i)).unwrap_or_default();
+            let d1 = dims.iter().find(|d| d.0 == "D1").map(|d| d.1.clone());
+            if draft {
+                f.draft_deg = d1.as_deref().and_then(|t| kw_angle(t, b, r.offset, end)).filter(|&v| v != 0.0);
+            } else if dims.len() == 1 {
+                // an offset; a translate or rotate names more
+                f.move_mm = d1.as_deref().and_then(|t| kw_length(Some(t), b, r.offset, end, &mut unit)).filter(|&v| v != 0.0);
+            }
+            if (if draft { f.draft_deg } else { f.move_mm }).is_none() {
+                f.kind = "tbd".into();
+                f.reason = format!("{} not read", if draft { "draft's angle" } else { "move face's distance" });
             }
         } else if cls == "moDome_c" {
             f = Feature::new("dome", nm, r.offset, cls);
@@ -804,6 +875,26 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                     None => {}
                 }
             }
+        } else if cls == "moSplit_c" {
+            // a split: its tool a plane its record names, else a line of the sketch before it;
+            // the piece it keeps is chosen in the rebuild
+            f = Feature::new("split", nm, r.offset, cls);
+            for (o, nc) in plane_refs(b, &recs, r.offset, end) {
+                match plane_from_ref(b, &recs, o, nc, &by_id, &by_off).0 {
+                    Some(Got::One(p)) => f.mirror_planes.push(p),
+                    Some(Got::Many(v)) => f.mirror_planes.extend(v),
+                    None => {}
+                }
+            }
+            let sk_ok = last_sketch.and_then(|li| out[li].sketch.as_ref().map(|s| !s.used && !s.lines.is_empty()).filter(|x| *x).map(|_| li));
+            if f.mirror_planes.is_empty() {
+                if let Some(li) = sk_ok {
+                    f.profile = Some(out[li].name.clone());
+                } else {
+                    f.kind = "tbd".into();
+                    f.reason = "split's tool (plane or sketch) not read".into();
+                }
+            }
         } else if IMPORTED.contains(&cls) {
             // it converts as SolidCraft's import of the body, as it was imported (kept under the
             // feature's name among the local bodies)
@@ -819,7 +910,7 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 f.kind = "tbd".into();
                 f.reason = "plane's placement not read".into();
             }
-        } else if cls == "mo3DProfileFeature_c" && out.last().is_some_and(|x| x.cls == HOLE) {
+        } else if (cls == "mo3DProfileFeature_c" && out.last().is_some_and(|x| x.cls == HOLE)) || hole_3d {
             // a Hole Wizard hole's 3D placement sketch: its points become a sketch of points on a
             // plane through them
             let pts = points_3d(b, r.offset, end);
@@ -861,8 +952,22 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             last_sketch = Some(out.len() - 1);
         }
     }
+    shared_sketches(&mut out);
+    // the first sketch with no plane reference at all: the three standard planes, for the
+    // rebuild check to choose between (see the Python)
+    if let Some(first) = out.iter_mut().find(|f| f.kind == "sketch") {
+        let sk = first.sketch.as_mut().unwrap();
+        if sk.planes.is_empty() && !(sk.lines.is_empty() && sk.arcs.is_empty() && sk.circles.is_empty()) {
+            for fr in STANDARD_PLANES {
+                sk.add_plane(&(fr, [0.0, 0.0, 0.0]), "no plane reference: a standard plane tried", false);
+            }
+        }
+    }
     let mut out = place_holes(out);
     edge_lines(sw, &mut out);
+    hole_planes(sw, &mut out);
+    final_planes(sw, &mut out);
+    ribs(sw, &mut out);
     Some(out)
 }
 
@@ -923,9 +1028,46 @@ const ISO_METRIC: [(f64, f64, f64); 15] = [
 ];
 
 /// A hole's diameter (mm) from the size in its Hole Wizard name, where the record names none (see the Python).
-/// A 3D sketch's points (metres): the coordinate triples its records write at least twice, in
-/// the order first written (see the Python).
+/// A 3D sketch's points (metres) from their own records: 1.0 (from 2018 then 8 zero bytes), a
+/// 2-byte tag, x y z, the entity's kind (01 first point, 08 further points); see the Python.
+fn point_records_3d(b: &[u8], s: usize, e: usize) -> Vec<[f64; 3]> {
+    let one = [0u8, 0, 0, 0, 0, 0, 0xF0, 0x3F];
+    let e = e.min(b.len());
+    let mut out: Vec<[f64; 3]> = Vec::new();
+    let mut i = s;
+    while i + 8 <= e {
+        if b[i..i + 8] != one {
+            i += 1;
+            continue;
+        }
+        for k in [i + 10, i + 18] {
+            if k + 27 > b.len() || !matches!(b[k + 24], 1 | 8) || b[k + 25] != 0 {
+                continue;
+            }
+            if k == i + 18 && b[i + 8..i + 16].iter().any(|&x| x != 0) {
+                continue;
+            }
+            let d = |n: usize| f64::from_le_bytes(b[k + 8 * n..k + 8 * n + 8].try_into().unwrap());
+            let p = [d(0), d(1), d(2)];
+            if p.iter().all(|c| c.is_finite() && c.abs() < 10.0) && p.iter().any(|c| c.abs() > 1e-9) {
+                if out.iter().all(|q| ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt() > 1e-9) {
+                    out.push(p);
+                }
+                break;
+            }
+        }
+        i += 1;
+    }
+    out
+}
+
+/// A 3D sketch's points (metres): from their records where found; else the coordinate triples
+/// its records write at least twice, in the order first written (see the Python).
 fn points_3d(b: &[u8], s: usize, e: usize) -> Vec<[f64; 3]> {
+    let recs = point_records_3d(b, s, e);
+    if !recs.is_empty() {
+        return recs;
+    }
     let mut count: HashMap<&[u8], usize> = HashMap::new();
     let mut order: Vec<[f64; 3]> = Vec::new();
     let e = e.min(b.len());
@@ -1045,7 +1187,7 @@ fn transpose(r: &[V3; 3]) -> [V3; 3] {
 /// The faces of the part's own solid by the tag SolidWorks puts on each (with help from
 /// cadkit-kernel: the Parasolid attribute `FACE_ID_2001`; see the Python `_tagged_faces`):
 /// (kind, feature id, local) -> the faces' surface node indices.
-fn tagged_faces(part: &crate::parasolid::Partition) -> std::collections::BTreeMap<(i64, i64, i64), Vec<i64>> {
+fn tagged_faces(part: &crate::parasolid::Partition) -> std::collections::BTreeMap<(i64, i64, i64), Vec<(i64, i64)>> {
     use crate::parasolid::F;
     let chars = |f: Option<&F>| -> String {
         match f {
@@ -1055,7 +1197,7 @@ fn tagged_faces(part: &crate::parasolid::Partition) -> std::collections::BTreeMa
         }
     };
     let mut names: HashMap<i64, String> = HashMap::new();
-    let mut out: std::collections::BTreeMap<(i64, i64, i64), Vec<i64>> = std::collections::BTreeMap::new();
+    let mut out: std::collections::BTreeMap<(i64, i64, i64), Vec<(i64, i64)>> = std::collections::BTreeMap::new();
     for face in part.of_type("FACE") {
         let surf = face.p("surface");
         if part.get(surf).is_none() {
@@ -1087,13 +1229,56 @@ fn tagged_faces(part: &crate::parasolid::Partition) -> std::collections::BTreeMa
                     }
                 }
                 if vals.len() >= 5 {
-                    out.entry((vals[0], vals[1], vals[4])).or_default().push(surf);
+                    out.entry((vals[0], vals[1], vals[4])).or_default().push((surf, face.index));
                 }
             }
             a = at.p("next");
         }
     }
     out
+}
+
+/// A KeyWords angle in degrees ("12.5°"), exact where the record (`b[lo..hi]`) keeps a double
+/// in radians that rounds to it (see the Python `_kw_angle`).
+fn kw_angle(text: &str, b: &[u8], lo: usize, hi: usize) -> Option<f64> {
+    let (v, dec) = shown_number(text)?;
+    let half = 0.5 * 10f64.powi(-dec) + 1e-9;
+    let mut i = lo;
+    while i + 8 < hi && i + 8 <= b.len() {
+        let d = f64_at(b, i);
+        if d == d && 1e-6 < d && d < std::f64::consts::PI && (d.to_degrees() - v).abs() <= half {
+            return Some(d.to_degrees());
+        }
+        i += 1;
+    }
+    Some(v)
+}
+
+/// A draft's or move face's faces are found by where they end up: the part's own flat faces
+/// (see the Python `_final_planes`).
+fn final_planes(sw: &SwFile, feats: &mut [Feature]) {
+    if !feats.iter().any(|f| f.kind == "draft" || f.kind == "moveface") {
+        return;
+    }
+    let mut planes: Vec<([f64; 3], [f64; 3])> = Vec::new();
+    let srcs = crate::step::parasolid_sources(sw);
+    if let Some((_n, data)) = srcs.first() {
+        if let Ok(part) = crate::parasolid::read(data) {
+            for v in tagged_faces(&part).values() {
+                for n in v.iter().filter_map(|(s, _)| part.get(*s)).filter(|n| n.name == "PLANE") {
+                    let p = n.v("pvec");
+                    planes.push((n.v("normal"), [p[0] * 1000.0, p[1] * 1000.0, p[2] * 1000.0]));
+                }
+            }
+        }
+    }
+    for f in feats.iter_mut().filter(|f| f.kind == "draft" || f.kind == "moveface") {
+        f.final_planes = planes.clone();
+        if planes.is_empty() {
+            f.reason = format!("{}'s faces: the part's own solid not read", f.kind);
+            f.kind = "tbd".into();
+        }
+    }
 }
 
 /// The line two planes meet on, as (a point, a unit direction), mm (see the Python `_plane_line`).
@@ -1127,7 +1312,7 @@ fn edge_lines(sw: &SwFile, feats: &mut [Feature]) {
     }
     let planes: HashMap<(i64, i64, i64), Vec<([f64; 3], [f64; 3])>> = tagged
         .iter()
-        .map(|(k, v)| (*k, v.iter().filter_map(|s| part.get(*s)).filter(|n| n.name == "PLANE").map(|n| (n.v("pvec"), n.v("normal"))).collect::<Vec<_>>()))
+        .map(|(k, v)| (*k, v.iter().filter_map(|(s, _)| part.get(*s)).filter(|n| n.name == "PLANE").map(|n| (n.v("pvec"), n.v("normal"))).collect::<Vec<_>>()))
         .filter(|(_, v)| !v.is_empty())
         .collect();
     for f in feats.iter_mut() {
@@ -1138,9 +1323,13 @@ fn edge_lines(sw: &SwFile, feats: &mut [Feature]) {
         let own: Vec<&crate::parasolid::Node> = tagged
             .iter()
             .filter(|((kind, fid, _), _)| *kind == 72 && *fid == f.fid as i64)
-            .flat_map(|(_, v)| v.iter().filter_map(|s| part.get(*s)))
+            .flat_map(|(_, v)| v.iter().filter_map(|(s, _)| part.get(*s)))
             .collect();
-        if f.kind == "fillet" && !own.is_empty() && own.iter().all(|n| n.name == "CYLINDER") {
+        // likewise a chamfer of round edges (a hole's rim): its own faces cones (see the Python)
+        if !own.is_empty()
+            && ((f.kind == "fillet" && own.iter().all(|n| n.name == "CYLINDER"))
+                || (f.kind == "chamfer" && own.iter().all(|n| n.name == "CONE")))
+        {
             f.round_axes = own
                 .iter()
                 .map(|n| {
@@ -1167,6 +1356,124 @@ fn edge_lines(sw: &SwFile, feats: &mut [Feature]) {
                 _ => None,
             })
             .collect();
+    }
+}
+
+/// Plane candidates for a hole's placement sketch from the hole's own cylinders in the part's
+/// solid: the idea ported from cadkit-kernel crates/ck-swedit/src/hole.rs, MIT OR Apache-2.0
+/// (the sketch's normal the hole's axis, at its entry). See the Python `_hole_planes`.
+fn hole_planes(sw: &SwFile, feats: &mut [Feature]) {
+    if !feats.iter().any(|f| f.kind == "hole" && f.profile.is_some()) {
+        return;
+    }
+    let srcs = crate::step::parasolid_sources(sw);
+    let Some((_n, data)) = srcs.first() else { return };
+    let Ok(part) = crate::parasolid::read(data) else { return };
+    let tagged = tagged_faces(&part);
+    if tagged.is_empty() {
+        return;
+    }
+    let dot = |a: [f64; 3], c: [f64; 3]| a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+    let cross = |a: [f64; 3], c: [f64; 3]| [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
+    let mut units: Vec<[f64; 3]> = Vec::new();
+    for k in 0..3 {
+        for sg in [1.0, -1.0] {
+            let mut u = [0.0; 3];
+            u[k] = sg;
+            units.push(u);
+        }
+    }
+    let holes: Vec<(u32, String)> = feats.iter().filter(|f| f.kind == "hole").filter_map(|f| f.profile.clone().map(|p| (f.fid, p))).collect();
+    for (fid, prof) in holes {
+        let mut axes: Vec<([f64; 3], [f64; 3])> = Vec::new();
+        for ((_kind, f_id, _loc), surfs) in &tagged {
+            if *f_id != fid as i64 {
+                continue;
+            }
+            for n in surfs.iter().filter_map(|(s, _)| part.get(*s)) {
+                if n.name != "CYLINDER" {
+                    continue;
+                }
+                let ax = n.v("axis");
+                if ax.iter().fold(0.0f64, |m, c| m.max(c.abs())) <= 1.0 - 1e-9 {
+                    continue;
+                }
+                let a = ax.map(|c| c.round() + 0.0);
+                let pv = n.v("pvec");
+                if !axes.iter().any(|(b, q)| *b == a && *q == pv) {
+                    axes.push((a, pv));
+                }
+            }
+        }
+        if axes.is_empty() {
+            continue;
+        }
+        let Some(f) = feats.iter_mut().find(|f| f.kind == "sketch" && f.name == prof) else { continue };
+        let Some(sk) = f.sketch.as_mut() else { continue };
+        if sk.points.is_empty() {
+            continue;
+        }
+        let pts: Vec<(f64, f64)> = sk.points.values().copied().collect();
+        let on_axis = |w: [f64; 3]| {
+            axes.iter().any(|(a, pv)| {
+                let d = [w[0] - pv[0], w[1] - pv[1], w[2] - pv[2]];
+                (dot(d, d) - dot(d, *a).powi(2)).max(0.0).sqrt() < 1e-6
+            })
+        };
+        let mut scored: Vec<(usize, Frame)> = Vec::new();
+        for (a, pv) in &axes {
+            for nrm in [*a, a.map(|c| -c)] {
+                for x in &units {
+                    if dot(*x, nrm).abs() > 1e-9 {
+                        continue;
+                    }
+                    let y = cross(nrm, *x);
+                    for (u, v) in &pts {
+                        let t = [0, 1, 2].map(|i| pv[i] - u * x[i] - v * y[i]);
+                        let hits = pts.iter().filter(|(p, q)| on_axis([0, 1, 2].map(|i| t[i] + p * x[i] + q * y[i]))).count();
+                        scored.push((hits, ([*x, y, nrm], t)));
+                    }
+                }
+            }
+        }
+        let best = scored.iter().map(|s| s.0).max().unwrap_or(0);
+        let off = |fr: &Frame| {
+            let (t, n) = (fr.1, fr.0[2]);
+            (dot(t, t) - dot(t, n).powi(2)).max(0.0).sqrt()
+        };
+        let mut top: Vec<Frame> = scored.into_iter().filter(|s| s.0 == best).map(|s| s.1).collect();
+        top.sort_by(|p, q| off(p).partial_cmp(&off(q)).unwrap()); // stable, as Python's sorted
+        top.truncate(4);
+        for fr in top.iter().rev() {
+            sk.add_plane(fr, "the hole's own axis in the solid (after cadkit-kernel's hole.rs)", true);
+        }
+    }
+}
+
+/// A sketch used by a second feature is written again as `SketchN<k>`: no points and no plane
+/// reference of its own, only which of SketchN's contours it takes (not read). It is given
+/// SketchN's geometry and planes; the rebuild check says if that holds.
+fn shared_sketches(out: &mut [Feature]) {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"^(.*)<\d+>$").unwrap());
+    let base: HashMap<String, Sketch> = out
+        .iter()
+        .filter_map(|f| f.sketch.as_ref().filter(|s| !s.points.is_empty()).map(|s| (f.name.clone(), s.clone())))
+        .collect();
+    for f in out.iter_mut() {
+        let Some(s) = f.sketch.as_ref() else { continue };
+        if !s.points.is_empty() || !s.planes.is_empty() {
+            continue;
+        }
+        let Some(m) = re.captures(&f.name) else { continue };
+        let Some(src) = base.get(&m[1]) else { continue };
+        let mut new = src.clone();
+        new.name = s.name.clone();
+        new.offset = s.offset;
+        new.end = s.end;
+        new.used = false;
+        new.planes = src.planes.iter().map(|(fr, how)| (*fr, format!("shared sketch: {}'s {}", src.name, how))).collect();
+        f.sketch = Some(new);
     }
 }
 
@@ -1299,4 +1606,176 @@ fn after_what_it_rounds(mut out: Vec<Feature>) -> Vec<Feature> {
         }
     }
     out
+}
+
+/// The points of a face's vertices (metres), loop by loop, fin by fin (as `_face_points`).
+fn face_points(part: &crate::parasolid::Partition, face: i64) -> Vec<[f64; 3]> {
+    let mut out = Vec::new();
+    let Some(fc) = part.get(face) else { return out };
+    let (mut lp, mut hops) = (fc.p("loop"), 0);
+    while hops < 256 {
+        let Some(l) = part.get(lp).filter(|n| n.name == "LOOP") else { break };
+        hops += 1;
+        let first = l.p("fin");
+        let (mut fin, mut n) = (first, 0);
+        while n < 4096 {
+            let Some(fi) = part.get(fin) else { break };
+            n += 1;
+            if let Some(pt) = part.get(fi.p("vertex")).and_then(|vx| part.get(vx.p("point"))) {
+                if pt.get("pvec").is_some() {
+                    out.push(pt.v("pvec"));
+                }
+            }
+            fin = fi.p("forward");
+            if fin == first {
+                break;
+            }
+        }
+        lp = l.p("next");
+    }
+    out
+}
+
+/// Each rib's wall from its own faces in the part's solid (as `_ribs`). Ported from cadkit-kernel
+/// crates/ck-swedit/src/rib.rs (`rebuild`), MIT OR Apache-2.0.
+fn ribs(sw: &SwFile, feats: &mut [Feature]) {
+    if !feats.iter().any(|f| f.kind == "rib") {
+        return;
+    }
+    let part = crate::step::parasolid_sources(sw).first().and_then(|(_n, d)| crate::parasolid::read(d).ok());
+    let tagged = part.as_ref().map(tagged_faces).unwrap_or_default();
+    for f in feats.iter_mut().filter(|f| f.kind == "rib") {
+        let mut faces: Vec<(String, [f64; 3], [f64; 3], Vec<[f64; 3]>)> = Vec::new();
+        if let Some(part) = part.as_ref() {
+            for ((_k, fid, _l), v) in &tagged {
+                if *fid != f.fid as i64 {
+                    continue;
+                }
+                for (s, face) in v {
+                    if let Some(n) = part.get(*s) {
+                        let (p, nn) = if n.name == "PLANE" { (n.v("pvec"), n.v("normal")) } else { ([0.0; 3], [0.0; 3]) };
+                        faces.push((n.name.clone(), p, nn, face_points(part, *face)));
+                    }
+                }
+            }
+        }
+        if let Err(why) = rib_from_faces(f, &faces) {
+            f.kind = "tbd".into();
+            f.reason = format!("rib: {why}");
+        }
+    }
+}
+
+/// Fills `f.rib` and `f.thin_mm` from the rib's faces (surface type, point, normal, vertices; m),
+/// as `_rib_from_faces`. Ported from cadkit-kernel crates/ck-swedit/src/rib.rs, MIT OR Apache-2.0.
+fn rib_from_faces(f: &mut Feature, faces: &[(String, [f64; 3], [f64; 3], Vec<[f64; 3]>)]) -> Result<(), &'static str> {
+    type V = [f64; 3];
+    let dot = |a: V, c: V| a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+    let sub = |a: V, c: V| [a[0] - c[0], a[1] - c[1], a[2] - c[2]];
+    let mm = |a: V| [a[0] * 1000.0, a[1] * 1000.0, a[2] * 1000.0];
+    if faces.is_empty() {
+        return Err("its faces aren't in the part's solid");
+    }
+    if faces.iter().any(|x| x.0 != "PLANE") {
+        return Err("a curved face");
+    }
+    let planes: Vec<(V, V, Vec<V>)> = faces.iter().map(|(_n, p, n, q)| (mm(*p), *n, q.iter().map(|x| mm(*x)).collect())).collect();
+    let mut best: Option<(f64, usize, usize)> = None;
+    for i in 0..planes.len() {
+        for j in i + 1..planes.len() {
+            let ((pi, ni, qi), (pj, nj, qj)) = (&planes[i], &planes[j]);
+            if (dot(*ni, *nj).abs() - 1.0).abs() > 1e-7 || dot(*ni, sub(*pj, *pi)).abs() < 1e-3 {
+                continue;
+            }
+            let pts: Vec<V> = qi.iter().chain(qj.iter()).cloned().collect();
+            if pts.is_empty() {
+                continue;
+            }
+            let lo: V = [0, 1, 2].map(|k| pts.iter().map(|p| p[k]).fold(f64::INFINITY, f64::min));
+            let hi: V = [0, 1, 2].map(|k| pts.iter().map(|p| p[k]).fold(f64::NEG_INFINITY, f64::max));
+            let d = sub(hi, lo);
+            let ext = dot(d, d).sqrt();
+            if best.map_or(true, |b| ext > b.0) {
+                best = Some((ext, i, j));
+            }
+        }
+    }
+    let Some((_e, i, j)) = best else { return Err("no two parallel side faces") };
+    let (nc, pi, pj) = (planes[i].1, planes[i].0, planes[j].0);
+    let t = dot(nc, sub(pj, pi)).abs();
+    let o: V = [0, 1, 2].map(|k| (pi[k] + pj[k]) / 2.0);
+    let axes: [V; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    // the world axis least along the normal (the first of equals, as Python's min)
+    let mut ax = axes[0];
+    for a in &axes[1..] {
+        if dot(*a, nc).abs() < dot(ax, nc).abs() {
+            ax = *a;
+        }
+    }
+    let x0 = sub(ax, [dot(ax, nc) * nc[0], dot(ax, nc) * nc[1], dot(ax, nc) * nc[2]]);
+    let lx = dot(x0, x0).sqrt();
+    let x = [x0[0] / lx, x0[1] / lx, x0[2] / lx];
+    let y = [nc[1] * x[2] - nc[2] * x[1], nc[2] * x[0] - nc[0] * x[2], nc[0] * x[1] - nc[1] * x[0]];
+    let xy = |p: V| (dot(sub(p, o), x), dot(sub(p, o), y));
+    let mut segs: Vec<([f64; 2], [f64; 2])> = Vec::new();
+    for k in 0..planes.len() {
+        if k == i || k == j {
+            continue;
+        }
+        let (_p, nk, pts) = &planes[k];
+        if dot(*nk, nc).abs() > 1e-7 {
+            return Err("a face neither a side nor on the free edge");
+        }
+        if pts.is_empty() {
+            return Err("a free-edge face without vertices");
+        }
+        let n2 = (dot(*nk, x), dot(*nk, y));
+        let ln = n2.0.hypot(n2.1);
+        let d = (-n2.1 / ln, n2.0 / ln);
+        let q: Vec<(f64, f64)> = pts.iter().map(|p| xy(*p)).collect();
+        let q0 = q[0];
+        let tt: Vec<f64> = q.iter().map(|(a, c)| (a - q0.0) * d.0 + (c - q0.1) * d.1).collect();
+        let lo = tt.iter().cloned().fold(f64::INFINITY, f64::min);
+        let hi = tt.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        segs.push(([q0.0 + lo * d.0, q0.1 + lo * d.1], [q0.0 + hi * d.0, q0.1 + hi * d.1]));
+    }
+    if segs.is_empty() {
+        return Err("no free-edge face");
+    }
+    let dist = |a: [f64; 2], c: [f64; 2]| (a[0] - c[0]).hypot(a[1] - c[1]);
+    let scale = segs.iter().map(|s| dist(s.0, s.1)).fold(0.0, f64::max);
+    let near = |a: [f64; 2], c: [f64; 2]| dist(a, c) < 1e-4 * (1.0 + scale);
+    let mut chain = vec![segs.remove(0)];
+    while !segs.is_empty() {
+        let (head, tail) = (chain[0].0, chain[chain.len() - 1].1);
+        let Some(k) = (0..segs.len()).find(|&k| near(segs[k].0, tail) || near(segs[k].1, tail) || near(segs[k].0, head) || near(segs[k].1, head)) else {
+            return Err("its free-edge faces don't form one chain");
+        };
+        let s = segs.remove(k);
+        if near(s.0, tail) {
+            chain.push(s);
+        } else if near(s.1, tail) {
+            chain.push((s.1, s.0));
+        } else if near(s.1, head) {
+            chain.insert(0, s);
+        } else {
+            chain.insert(0, (s.1, s.0));
+        }
+    }
+    f.thin_mm = Some(t);
+    let mut pts = vec![chain[0].0];
+    pts.extend(chain.iter().map(|s| s.1));
+    f.rib = Some((o, x, y, pts));
+    Ok(())
+}
+
+/// A body move's (rotation, translation m), as `_body_move`: the first rotation in its records,
+/// then 8 bytes, then three doubles.
+fn body_move(b: &[u8], s: usize, e: usize) -> Option<([f64; 9], [f64; 3])> {
+    let i = super::planes::triads(b, s, e).next()?;
+    if i + 72 + 8 + 24 > b.len() {
+        return None;
+    }
+    let t: [f64; 3] = f64s(b, i + 80);
+    t.iter().all(|x| x.abs() < 100.0).then(|| (f64s::<9>(b, i), t))
 }

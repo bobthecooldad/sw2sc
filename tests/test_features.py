@@ -190,3 +190,33 @@ class RealPartTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_face_moves_draft_and_offset():
+    """A draft's faces, neutral plane and pull, and a move face's faces and side, found from where
+    the faces end up in the part's own solid."""
+    import math
+    from sw2sc import verify
+    from sw2sc.features import Feature
+    t = math.radians(5)
+    # a 20 x 20 x 10 box; its +x face drafted 5° about z = 0, pull +z
+    faces = [{"plane_normal": [1.0, 0.0, 0.0], "point": [20.0, 10.0, 5.0]},
+             {"plane_normal": [0.0, -1.0, 0.0], "point": [10.0, 0.0, 5.0]},
+             {"plane_normal": [0.0, 0.0, 1.0], "point": [10.0, 10.0, 10.0]}]
+    f = Feature("draft", "Draft1", 0, "moDraft_c", draft_deg=5.0)
+    f.final_planes = [((math.cos(t), 0.0, math.sin(t)), (20.0, 10.0, 0.0)), ((0.0, -1.0, 0.0), (0.0, 0.0, 0.0))]
+    got = verify.face_moves(f, faces, [0, 0, 0], [20, 20, 10])
+    assert got[0] == ([[20.0, 10.0, 5.0]], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+    # the -y face moved 2 out
+    g = Feature("moveface", "Move Face1", 0, "moMoveFace_c", move_mm=2.0)
+    g.final_planes = [((0.0, -1.0, 0.0), (0.0, -2.0, 0.0)), ((1.0, 0.0, 0.0), (20.0, 0.0, 0.0))]
+    got = verify.face_moves(g, faces, [0, 0, 0], [20, 20, 10])
+    assert got[0] == ([[10.0, 0.0, 5.0]], 1)
+
+
+def test_plane_record_flag_then_bare_minus_one():
+    """A face plane reference with a 01 flag in its zero run and the id -1 straight after it
+    (no FF block): read as a plane on a face."""
+    from sw2sc.features import _plane_record
+    b = b"\x16\x81" + b"\x83\x80\x02\x00" + bytes(29) + b"\x01" + bytes(11) + b"\xff" * 4 + b"\x00\x8d"
+    assert _plane_record(b, 0, False) == (0xFFFFFFFF, len(b) - 2)

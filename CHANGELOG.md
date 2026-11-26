@@ -5,7 +5,80 @@ Each release has a survey log in `logs/survey-<version>.md`.
 
 ## [Unreleased]
 
+NIST status (all branches merged): no part rebuilds to a match yet; per-part blockers in
+`logs/feature-check-nist.md` and working log 173.
+
 ### Added
+- Body moves (`moMoveCopyBody_c`, a translation) convert to SolidCraft's move (NIST FTC 10's
+  Body-Move/Copy1: 62.5 mm along x). A move with a turn stays to be done. Python and Rust.
+- Ribs (`moRib_c`) convert to SolidCraft's rib: the wall's sides, thickness and free-edge profile
+  are read from the rib's own faces in the part's solid (ported from cadkit-kernel
+  `ck-swedit/src/rib.rs`, MIT; see THIRD_PARTY_NOTICES.md); its side and whether its ends run on
+  to the body are chosen in the rebuild. Python and Rust.
+
+### Fixed
+- SolidWorks 2012 saves whose standard planes are kept in `Contents/Config-0` (the five NIST CTC
+  2012 parts) now have their feature trees read: the stream's start number is the one that lets
+  the most records be told apart. Feature names are read where the node tag's class number is past
+  255 (0x81..), which brings in features the numbering found but didn't name (FTC 06/08/09 2015
+  saves gain patterns, revolves, fillets; FTC 08 2015 now has no unconverted feature). Python and Rust.
+- Sketches whose curve handles carry tags the stream's numbering doesn't give (the numbering
+  drifted before the first sketch, and no sketch brings the handle classes in to learn them from)
+  now read their lines and arcs: NIST FTC 06 (2018 and 2015 saves), FTC 08 and FTC 09 (2015).
+  FTC 06's Boss-Extrude1 and Revolve1 convert. Python and Rust.
+- Draft and Move Face (offset) convert: the angle or distance from the file, the faces (and a
+  draft's neutral plane and pull) found from where they end up in the part's own solid; written
+  as SolidCraft `draft` and `offset_face`, in Python and the Rust port.
+- A cut that keeps its profile and takes the rest (SolidWorks' flip side to cut) is tried in the
+  rebuild search, emulated as a cut of a large square with the sketch's loops as its holes.
+### Fixed
+- Hole Wizard holes whose placement sketch the record numbering missed now convert: KeyWords'
+  placement sketches (`Type="Sketch"`, no `Dissectable`) are recovered, a 3D placement sketch's
+  points are read from its own point records, and a hole's sizes are read past its 3D sketch
+  (NIST FTC 06, 07, 09, 10).
+- Features whose class tag has lost its high bit (the numbering ran past it: FTC 09 and FTC 08's
+  2015 saves, the FrameBracket sample) are recovered by name instead of dropped; their first
+  extrudes were missing from the tree.
+- Fillet and chamfer edges whose own faces aren't numbered 1…N in order are read from the group
+  each edge is written in (header `04 00 00 00 00 02 00 00`): FTC 09's chamfers (both saves),
+  FTC 08's Fillet4/5, and 29 fillets and chamfers across the NIST and GrabCAD parts.
+- A hole's placement sketch gets plane candidates from the hole's own cylinders in the part's
+  solid (ported from cadkit-kernel's `hole.rs`, MIT OR Apache-2.0; see THIRD_PARTY_NOTICES.md):
+  holes on a model face (FTC 09) no longer have only a standard plane to try.
+- Parameter names that would start with a digit (Hole Wizard names such as `15/64 (0.23438)
+  Diameter Hole1`) start with `_`: SolidCraft read the leading digits as a number and the hole
+  failed with "unknown parameter".
+- Chamfers of round edges (a hole's rim): their own cone faces in the part's solid say which
+  edge (the one at the cone's radius, nearest the cone along its axis; hole bores, seams left
+  out). The search tries a pattern's directions in order of how much they change the solid, so a
+  direction that puts copies off the part comes last.
+- Linear and circular patterns found by name (KeyWords `LPattern`, `CirPattern`) are recovered
+  (FTC 06, 08 and 09's 2015 saves).
+### Fixed
+- Sketches in files saved before about 2010 are read: their point records are marked `FF FF 07 00`
+  where later files write `FF FF 1F 00`. Of 149 parts blocked on sketch reading, 15 no longer have
+  a sketch whose curves weren't read (71 to 56); 2 of them now rebuild to match their solid.
+- An arc handle tag whose two-point curves all fail to find a centre is read again as the line
+  class (the class numbering drifted by one; a hex bolt's edges): kept where fewer curves are left
+  unread. Python and Rust.
+- Where reading a sketch's curves from its points' handles leaves some unread, its curve records
+  are read instead (with help from cadkit-kernel): each names its ends, and an arc or circle its
+  centre, by position in the point list. In the 149-part set: unread-sketch parts 56 to 47, parts
+  with an arc of no centre 38 to 22, none worse; the A2773 bolt now rebuilds to match.
+- Split features (`moSplit_c`) go into the feature tree as SolidCraft's Split Body: the plane
+  the record names (or a straight line of the sketch before it), keeping both pieces, the first
+  or the second, chosen in the rebuild search (Python and Rust port).
+
+### Changed
+- STEP output is smaller (issue #1): point coordinates, knots and weights are written to 12
+  significant digits (1e-9 mm on a metre-sized part) instead of 17; a curve or surface whose knots
+  would become equal keeps them in full. The largest GrabCAD sample: 39.5 MB to 33.8 MB (-14%).
+  Python and Rust writers both.
+
+### Added
+- Sketch planes: face plane references with a flag byte and no FF block are read, and shared
+  sketches (`SketchN<k>`) take their base sketch's geometry and plane (55 of 93 plane-blocked
+  parts now have every plane, was 8). Python and Rust.
 - `tools/publish.py`: `check` finds personal data (home and cloud-folder paths, e-mail addresses,
   and the private names and words kept in a private folder outside the repository); `export`
   writes the repository into a clone of the public one with private names replaced by fixed

@@ -22,6 +22,19 @@ fn r(x: f64) -> String {
     if s.contains('.') { s } else { s + "." }
 }
 
+/// A coordinate: 12 significant digits (as `_c` in step.py).
+fn coord(x: f64) -> String {
+    r(format!("{x:.11e}").parse().unwrap_or(x))
+}
+
+/// Knots at 12 digits, unless that would make two of them equal (as `_ks` in step.py).
+fn knots_text(v: &[f64]) -> String {
+    let out: Vec<String> = v.iter().map(|x| coord(*x)).collect();
+    let bad = out.windows(2).any(|w| w[0].parse::<f64>().unwrap_or(0.0) >= w[1].parse::<f64>().unwrap_or(0.0));
+    let out: Vec<String> = if bad { v.iter().map(|x| r(*x)).collect() } else { out };
+    out.join(",")
+}
+
 fn st(s: &str) -> String {
     let mut out = String::from("'");
     for ch in s.chars() {
@@ -66,7 +79,7 @@ impl Writer {
         if let Some(s) = self.points.get(&key) {
             return s.clone();
         }
-        let s = self.add(format!("CARTESIAN_POINT('',({},{},{}))", r(q[0]), r(q[1]), r(q[2])));
+        let s = self.add(format!("CARTESIAN_POINT('',({},{},{}))", coord(q[0]), coord(q[1]), coord(q[2])));
         self.points.insert(key, s.clone());
         s
     }
@@ -114,12 +127,12 @@ impl Writer {
     fn bcurve(&mut self, c: &Curve) -> String {
         let (ks, ms) = compress_knots(&c.u, crate::nurbs::knot_eps(&c.u));
         let pts: Vec<String> = c.pts.iter().map(|p| self.point([p[0], p[1], p[2]])).collect();
-        let (pts, knots) = (pts.join(","), ks.iter().map(|x| r(*x)).collect::<Vec<_>>().join(","));
+        let (pts, knots) = (pts.join(","), knots_text(&ks));
         let mults = ms.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(",");
         match &c.w {
             None => self.add(format!("B_SPLINE_CURVE_WITH_KNOTS('',{},({pts}),.UNSPECIFIED.,.F.,.F.,({mults}),({knots}),.UNSPECIFIED.)", c.p)),
             Some(w) => {
-                let w = w.iter().map(|x| r(*x)).collect::<Vec<_>>().join(",");
+                let w = w.iter().map(|x| coord(*x)).collect::<Vec<_>>().join(",");
                 self.add(format!(
                     "(BOUNDED_CURVE()B_SPLINE_CURVE({},({pts}),.UNSPECIFIED.,.F.,.F.)B_SPLINE_CURVE_WITH_KNOTS(({mults}),({knots}),.UNSPECIFIED.)CURVE()GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_CURVE(({w}))REPRESENTATION_ITEM(''))",
                     c.p
@@ -165,8 +178,8 @@ impl Writer {
         }
         let rows = rows.join(",");
         let js = |v: &[i64]| v.iter().map(|m| m.to_string()).collect::<Vec<_>>().join(",");
-        let jr = |v: &[f64]| v.iter().map(|x| r(*x)).collect::<Vec<_>>().join(",");
-        let common = format!("({}),({}),({}),({}),.UNSPECIFIED.", js(&um), js(&vm), jr(&uk), jr(&vk));
+        let jr = |v: &[f64]| v.iter().map(|x| coord(*x)).collect::<Vec<_>>().join(",");
+        let common = format!("({}),({}),({}),({}),.UNSPECIFIED.", js(&um), js(&vm), knots_text(&uk), knots_text(&vk));
         match &s.w {
             None => self.add(format!("B_SPLINE_SURFACE_WITH_KNOTS('',{},{},({rows}),.UNSPECIFIED.,.F.,.F.,.F.,{common})", s.pu, s.pv)),
             Some(w) => {

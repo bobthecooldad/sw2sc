@@ -70,15 +70,25 @@ pub fn faces(name: &str) -> Option<ScPair> {
 
 /// Every edge of the design's bodies: (faces, mid point, name).
 pub fn body_edges(design: &Value, ev: &mut dyn Evaluator) -> Option<Vec<ScEdge>> {
+    body_edges_raw(design, ev).map(|x| x.0)
+}
+
+/// The same, and every edge as (mid point, name), those whose faces aren't read too (a hole's
+/// bore); see the Python.
+pub fn body_edges_raw(design: &Value, ev: &mut dyn Evaluator) -> Option<(Vec<ScEdge>, Vec<(Value, String)>)> {
     let all = ev.edges(design)?;
     let mut out = Vec::new();
+    let mut raw = Vec::new();
     for e in all.as_array()? {
         let name = e.get("name").and_then(Value::as_str).unwrap_or("");
+        if !e["mid"].is_null() {
+            raw.push((e["mid"].clone(), name.to_string()));
+        }
         if let Some(fc) = faces(name) {
             out.push((fc, e["mid"].clone(), name.to_string()));
         }
     }
-    Some(out)
+    Some((out, raw))
 }
 
 /// Every face of the design's bodies as `model.faces` gives it.
@@ -318,7 +328,7 @@ pub fn solve(
 /// The edge sets the fillet could round in the design `prefix` (everything before it), each with
 /// the assignments that reach it. Smooth edges (an arc running on from a line) are left out.
 pub fn candidates(prefix: &Value, fillet: &Feature, feats: &[Feature], ev: &mut dyn Evaluator, known: Option<&[Amap]>) -> Vec<Solution> {
-    let Some(every) = body_edges(prefix, ev) else { return vec![] };
+    let Some((every, raw)) = body_edges_raw(prefix, ev) else { return vec![] };
     if every.is_empty() {
         return vec![];
     }
@@ -365,9 +375,19 @@ pub fn candidates(prefix: &Value, fillet: &Feature, feats: &[Feature], ev: &mut 
     if !fillet.round_axes.is_empty() {
         let mut got: Vec<(Value, String)> = Vec::new();
         for (p, d, r) in &fillet.round_axes {
-            let mut near: Vec<(f64, &Value, &String)> = every.iter().map(|e| (off_axis(mid_of(&e.1), *p, *d), &e.1, &e.2)).collect();
-            near.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-            near.retain(|x| r * 0.999 <= x.0 && x.0 <= 3.0 * r);
+            // (a seam, one face meeting itself, is no edge to round)
+            let mut near: Vec<(f64, &Value, &String)> =
+                raw.iter().filter(|e| split(&e.1).len() == 2).map(|e| (off_axis(mid_of(&e.0), *p, *d), &e.0, &e.1)).collect();
+            // (ties, a hole's two rims both a radius off: the one nearer the face's point along the axis)
+            let along = |m: [f64; 3]| ((m[0] - p[0]) * d[0] + (m[1] - p[1]) * d[1] + (m[2] - p[2]) * d[2]).abs();
+            let r6 = |x: f64| (x * 1e3).round() / 1e3;
+            // a chamfer's cone: the edge it bevels lies at the cone's own radius (see the Python)
+            let cham = fillet.kind == "chamfer";
+            let score = |o: f64| if cham { (o - r).abs() } else { o };
+            near.sort_by(|a, b| {
+                (r6(score(a.0)), along(mid_of(a.1))).partial_cmp(&(r6(score(b.0)), along(mid_of(b.1)))).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            near.retain(|x| if cham { (x.0 - r).abs() <= 0.01 } else { r * 0.999 <= x.0 && x.0 <= 3.0 * r });
             let Some(first) = near.first() else {
                 got.clear();
                 break;

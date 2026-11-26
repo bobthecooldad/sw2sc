@@ -11,6 +11,7 @@ Lengths come out in millimetres, positions in the part's model space.
 """
 from __future__ import annotations
 
+import json
 import html
 import math
 import re
@@ -70,6 +71,9 @@ def is_feature_class(cls: str) -> bool:
 
 FEATURE_CLASSES = None  # see is_feature_class
 FRONT = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+# SolidWorks' Front, Top and Right planes as sketch frames (x, y, normal)
+STANDARD_PLANES = (FRONT, ((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
+                   ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)))
 TOL = 1e-9  # metres
 
 
@@ -145,16 +149,21 @@ class Feature:
     mirror_planes: list = field(default_factory=list)  # planes its record names: frames
     thread: dict = field(default_factory=dict)  # a thread's diameter, pitch, length (mm)
     pattern: dict = field(default_factory=dict)  # a pattern's kind, counts, spacings (mm) or angle (deg)
+    rib: dict = field(default_factory=dict)  # a rib's mid plane (origin, x, y; mm) and free-edge chain (2D points, mm)
     thin_mm: float | None = None  # a thin extrude's wall thickness
     dome_mm: float | None = None  # a dome's height
     path: str | None = None       # a sweep's path sketch (its profile sketch is `profile`)
     scale: tuple | None = None    # a scale's factors (x, y, z)
+    translate: tuple | None = None  # a body move's translation (mm)
     import_body: bytes | None = field(default=None, repr=False, compare=False)  # an import's body as imported
     import_step: str | None = field(default=None, repr=False, compare=False)    # … as STEP (made when written)
     edges: list = field(default_factory=list)  # a fillet's edges: (face, face), face = (side|end, feature id, entity|0/1)
     edge_ends: list = field(default_factory=list)  # for each edge, the two faces at its ends (they border its faces)
     edge_lines: list = field(default_factory=list)  # for each edge, the line its two flat faces meet on (mm), from the face tags
-    round_axes: list = field(default_factory=list)  # a fillet's own faces in the part's solid, where all are cylinders: [point, axis, radius], mm
+    round_axes: list = field(default_factory=list)  # a fillet's (chamfer's) own faces in the part's solid, where all are cylinders (cones): [point, axis, radius], mm
+    draft_deg: float | None = None   # a draft's angle
+    move_mm: float | None = None     # a move face's offset distance
+    final_planes: list = field(default_factory=list, repr=False)  # a draft's / move face's: the part's own flat faces, [(normal, point mm)]
 
 
 # --- the stream ------------------------------------------------------------------------------
@@ -165,7 +174,8 @@ def _data_start(b: bytes, r: archive.Record) -> int:
 def _name(b: bytes, r: archive.Record) -> str | None:
     """The name of a feature record: its node tag, then `FF FE FF`, u8 length, UTF-16."""
     s = _data_start(b, r)
-    if b[s + 1:s + 2] != b"\x80" or b[s + 2:s + 5] != b"\xff\xfe\xff":
+    # (the node tag's high byte is 0x81 and up where class numbers run past 255)
+    if s + 5 >= len(b) or not b[s + 1] & 0x80 or b[s + 2:s + 5] != b"\xff\xfe\xff":
         return None
     n = b[s + 5]
     return b[s + 6:s + 6 + 2 * n].decode("utf-16le", "replace") if n else None
@@ -202,6 +212,9 @@ def _plane_record(b: bytes, off: int, is_new: bool):
             j += 1
         if j - z >= 40 and b[j:j + 16] == b"\xff" * 16:
             i = j
+        elif j - z >= 40 and b[j:j + 4] == b"\xff\xff\xff\xff":
+            # (2-flag files) no FF block: the id -1 straight after the zero run, a sketch on a face
+            return 0xFFFFFFFF, j + 4
     if i - z < 40:
         return None
     if b[i:i + 16] == b"\xff" * 16:
@@ -264,7 +277,10 @@ def _face_frame_at(b: bytes, s0: int):
     # its side faces came out mirrored): a second candidate, which the rebuild check chooses
     if sum(p * q for p, q in zip(y, y2)) < 0:
         z2 = (x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0])
-        return [first, ((x, y, z2), origin)]
+        # and the first turned half round in its plane (NIST CTC 03's Sketch3 on a side face is
+        # drawn so: x the other way, its normal the face's)
+        turned = ((tuple(-c for c in x), tuple(-c for c in y2), n), origin)
+        return [first, ((x, y, z2), origin), turned]
     return first
 
 
@@ -350,6 +366,9 @@ def _plane_from_ref(b, recs, ref, by_id, by_off):
         cands = _face_candidates(b, recs, after, after + 1500)
         if cands:
             return cands, "face the sketch is on, its axes tried"
+        on = _origin_normal_plane(b, recs, after)
+        if on:
+            return on, "plane by origin and normal, its axes tried"
         return None, "sketch on a face: plane not read"
     if pid in by_id:
         return by_id[pid], f"plane feature {pid}"
@@ -378,6 +397,36 @@ def _plane_refs(b: bytes, recs: list, lo: int, hi: int) -> list:
         if _plane_record(b, m.start(), False):
             out.append(_Ref(m.start()))
     return out
+
+
+def _origin_normal_plane(b: bytes, recs: list, after: int):
+    """A plane object after a -1 plane reference that stores only its origin and unit normal
+    (`moRefPlane_c`: origin, normal, a flag byte, no axes; seen on sketches on an offset of a
+    planar face). The sketch's axes aren't stored, so the standard plane's for that normal and
+    its mirror are both offered and the rebuild check chooses."""
+    r = next((r for r in recs if after <= r.offset < after + 40 and r.cls == "moRefPlane_c"), None)
+    if r is None:
+        return None
+    end = next((x.offset for x in recs if x.offset > r.offset), r.offset + 600)
+    out = []
+    for s0 in range(r.offset, min(end, r.offset + 600, len(b) - 49)):
+        o = struct.unpack_from("<3d", b, s0)
+        n = struct.unpack_from("<3d", b, s0 + 24)
+        if not all(c == c and abs(c) < 100 for c in o + n) or abs(sum(c * c for c in n) - 1) > 1e-9:
+            continue
+        if any(c != 0 and abs(c) < 1e-300 for c in o):
+            continue   # denormals: not a coordinate
+        k = max(range(3), key=lambda a: abs(n[a]))
+        if abs(abs(n[k]) - 1) > 1e-9 or o[k] == 0 or abs(o[k]) < 1e-12 or b[s0 + 48] not in (0, 1, 0x80):
+            continue   # an axis-aligned normal and an origin off the standard plane (not noise)
+        sg = 1.0 if n[k] > 0 else -1.0
+        x = {0: (0.0, 0.0, -sg), 1: (sg, 0.0, 0.0), 2: (sg, 0.0, 0.0)}[k]
+        y = tuple(n[(i + 1) % 3] * x[(i + 2) % 3] - n[(i + 2) % 3] * x[(i + 1) % 3] for i in range(3))
+        mx = tuple(-c for c in x)
+        my = tuple(n[(i + 1) % 3] * mx[(i + 2) % 3] - n[(i + 2) % 3] * mx[(i + 1) % 3] for i in range(3))
+        # the first that reads is the record's; later ones are the same doubles read shifted
+        return [((x, y, n), o), ((mx, my, n), o)]
+    return None
 
 
 def _plane_inside(b, recs, s, e, by_id, by_off):
@@ -412,6 +461,9 @@ def _plane_inside(b, recs, s, e, by_id, by_off):
             cands = _face_candidates(b, recs, after, e)
             if cands:
                 return cands, "face it is on (after its points), its axes tried"
+            on = _origin_normal_plane(b, recs, after)
+            if on:
+                return on, "plane by origin and normal (after its points), its axes tried"
         elif pid in by_id:
             return by_id[pid], f"plane feature {pid} (after its points)"
     return None, ""
@@ -510,9 +562,39 @@ def _read_sketch(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict
     the handle class brought in most recently that no tag has yet (learned per sketch, and
     used for the sketch's dimensions and relations too). `learned`: such tags from the sketches
     before (a class is brought in once, in the first sketch using it); it gets this one's."""
+    trial = dict(learned or {})
+    tags2, listed = _read_sketch_once(b, tags, sk, s, e, trial)
+    # A tag the numbering gives the arc class whose curves all have two points, none of which
+    # finds a centre, is the line class (the numbering drifted by a class: Bolt, a hexagon's
+    # edges under the arc tag, its first edge brought in inline as sgLineHandle with the same
+    # curve id). Read again so, kept where fewer curves are left unread.
+    fails = {int(m.group(1)) for pr in sk.problems
+             for m in [re.fullmatch(r"arc (\d+): no centre found \(ends \[\d+, \d+\]\)", pr)] if m}
+    if len(fails) >= 2:
+        for t, cids in listed.items():
+            if tags2.get(t) != "sgArcHandle" or not fails & set(cids) or                     any(len(set(ps)) != 2 for ps in cids.values()):
+                continue
+            sk2 = Sketch(sk.name, sk.offset, sk.end)
+            trial2 = dict(learned or {})
+            _read_sketch_once(b, tags, sk2, s, e, trial2, {t: "sgLineHandle"})
+            n2 = sum("no centre found" in pr for pr in sk2.problems)
+            n1 = sum("no centre found" in pr for pr in sk.problems)
+            if n2 < n1 and len(sk2.problems) < len(sk.problems):
+                sk.__dict__.update(sk2.__dict__)
+                trial = trial2
+            break
+    if learned is not None:
+        learned.update(trial)
+
+
+def _read_sketch_once(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict | None = None,
+                      force: dict | None = None):
+    """One reading of a sketch (see `_read_sketch`); `force` gives tags a class whatever the
+    numbering says. Returns the tags used and each tag's curves (tag -> curve id -> points)."""
     base = tags
     tags = dict(tags)
     tags.update(learned or {})   # (learned where the numbering gave a tag the wrong class too)
+    tags.update(force or {})
     inline: list[str] = []   # handle classes brought in inline here, no tag known for them yet
     unknown: dict = {}       # (tag, curve id) -> points, for handle tags of no known class
     known_tag = {v: t for t, v in tags.items() if v.endswith("Handle")}
@@ -520,7 +602,8 @@ def _read_sketch(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict
     plain: list[int] = []   # points on no curve (arc centres among them), in record order
     entries: list = []      # every handle in a point's list: (tag or None, class brought in, curve id, point)
     pts_order: list[int] = []
-    for m in re.finditer(rb"\xff\xff\x1f\x00", b[s:e]):
+    # (files before about 2010 write `07` where later ones write `1F`)
+    for m in re.finditer(rb"\xff\xff[\x07\x1f]\x00", b[s:e]):
         i = s + m.start()
         j = b.find(b"\x1e\x00", i + 30, i + 80)
         # the point's x, y follow `F0 3F 1E 00`; newer files put 8 zero bytes before the `1E 00`
@@ -713,6 +796,7 @@ def _read_sketch(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict
         else:
             sk.problems.append(f"arc {cid} has {len(ps)} points")
     _read_segments(b, sk, s, e, partial)
+    _curves_from_records(b, sk, s, e)
     # a line read with one end only (the other a point that isn't read: projected geometry,
     # often a centreline) is left out and noted; if an outline needed it, its loop doesn't close
     # and the rebuild check says so
@@ -733,6 +817,7 @@ def _read_sketch(b: bytes, tags: dict, sk: Sketch, s: int, e: int, learned: dict
     _dimensioned_circles(sk)
     _read_relations(b, tags, sk, s, e)
     _centres_from_relations(sk)
+    return tags, listed
 
 
 def _dimensioned_circles(sk: Sketch) -> None:
@@ -859,6 +944,145 @@ def with_centres(sk: Sketch, flips) -> Sketch:
             a, c, _ctr = s2.arcs[n]
             s2.arcs[n] = (a, c, pid)
     return s2
+
+
+def _entities(b: bytes, s: int, e: int) -> list:
+    """A sketch's point and curve records in order. Ported from cadkit-kernel
+    crates/ck-sldprt/src/sketch.rs `entities` (MIT OR Apache-2.0). Each record is a u32 id, then
+    `FF FF <schema u8 <= 40> 00 <version 1..8> FF*8`, `00 00 80 BF` and, 20 bytes on, `80 BF`; then
+    after the first `F0 3F` (and 8 zero bytes in newer streams) either a point (`1E 00`, x, y) or
+    a curve (u16 first end, u16 last end, u16 flag, 0 = construction; then i32 sense at +16 and six
+    u16 at +20, the first an arc's or circle's centre where the second is `FFFE`). A point whose
+    record refers to another object (a class tag or declaration where plain records have
+    `00 00`) has its coordinates further on. The ends and the centre are positions in the
+    sketch's list of point records, not point ids.
+    Returns ("P", id, x, y, located) and ("S", id, a, c, flag, tail) tuples."""
+    heads = []
+    i = max(s, 4)
+    while True:
+        i = b.find(b"\xff\xff", i, e)
+        if i < 0 or i + 13 > e:
+            break
+        if b[i + 2] <= 0x40 and b[i + 3] == 0 and 1 <= b[i + 4] <= 8 and b[i + 5:i + 13] == b"\xff" * 8:
+            heads.append(i)
+            i += 13
+        else:
+            i += 1
+    w = wo = 0
+    for h in heads:
+        r = b.find(b"\xf0?", h + 13, min(h + 4096, len(b)))
+        if r < 0:
+            continue
+        if b[r + 2:r + 4] == b"\x1e\x00":
+            wo += 1
+        elif b[r + 2:r + 10] == bytes(8) and b[r + 10:r + 12] == b"\x1e\x00":
+            w += 1
+    zeros = w >= wo if w + wo else True
+    out = []
+    for n, h in enumerate(heads):
+        end = min(heads[n + 1] if n + 1 < len(heads) else len(b), h + 4096)
+        if b[h + 13:h + 17] != b"\x00\x00\x80\xbf" or b[h + 33:h + 35] != b"\x80\xbf":
+            continue
+        pid = struct.unpack_from("<I", b, h - 4)[0]
+        if b[h + 35:h + 37] != b"\x00\x00":
+            o, found = h + 35, None
+            while found is None:
+                o = b.find(b"\xf0?", o, end)
+                if o < 0:
+                    break
+                k = o + 2 + (8 if zeros else 0)
+                if (not zeros or b[o + 2:o + 10] == bytes(8)) and b[k:k + 2] == b"\x1e\x00" and k + 18 <= len(b):
+                    x, y = struct.unpack_from("<dd", b, k + 2)
+                    if math.isfinite(x) and math.isfinite(y):
+                        found = (x, y)
+                o += 1
+            out.append(("P", pid, *(found or (0.0, 0.0)), found is not None))
+            continue
+        r = b.find(b"\xf0?", h + 13, end)
+        if r < 0:
+            continue
+        k = r + 2
+        if zeros:
+            if b[k:k + 8] != bytes(8):
+                continue
+            k += 8
+        if b[k:k + 2] == b"\x1e\x00":
+            if k + 18 > len(b):
+                continue
+            x, y = struct.unpack_from("<dd", b, k + 2)
+            if math.isfinite(x) and math.isfinite(y):
+                out.append(("P", pid, x, y, True))
+        elif k + 32 <= len(b):
+            a, c, flag = struct.unpack_from("<HHH", b, k)
+            out.append(("S", pid, a, c, flag, struct.unpack_from("<6H", b, k + 20)))
+    return out
+
+
+def _curves_from_records(b: bytes, sk: Sketch, s: int, e: int) -> None:
+    """Where reading the curves from the points' handles leaves some unread (none read, an arc
+    with no centre, a curve with too many points), the sketch's curve records are read instead
+    (after cadkit-kernel crates/ck-sldprt/src/sketch.rs `build_sketch`, MIT OR Apache-2.0): each
+    names its ends, and an arc or circle its centre, as positions in the point list. Kept only
+    where every record reads: its points located, an arc's ends as far from its centre."""
+    bad = [pr for pr in sk.problems if re.fullmatch(r"arc \d+: no centre found .*|(line|arc) \d+ has \d+ (end )?points", pr)]
+    if (sk.lines or sk.arcs or sk.circles) and not bad:
+        return
+    ents = _entities(b, s, e)
+    pts = [x for x in ents if x[0] == "P"]
+    segs = [x for x in ents if x[0] == "S" and x[1] != 0xFFFFFFFF]
+    if not segs:
+        return
+    n = len(pts)
+    lines, arcs, circles, cons, curve_of, points = [], [], [], set(), {}, dict(sk.points)
+    dropped = []
+
+    first = {}
+    for k, x in enumerate(pts):
+        first.setdefault(x[1], k)   # (an id can be written twice; the first record is the sketch's point)
+
+    def pid(k):
+        if k >= n or not pts[k][4] or pts[k][1] == 0xFFFFFFFF or first[pts[k][1]] != k:
+            return None
+        points[pts[k][1]] = (pts[k][2], pts[k][3])
+        return pts[k][1]
+    for _t, cid, a, c, flag, tail in segs:
+        if flag > 1 or a >= n or c >= n or cid > 0xFFFF:
+            return          # a record of this shape that isn't one of the sketch's curves: don't trust the set
+        pa, pc = pid(a), pid(c)
+        if pa is None or pc is None:
+            return
+        P = points
+        if tail[1] == 0xFFFE:   # an arc or a circle: its centre first
+            pk = pid(tail[0])
+            if pk is None or pk in (pa, pc):
+                return
+            r = math.hypot(P[pk][0] - P[pa][0], P[pk][1] - P[pa][1])
+            if r < TOL or abs(math.hypot(P[pk][0] - P[pc][0], P[pk][1] - P[pc][1]) - r) > 1e-6 * max(r, 1e-3):
+                return
+            if flag == 0:
+                dropped.append(f"construction arc {cid}")
+                continue
+            if pa == pc:
+                circles.append((pk, r))
+                curve_of[("arc", cid)] = f"c{len(circles)}"
+            else:
+                arcs.append((pa, pc, pk))
+                curve_of[("arc", cid)] = f"a{len(arcs)}"
+        elif a == c:
+            return          # an ellipse (its axis points listed): not read here
+        else:
+            if math.hypot(P[pa][0] - P[pc][0], P[pa][1] - P[pc][1]) < TOL:
+                return
+            lines.append((pa, pc))
+            if flag == 0:
+                cons.add(len(lines) - 1)
+            curve_of[("line", cid)] = f"l{len(lines)}"
+    if not (lines or arcs or circles):
+        return
+    sk.points, sk.lines, sk.arcs, sk.circles = points, lines, arcs, circles
+    sk.construction, sk.curve_of = cons, curve_of
+    sk.problems = [pr for pr in sk.problems if pr not in bad]
+    sk.dropped.extend(dropped)
 
 
 _SEGMENT = re.compile(rb"\xff\xff\x1f\x00", re.S)
@@ -1001,7 +1225,8 @@ def _read_relations(b: bytes, tags: dict, sk: Sketch, s: int, e: int) -> None:
 _KW_TYPES = {"Fillet": FILLET, "Скругление": FILLET, "Congé": FILLET, "Verrundung": FILLET,
              "Filete": FILLET, "Redondeo": FILLET, "Raccordo": FILLET,
              "Chanfro": "Chamfer_c", "Chaflán": "Chamfer_c", "Smusso": "Chamfer_c",
-             "Chamfer": "Chamfer_c", "Фаска": "Chamfer_c", "Chanfrein": "Chamfer_c", "Fase": "Chamfer_c"}
+             "Chamfer": "Chamfer_c", "Фаска": "Chamfer_c", "Chanfrein": "Chamfer_c", "Fase": "Chamfer_c",
+             "LPattern": "moLPattern_c", "CirPattern": "moCirPattern_c"}
 
 
 _BOSS_TYPES = {"Boss-Extrude", "Бобышка-Вытянуть", "Boss.-Extru.", "Ressalto-extrusão", "Saliente-Extruir",
@@ -1022,7 +1247,7 @@ def _kw_features(kw: str) -> list:
             continue
         name = html.unescape(n.group(1))
         # a sketch: the user's (Dissectable), not the origin KeyWords lists among them
-        if e == "Sketch" and ('Dissectable="true"' not in rest or name in _ORIGIN_NAMES):
+        if e == "Sketch" and (('Dissectable="true"' not in rest and 'Type="Sketch"' not in rest) or name in _ORIGIN_NAMES):
             continue
         out.append((e, name, html.unescape(t.group(1)) if t else None))
     return out
@@ -1078,8 +1303,13 @@ def _recover(b: bytes, named: list, kw: str) -> list:
         needle = b"\xff\xfe\xff" + bytes([len(nm)]) + nm.encode("utf-16le")
         i = b.find(needle)
         while i >= 4:
-            if b[i - 1] & 0x80 and b[i - 3] & 0x80 and i - 4 not in taken:
+            # (the node tag's high bit is set; the class tag's is too, except where the numbering
+            # has run past it: FTC 09's 2015 save, its first extrude and many more. A plane found
+            # that way is a standard one, not a feature)
+            if b[i - 1] & 0x80 and i - 4 not in taken:
                 c = cls or tag_cls.get(struct.unpack_from("<H", b, i - 4)[0])
+                if not b[i - 3] & 0x80 and (c == "moRefPlane_c" or t == "Plane"):
+                    break
                 if e in ("Extrusion", "Cut") and c not in (BOSS, CUT, "moCut_c"):
                     # an extrude is a boss or a cut, whatever a drifted tag says
                     c = CUT if e == "Cut" or re.search(r"cut|вырез|enl|corte|cortar|schnitt|taglio|řez", nm, re.I) else BOSS if re.search(r"boss|бобышка|ressalto|saliente|aufsatz|estrusione|bossage|výstupek", nm, re.I) else None
@@ -1150,6 +1380,7 @@ def _edge_refs(b: bytes, recs: list, k: int | None, end: int, fids: set, own: in
         if v != n:
             break
         n_faces = n
+    refs = []
     if n_faces and len(raw) >= 4 * n_faces:
         refs = raw[:4 * n_faces]
     elif k is not None:
@@ -1164,8 +1395,9 @@ def _edge_refs(b: bytes, recs: list, k: int | None, end: int, fids: set, own: in
                 break
             started = started or ref_rec
         refs = [r for r in raw if r[4] < stop]
-    else:
-        return []
+    if not refs or len(refs) % 4:
+        # else the groups each edge is written in (FTC 09's chamfers)
+        refs = _edge_groups(b, raw, s0, end)
     if not refs or len(refs) % 4:
         return []
     # which class tag is the end face: by name where this stream defines the class, else the tag
@@ -1177,6 +1409,28 @@ def _edge_refs(b: bytes, recs: list, k: int | None, end: int, fids: set, own: in
         named = small if len(small) == 1 else {t for t, _fd, v, nxt, _o in refs if v in (0, 1) and nxt < 16}
     faces = [("end" if t in named else "side", fd, v) for t, fd, v, _n, _o in refs]
     return [(faces[n], faces[n + 1], faces[n + 2], faces[n + 3]) for n in range(0, len(faces), 4)]
+
+
+_GROUP_HEAD = bytes([4, 0, 0, 0, 0, 2, 0, 0])
+
+
+def _edge_groups(b: bytes, raw: list, s0: int, end: int) -> list:
+    """A chamfer's or fillet's edges where its own faces aren't numbered 1…N in order (FTC 09's
+    chamfers: 4, 3, 2, 1, or 2, 3, 1, 4): each edge is a group headed `04 00 00 00 00 02 00 00`
+    (four references), a u32, 16 bytes, then its four face references (two sides, two ends:
+    sides 20 bytes apart in 2018 saves, 24 in 2015). The references read (`raw`) that start
+    within the group, four per header; none where any header has fewer."""
+    out, j = [], b.find(_GROUP_HEAD, s0, end)
+    while j >= 0:
+        head = j + len(_GROUP_HEAD)
+        inside = [r for r in raw if head < r[4] < head + 40 + 4 * 24][:4]
+        if len(inside) < 4 or inside[0][4] > head + 40:
+            return []
+        key = [r[:4] for r in inside]
+        if all([r[:4] for r in out[n:n + 4]] != key for n in range(0, len(out), 4)):
+            out.extend(inside)   # (a group repeated later in the record names the same edge)
+        j = b.find(_GROUP_HEAD, inside[-1][4] + 20, end)
+    return out
 
 
 def _param_value(b: bytes, s: int) -> float | None:
@@ -1199,6 +1453,22 @@ def _param_value(b: bytes, s: int) -> float | None:
 
 # the length units KeyWords can show a document's sizes in, as mm: mm, inch, cm, m, foot
 _UNITS = (1.0, 25.4, 10.0, 1000.0, 304.8)
+
+
+def _kw_angle(text: str, b: bytes, lo: int, hi: int) -> float | None:
+    """A KeyWords angle in degrees ("12.5°"), exact where the record (`b[lo:hi]`) keeps a double in
+    radians that rounds to it."""
+    t = html.unescape(text or "")
+    m = re.search(r"-?\d+(?:\.(\d+))?", t)
+    if not m:
+        return None
+    v, dec = float(m.group()), len(m.group(1) or "")
+    half = 0.5 * 10 ** -dec + 1e-9
+    for i in range(lo, max(lo, hi - 8)):
+        d = struct.unpack_from("<d", b, i)[0]
+        if d == d and 1e-6 < d < math.pi and abs(math.degrees(d) - v) <= half:
+            return math.degrees(d)
+    return v
 
 
 def _kw_length(text: str, b: bytes, lo: int, hi: int, unit: list) -> float | None:
@@ -1260,6 +1530,35 @@ def _depth(b: bytes, recs: list, k: int, end: int) -> float | None:
     return None
 
 
+def _handle_tags_file(b: bytes, tags: dict, recs: list) -> dict:
+    """Curve-handle tags for a file whose numbering has drifted before its first sketch, so that
+    no sketch brings the handle classes in inline to learn them from (NIST FTC 06: lines tagged
+    0x8426 and arcs 0x8491 where the numbering gives 0x8196 and 0x81E9). Only where no handle tag
+    in any point's list is one the numbering gives a curve class: those tags then take the curve
+    classes in the order the stream brings them in (a class's tag is the object count when it came
+    in, so the earlier class has the smaller tag), where the counts agree."""
+    curve_cls = ("sgLineHandle", "sgArcHandle")
+    seen: set = set()
+    for m in re.finditer(rb"\xff\xff\x1f\x00", b):
+        i = m.start()
+        j = b.find(b"\x1e\x00", i + 30, i + 80)
+        if j < 0 or j + 22 > len(b) or not (b[j - 2:j] == b"\xf0\x3f" or b[j - 10:j] == b"\xf0\x3f" + bytes(8)):
+            continue
+        k = j + 22
+        for _ in range(16):
+            if k + 12 > len(b):
+                break
+            t = struct.unpack_from("<H", b, k)[0]
+            if not t & 0x8000 or t == 0xFFFF or b[k + 4:k + 8] != b"\xff\xff\xff\xff":
+                break
+            seen.add(t)
+            k += 12
+    if not seen or any(tags.get(t) in curve_cls for t in seen):
+        return {}
+    order = list(dict.fromkeys(r.cls for r in recs if r.new_class and r.cls in curve_cls))
+    return dict(zip(sorted(seen), order)) if len(seen) == len(order) else {}
+
+
 # --- the tree ---------------------------------------------------------------------------------
 def read(sw) -> list[Feature] | None:
     """The part's features in order, or None when the stream can't be numbered yet (files saved
@@ -1297,7 +1596,8 @@ def read(sw) -> list[Feature] | None:
         if nm:
             named.append((k, r, nm))
     named = _recover(b, named, kw)
-    learned: dict = {}   # handle tags the numbering doesn't give, learned sketch by sketch
+    # handle tags the numbering doesn't give, learned sketch by sketch (seeded from the whole file)
+    learned: dict = _handle_tags_file(b, tags, recs)
     local = None         # the local bodies (an import's own), read when an import needs them
     out: list[Feature] = []
     last_sketch = None
@@ -1306,11 +1606,13 @@ def read(sw) -> list[Feature] | None:
     rec_offsets = [x.offset for x in recs]
     for n, (k, r, nm) in enumerate(named):
         end = named[n + 1][1].offset if n + 1 < len(named) else len(b)
+        # a Hole Wizard's 3D placement sketch found by name (KeyWords lists it as a sketch)
+        hole_3d = r.cls == SKETCH and k is None and bool(re.match(r"3D", nm)) and bool(out) and out[-1].cls == HOLE
         if k is None and r.cls not in (FILLET, CHAMFER):
             # found by name (KeyWords), not by its record: the records nearby stand in for it
             import bisect
             k = max(0, bisect.bisect_right(rec_offsets, r.offset) - 1)
-        if r.cls == SKETCH:
+        if r.cls == SKETCH and not hole_3d:
             sk = Sketch(nm, r.offset, end)
             _read_sketch(b, tags, sk, r.offset, end, learned)
             if nm in kw_sketches:
@@ -1424,7 +1726,7 @@ def read(sw) -> list[Feature] | None:
             # its placement sketch and profile sketch follow it; its sizes are named parameters
             # after them ("Hole Dia.", "C'Sink Angle" …)
             f = Feature("hole", nm, r.offset, r.cls)
-            stop = next((x[1].offset for x in named[n + 1:] if x[1].cls != SKETCH), len(b))
+            stop = next((x[1].offset for x in named[n + 1:] if x[1].cls not in (SKETCH, "mo3DProfileFeature_c")), len(b))
             f.hole = _hole_params(b, r.offset, stop)
             if "diameter" not in f.hole and _hole_from_name(nm):
                 f.hole["diameter"] = _hole_from_name(nm)
@@ -1444,6 +1746,19 @@ def read(sw) -> list[Feature] | None:
                     break
             if not f.thin_mm:
                 f.kind, f.reason = "tbd", "shell's thickness not read"
+        elif r.cls in ("moDraft_c", "moMoveFace_c"):
+            # a draft: KeyWords' D1 its angle; a move face (offset): D1 its distance. Which faces,
+            # and a draft's neutral plane and pull, are found from the part's own solid (verify)
+            draft = r.cls == "moDraft_c"
+            f = Feature("draft" if draft else "moveface", nm, r.offset, r.cls)
+            m = re.search(r'<Feature [^>]*Name="%s"[^>]*>(.*?)</Feature>' % re.escape(html.escape(nm)), kw, re.S)
+            dims = dict(re.findall(r'<Dimension Name="(D\d+)">([^<]*)</Dimension>', m.group(1))) if m else {}
+            if draft:
+                f.draft_deg = _kw_angle(dims.get("D1"), b, r.offset, end)
+            elif len(dims) == 1:   # an offset; a translate or rotate names more
+                f.move_mm = _kw_length(dims.get("D1"), b, r.offset, end, unit)
+            if not (f.draft_deg if draft else f.move_mm):
+                f.kind, f.reason = "tbd", ("draft's angle" if draft else "move face's distance") + " not read"
         elif r.cls in ("moCosmeticThread_c", "moRefAxis_c", "moRefPoint_c", "moSensor_c", "moHelix_c", "moRefCurve_c",
                        "moSketchBitmap_c", "moExtObject_c", "moDatumTarget_c", "moCoordSys_c"):
             # no solid: a cosmetic thread is an annotation, an axis or point reference geometry.
@@ -1476,6 +1791,21 @@ def read(sw) -> list[Feature] | None:
             f.scale = _scale_factors(b, r.offset, end)
             if not f.scale:
                 f.kind, f.reason = "tbd", "scale's factors not read"
+        elif r.cls == "moMoveCopyBody_c":
+            # a body moved: its record keeps a rotation (9 doubles, rows), 8 bytes, then the
+            # translation (3 doubles, m). NIST FTC 10: identity, then (0.0625, 0, 0): its first
+            # boss, built at x -132.5..7.5 mm, lies at -70.9..70.9 in the saved solid
+            f = Feature("move", nm, r.offset, r.cls)
+            mv = _body_move(b, r.offset, end)
+            if mv is None:
+                f.kind, f.reason = "tbd", "body move's transform not read"
+            elif any(abs(mv[0][k][c] - (k == c)) > 1e-9 for k in range(3) for c in range(3)):
+                f.kind, f.reason = "tbd", "body move with a turn not converted yet"
+            else:
+                f.translate = tuple(x * 1000 for x in mv[1])
+        elif r.cls == "moRib_c":
+            # its wall is read from its own faces in the part's solid, after the tree (_ribs)
+            f = Feature("rib", nm, r.offset, r.cls)
         elif r.cls == "moDome_c":
             # a dome: its height is KeyWords' D1 for it; the face it sits on is chosen in the rebuild
             f = Feature("dome", nm, r.offset, r.cls)
@@ -1540,6 +1870,19 @@ def read(sw) -> list[Feature] | None:
                 pl, _how = _plane_from_ref(b, recs, ref, by_id, by_off)
                 for one in (pl if isinstance(pl, list) else [pl] if pl else []):
                     f.mirror_planes.append(one)
+        elif r.cls == "moSplit_c":
+            # a split: its tool a plane (a plane reference in its record: a plane feature or a
+            # standard plane), else the sketch before it (a line of it, along its normal). Which
+            # of the pieces it keeps is chosen in the rebuild (moPerBodyChooserData_c not decoded)
+            f = Feature("split", nm, r.offset, r.cls)
+            for ref in _plane_refs(b, recs, r.offset, end):
+                pl, _how = _plane_from_ref(b, recs, ref, by_id, by_off)
+                for one in (pl if isinstance(pl, list) else [pl] if pl else []):
+                    f.mirror_planes.append(one)
+            if not f.mirror_planes and last_sketch and not last_sketch.sketch.used and last_sketch.sketch.lines:
+                f.profile = last_sketch.name
+            elif not f.mirror_planes:
+                f.kind, f.reason = "tbd", "split's tool (plane or sketch) not read"
         elif r.cls in IMPORTED:
             # SolidWorks has no history for it either: it converts as SolidCraft's import of the
             # body, as it was imported (kept under the feature's name among the local bodies)
@@ -1555,7 +1898,7 @@ def read(sw) -> list[Feature] | None:
             f.frame = by_off.get(r.offset)
             if f.frame is None:
                 f.kind, f.reason = "tbd", "plane's placement not read"
-        elif r.cls == "mo3DProfileFeature_c" and out and out[-1].cls == HOLE:
+        elif (r.cls == "mo3DProfileFeature_c" and out and out[-1].cls == HOLE) or hole_3d:
             # a Hole Wizard hole's 3D placement sketch (holes on a face that isn't a sketch
             # plane): its points become a sketch of points on a plane through them
             pts = _points_3d(b, r.offset, end)
@@ -1580,9 +1923,212 @@ def read(sw) -> list[Feature] | None:
                                                  first=old_file)
         f.fid = _fid(b, r)
         out.append(f)
+    _shared_sketches(out)
+    # the first sketch with no plane reference at all: the three standard planes, for the
+    # rebuild check to choose between (a part's first sketch is nearly always on one)
+    first = next((f for f in out if f.kind == "sketch"), None)
+    if first and not first.sketch.planes and (first.sketch.lines or first.sketch.arcs or first.sketch.circles):
+        for fr in STANDARD_PLANES:
+            first.sketch.add_plane((fr, (0.0, 0.0, 0.0)), "no plane reference: a standard plane tried")
     out = _place_holes(out)
     _edge_lines(sw, out)
+    _hole_planes(sw, out)
+    _final_planes(sw, out)
+    _ribs(sw, out)
     return out
+
+
+def _ribs(sw, feats) -> None:
+    """Each rib's wall from its own faces in the part's solid. Ported from cadkit-kernel
+    crates/ck-swedit/src/rib.rs (`rebuild`), MIT OR Apache-2.0: the faces are planes; two parallel
+    ones (the pair reaching farthest) are the wall's sides, its thickness apart, the sketch plane
+    midway; the others stand square to them along the wall's free edge, and their traces in the mid
+    plane, chained end to end, are the rib's open profile. The faces are found by their tags
+    (feature id; as read on FTC 06, kind 77 the sides, 74 the free edge)."""
+    ribs = [f for f in feats if f.kind == "rib"]
+    if not ribs:
+        return
+    tagged = _tagged_faces(sw)
+    for f in ribs:
+        why = _rib_from_faces(f, [s for (_k, fid, _l), v in sorted(tagged.items()) if fid == f.fid for s in v])
+        if why:
+            f.kind, f.reason = "tbd", "rib: " + why
+
+
+def _rib_from_faces(f: Feature, faces: list) -> str | None:
+    """Fills `f.rib` and `f.thin_mm` from the rib's faces [(surface type, fields)]; else says why not."""
+    dot = lambda a, c: sum(p * q for p, q in zip(a, c))  # noqa: E731
+    sub = lambda a, c: [p - q for p, q in zip(a, c)]  # noqa: E731
+    cross = lambda a, c: [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]]  # noqa: E731
+    if not faces:
+        return "its faces aren't in the part's solid"
+    if any(nm != "PLANE" for nm, _fl in faces):
+        return "a curved face"
+    planes = [([c * 1000 for c in fl["pvec"]], list(fl["normal"]), [[c * 1000 for c in p] for p in fl.get("face_points") or []])
+              for _nm, fl in faces]
+    best = None
+    for i in range(len(planes)):
+        for j in range(i + 1, len(planes)):
+            (pi, ni, qi), (pj, nj, qj) = planes[i], planes[j]
+            if abs(abs(dot(ni, nj)) - 1) > 1e-7 or abs(dot(ni, sub(pj, pi))) < 1e-3:
+                continue
+            pts = qi + qj
+            if not pts:
+                continue
+            ext = math.dist([min(p[k] for p in pts) for k in range(3)], [max(p[k] for p in pts) for k in range(3)])
+            if best is None or ext > best[0]:
+                best = (ext, i, j)
+    if best is None:
+        return "no two parallel side faces"
+    _e, i, j = best
+    nc, pi, pj = planes[i][1], planes[i][0], planes[j][0]
+    t = abs(dot(nc, sub(pj, pi)))
+    o = [(a + c) / 2 for a, c in zip(pi, pj)]   # a point of the mid plane
+    # the mid plane's axes: x the world axis least along its normal, made square to it
+    ax = min(([1, 0, 0], [0, 1, 0], [0, 0, 1]), key=lambda a: abs(dot(a, nc)))
+    x = sub(ax, [dot(ax, nc) * c for c in nc])
+    lx = math.sqrt(dot(x, x))
+    x = [c / lx for c in x]
+    y = cross(nc, x)
+    xy = lambda p: (dot(sub(p, o), x), dot(sub(p, o), y))  # noqa: E731
+    segs = []
+    for k in range(len(planes)):
+        if k in (i, j):
+            continue
+        _p, nk, pts = planes[k]
+        if abs(dot(nk, nc)) > 1e-7:
+            return "a face neither a side nor on the free edge"
+        if not pts:
+            return "a free-edge face without vertices"
+        n2 = (dot(nk, x), dot(nk, y))
+        ln = math.hypot(*n2)
+        d = (-n2[1] / ln, n2[0] / ln)
+        q = [xy(p) for p in pts]
+        q0 = q[0]
+        tt = [(a - q0[0]) * d[0] + (c - q0[1]) * d[1] for a, c in q]
+        lo, hi = min(tt), max(tt)
+        segs.append(((q0[0] + lo * d[0], q0[1] + lo * d[1]), (q0[0] + hi * d[0], q0[1] + hi * d[1])))
+    if not segs:
+        return "no free-edge face"
+    scale = max(math.dist(a, c) for a, c in segs)
+    near = lambda a, c: math.dist(a, c) < 1e-4 * (1 + scale)  # noqa: E731
+    chain = [segs.pop(0)]
+    while segs:
+        head, tail = chain[0][0], chain[-1][1]
+        k = next((k for k, s in enumerate(segs) if near(s[0], tail) or near(s[1], tail) or near(s[0], head) or near(s[1], head)), None)
+        if k is None:
+            return "its free-edge faces don't form one chain"
+        s = segs.pop(k)
+        if near(s[0], tail):
+            chain.append(s)
+        elif near(s[1], tail):
+            chain.append((s[1], s[0]))
+        elif near(s[1], head):
+            chain.insert(0, s)
+        else:
+            chain.insert(0, (s[1], s[0]))
+    f.thin_mm = t
+    f.rib = {"origin": o, "x": x, "y": y, "chain": [list(chain[0][0])] + [list(s[1]) for s in chain]}
+    return None
+
+
+def _face_points(N: dict, face) -> list:
+    """The points of a face's vertices (metres), loop by loop, fin by fin."""
+    out = []
+    lp, hops = face.f.get("loop"), 0
+    while lp and lp in N and N[lp].name == "LOOP" and hops < 256:
+        hops += 1
+        first = N[lp].f.get("fin")
+        fin, n = first, 0
+        while fin and fin in N and n < 4096:
+            n += 1
+            vx = N.get(N[fin].f.get("vertex"))
+            pt = N.get(vx.f.get("point")) if vx else None
+            if pt and pt.f.get("pvec"):
+                out.append(tuple(pt.f["pvec"]))
+            fin = N[fin].f.get("forward")
+            if fin == first:
+                break
+        lp = N[lp].f.get("next")
+    return out
+
+
+def _hole_planes(sw, feats) -> None:
+    """Plane candidates for a hole's placement sketch from the hole itself in the part's solid
+    (the idea ported from cadkit-kernel crates/ck-swedit/src/hole.rs, MIT OR Apache-2.0: the
+    sketch's normal is the hole's axis, a standard axis where it is one, at the hole's entry):
+    the cylinders tagged with the hole's feature id give its axes and a point on each (Parasolid
+    writes it at the entry face on the samples read). Each frame square to a standard axis that is
+    a hole axis, set so that a sketch point lies on a hole axis, is scored by how many of the
+    sketch's points lie on one; the best go first (a hole on a model face: FTC 09's Hole1 had only
+    the Front plane, its plate lying in XZ)."""
+    holes = [f for f in feats if f.kind == "hole" and f.profile]
+    if not holes:
+        return
+    tagged = _tagged_faces(sw)
+    if not tagged:
+        return
+    sk_of = {f.name: f.sketch for f in feats if f.kind == "sketch" and f.sketch}
+    dot = lambda a, c: sum(p * q for p, q in zip(a, c))  # noqa: E731
+    cross = lambda a, c: (a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0])  # noqa: E731
+    units = [tuple(float(i == k) * sg for i in range(3)) for k in range(3) for sg in (1.0, -1.0)]
+    for h in holes:
+        sk = sk_of.get(h.profile)
+        if sk is None or not sk.points:
+            continue
+        cyls = [fl for (_kind, fid, _loc), faces in sorted(tagged.items()) if fid == h.fid
+                for typ, fl in faces if typ == "CYLINDER" and isinstance(fl, dict) and fl.get("axis")]
+        axes = []
+        for c in cyls:
+            a = tuple(float(round(x)) for x in c["axis"])
+            if max(map(abs, c["axis"])) > 1 - 1e-9 and (a, c["pvec"]) not in axes:
+                axes.append((a, c["pvec"]))
+        if not axes:
+            continue
+
+        def on_axis(w):
+            for a, pv in axes:
+                d = tuple(w[i] - pv[i] for i in range(3))
+                if math.sqrt(max(0.0, dot(d, d) - dot(d, a) ** 2)) < 1e-6:
+                    return True
+            return False
+        scored = []
+        for a, pv in axes:
+            for n in (a, tuple(-x for x in a)):
+                for x in units:
+                    if abs(dot(x, n)) > 1e-9:
+                        continue
+                    y = cross(n, x)
+                    for u, v in sk.points.values():
+                        t = tuple(pv[i] - u * x[i] - v * y[i] for i in range(3))
+                        hits = sum(on_axis(tuple(t[i] + p * x[i] + q * y[i] for i in range(3))) for p, q in sk.points.values())
+                        scored.append((hits, (x, y, n), t))
+        best = max(s[0] for s in scored)
+        # ties: first the frame whose origin is the world origin moved along the axis (a sketch
+        # on a face keeps its standard plane's origin); at most four, as the search tries every
+        # plane of every sketch together
+        top = sorted((s for s in scored if s[0] == best),
+                     key=lambda s: math.sqrt(max(0.0, dot(s[2], s[2]) - dot(s[2], s[1][2]) ** 2)))
+        for _hits, fr, t in reversed(top[:4]):
+            sk.add_plane((fr, t), "the hole's own axis in the solid (after cadkit-kernel's hole.rs)", first=True)
+
+
+def _shared_sketches(out: list) -> None:
+    """A sketch used by a second feature is written again as `SketchN<k>`: no points and no plane
+    reference of its own, only which of SketchN's contours it takes (moContourChooser_c, not
+    read). It is given SketchN's geometry and planes; the rebuild check says if that holds."""
+    import copy
+    base = {f.name: f.sketch for f in out if f.sketch and f.sketch.points}
+    for f in out:
+        s = f.sketch
+        m = re.match(r"^(.*)<\d+>$", f.name)
+        if not s or s.points or s.planes or not m or m.group(1) not in base:
+            continue
+        src = base[m.group(1)]
+        new = copy.deepcopy(src)
+        new.name, new.offset, new.end, new.used = s.name, s.offset, s.end, False
+        new.planes = [(x, t, f"shared sketch: {src.name}'s {how}") for x, t, how in src.planes]
+        f.sketch = new
 
 
 def _tagged_faces(sw) -> dict:
@@ -1624,9 +2170,23 @@ def _tagged_faces(sw) -> dict:
                     if nv and nv.name == "INT_VALUES":
                         vals += list(nv.f.get("values") or [])
                 if len(vals) >= 5:
-                    out.setdefault((vals[0], vals[1], vals[4]), []).append((surf.name, surf.f))
+                    out.setdefault((vals[0], vals[1], vals[4]), []).append(
+                        (surf.name, dict(surf.f, face_points=_face_points(N, face))))
             a = at.f.get("next")
     return out
+
+
+def _final_planes(sw, feats) -> None:
+    """A draft's or move face's faces are found by where they end up: the part's own flat faces."""
+    want = [f for f in feats if f.kind in ("draft", "moveface")]
+    if not want:
+        return
+    planes = [(tuple(fl["normal"]), tuple(c * 1000 for c in fl["pvec"]))
+              for v in _tagged_faces(sw).values() for nm, fl in v if nm == "PLANE"]
+    for f in want:
+        f.final_planes = planes
+        if not planes:
+            f.kind, f.reason = "tbd", f"{f.kind}'s faces: the part's own solid not read"
 
 
 def _plane_line(p1, n1, p2, n2):
@@ -1659,7 +2219,10 @@ def _edge_lines(sw, feats) -> None:
     for f in rounds:
         # a fillet's own faces (kind 72): each a cylinder whose axis runs along the edge it rounds
         own = [s for (kind, fid, _l), v in sorted(tagged.items(), key=lambda kv: kv[0]) if kind == 72 and fid == f.fid for s in v]
-        if f.kind == "fillet" and own and all(nm == "CYLINDER" for nm, _fl in own):
+        # likewise a chamfer of round edges (a hole's rim, FTC 09): its own faces cones, each on
+        # the edge's axis, its point at the edge's radius
+        if own and ((f.kind == "fillet" and all(nm == "CYLINDER" for nm, _fl in own)) or
+                    (f.kind == "chamfer" and all(nm == "CONE" for nm, _fl in own))):
             f.round_axes = [[[c * 1000 for c in fl["pvec"]], list(fl["axis"]), fl["radius"] * 1000] for _nm, fl in own]
     # kind 40 an end; a side is 74 on a boss, 83 on a cut (as read on our own samples)
     kinds = {"end": (40,), "side": (74, 83)}
@@ -1676,6 +2239,20 @@ def _edge_lines(sw, feats) -> None:
             pa, pb = plane_of(a), plane_of(b)
             lines.append(_plane_line(pa[0][0], pa[0][1], pb[0][0], pb[0][1]) if pa and pb else None)
         f.edge_lines = lines
+
+
+def _body_move(b: bytes, s: int, e: int):
+    """A body move's (rotation rows, translation m): the first rotation in its records, then 8
+    bytes, then three doubles."""
+    for i in _triads(b, s, e):
+        if i + 72 + 8 + 24 > len(b):
+            return None
+        v = struct.unpack_from("<9d", b, i)
+        t = struct.unpack_from("<3d", b, i + 80)
+        if all(abs(x) < 100 for x in t):
+            return (v[0:3], v[3:6], v[6:9]), t
+        return None
+    return None
 
 
 def _scale_factors(b: bytes, s: int, e: int) -> tuple | None:
@@ -1699,9 +2276,36 @@ _ISO_CLEARANCE = {1.6: 1.8, 2.0: 2.4, 2.5: 2.9, 3.0: 3.4, 3.5: 3.9, 4.0: 4.5, 5.
                   10.0: 11.0, 12.0: 13.5, 14.0: 15.5, 16.0: 17.5, 20.0: 22.0, 24.0: 26.0}
 
 
+def _point_records_3d(b: bytes, s: int, e: int) -> list:
+    """A 3D sketch's points (metres) from their own records: the double 1.0 (in files saved from
+    2018 then 8 zero bytes), a 2-byte tag, x y z, then the entity's kind, 01 for the first
+    point and 08 for each further point (02 and 0D are a line's ends, 00 other entities). In the
+    order written, each once."""
+    out = []
+    one = bytes(6) + bytes([0xF0, 0x3F])
+    i = b.find(one, s, e)
+    while 0 <= i < e:
+        for k in (i + 10, i + 18):
+            if k + 27 > len(b) or b[k + 24] not in (1, 8) or b[k + 25] != 0:
+                continue
+            if k == i + 18 and b[i + 8:i + 16] != bytes(8):
+                continue
+            p = struct.unpack_from("<3d", b, k)
+            if all(math.isfinite(c) and abs(c) < 10 for c in p) and any(abs(c) > 1e-9 for c in p):
+                if all(math.dist(p, q) > 1e-9 for q in out):
+                    out.append(p)
+                break
+        i = b.find(one, i + 1, e)
+    return out
+
+
 def _points_3d(b: bytes, s: int, e: int) -> list:
-    """A 3D sketch's points (metres): the coordinate triples its records write at least twice,
-    in the order first written (each point is written twice; stray bytes don't repeat)."""
+    """A 3D sketch's points (metres): from their records where those are found; else the
+    coordinate triples its records write at least twice, in the order first written (each point
+    is written twice; stray bytes don't repeat)."""
+    recs = _point_records_3d(b, s, e)
+    if recs:
+        return recs
     count, order = {}, []
     for j in range(s, max(s, e - 24)):
         x, y, z = struct.unpack_from("<3d", b, j)
@@ -1924,8 +2528,11 @@ def sketch_feature(sk: Sketch, fid: int, constraints: bool = True) -> dict:
 
 
 def param_name(sketch: str, dim: str) -> str:
-    """A SolidCraft parameter name for SolidWorks' `D1@Sketch2`: `Sketch2_D1`."""
-    return re.sub(r"\W", "_", f"{sketch}_{dim}")
+    """A SolidCraft parameter name for SolidWorks' `D1@Sketch2`: `Sketch2_D1`. One that would
+    start with a digit (a Hole Wizard name, `15/64 (0.23438) Diameter Hole1`) starts with `_`:
+    SolidCraft's expressions read a leading digit as a number."""
+    n = re.sub(r"\W", "_", f"{sketch}_{dim}")
+    return "_" + n if n[:1] in "0123456789" and n else n
 
 
 def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, list]:
@@ -2330,6 +2937,9 @@ def profile_loops(sk: Sketch, skip=frozenset()) -> list[list[str]]:
     return out
 
 
+FLIP_SQUARE = 10000.0   # mm: half the side of the square a flipped cut takes from (past any part)
+
+
 def extrude_feature(f: Feature, fid: int, sketch_id: int, direction: str, operation: str,
                     loops: list | None = None, to: list | None = None) -> dict:
     prof = {"type": "curves", "loops": loops} if loops else {"type": "all"}
@@ -2390,6 +3000,25 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             skip = frozenset((fillets or {}).get("drop:" + f.name) or ())
             g = extrude_feature(f, nid, ids[f.profile], d, op, profile_loops(sk_of[f.profile], skip),
                                 (fillets or {}).get("to:" + f.name))
+            if f.kind == "cut" and (fillets or {}).get("flipside:" + f.name):
+                # flip side to cut: the profile kept, the rest taken. A square far round the
+                # sketch's loops makes them holes in one region, cut instead (SolidCraft has no flip)
+                sk_g = next(x for x in out if x["id"] == ids[f.profile])
+                sk_g = json.loads(json.dumps(sk_g))
+                sk_g["id"], sk_g["name"] = nid, f.name + " outside"
+                S = FLIP_SQUARE
+                k0 = len(sk_g["sketch"]["points"])
+                sk_g["sketch"]["points"] += [{"fixed": True, "id": f"q{n}", "pos": [a * S, b * S]}
+                                             for n, (a, b) in enumerate(((-1, -1), (1, -1), (1, 1), (-1, 1)))]
+                nl = sk_g["sketch"]["counters"]["l"]
+                sk_g["sketch"]["curves"] += [{"a": k0 + n, "b": k0 + (n + 1) % 4, "construction": False,
+                                              "id": f"l{nl + n + 1}", "type": "line"} for n in range(4)]
+                sk_g["sketch"]["counters"]["l"] = nl + 4
+                out.append(sk_g)
+                nid += 1
+                # the square's region: its outer loop the square, the sketch's loops its holes
+                g["id"], g["sketch"] = nid, sk_g["id"]
+                g["profiles"] = {"type": "curves", "loops": [[f"l{nl + n + 1}" for n in range(4)]]}
             span = (fillets or {}).get("span:" + f.name)
             if span is not None:   # a boss through all: as far as the body reaches (verify)
                 g["extent"] = {"convention": "total_distance", "direction": d, "distance": repr(round(span, 9))}
@@ -2457,6 +3086,11 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
                         "path_sketch": ids[path], "path": path_curves, "operation": op,
                         **({"body_names": [f.name]} if op == "new_body" else {})})
             first = False
+        elif f.kind == "move":
+            # the part's body moved as SolidWorks moved it (a translation)
+            body = next((x["body_names"][0] for x in out if x.get("body_names")), None)
+            out.append({"id": nid, "name": f.name, "type": "move", "suppressed": False,
+                        "bodies": [body] if body else [], "translate": [repr(round(x, 9)) for x in f.translate]})
         elif f.kind == "scale":
             got = (fillets or {}).get("scale:" + f.name)
             if got is None:        # the point it scales about is chosen in the design so far (verify)
@@ -2501,6 +3135,26 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             out.append({"id": nid, "name": f.name, "type": "revolve", "sketch": nid - 1, "suppressed": False,
                         "operation": "join", "profiles": {"type": "curves", "loops": [["l1", "a1", "l2"]]},
                         "axis": {"type": "sketch_line", "curve": "l2"}, "angle": "360", "convention": "sketch_normal"})
+        elif f.kind == "rib":
+            # its free-edge chain on its mid plane, then SolidCraft's rib (ported from cadkit-kernel
+            # crates/ck-swedit/src/rib.rs, MIT OR Apache-2.0): the wall fills from the chain to the
+            # body; which side, and whether the ends run on, is chosen in the rebuild (verify)
+            flip, extend = (fillets or {}).get("rib:" + f.name, (False, True))
+            ch = f.rib["chain"]
+            pts = [{"fixed": False, "id": f"p{k}", "pos": [round(u, 9), round(v, 9)]} for k, (u, v) in enumerate(ch)]
+            curves = [{"a": k, "b": k + 1, "construction": False, "id": f"l{k + 1}", "type": "line"} for k in range(len(ch) - 1)]
+            out.append({"id": nid, "name": f.name + " profile", "type": "sketch", "suppressed": False,
+                        "plane": {"type": "custom", "plane": {"origin": f.rib["origin"], "x_dir": f.rib["x"], "y_dir": f.rib["y"]}},
+                        "sketch": {"constraints": [], "curves": curves, "points": pts,
+                                   "counters": {"a": 0, "c": 0, "k": 0, "l": len(curves)}}})
+            nid += 1
+            g = {"id": nid, "name": f.name, "type": "rib", "sketch": nid - 1, "suppressed": False,
+                 "curves": [c["id"] for c in curves], "thickness": repr(round(f.thin_mm, 9))}
+            if flip:
+                g["flip"] = True
+            if extend:
+                g["extend"] = True
+            out.append(g)
         elif f.kind == "pattern":
             got = (fillets or {}).get("pattern:" + f.name)
             if got is None:        # its direction or axis and what it repeats are chosen (verify)
@@ -2538,6 +3192,26 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
                 by_name = {x["name"]: x["id"] for x in out}
                 g["features"] = [by_name[n] for n in what if n in by_name]
             out.append(g)
+        elif f.kind == "split":
+            got = (fillets or {}).get("split:" + f.name)
+            if got is None:        # its tool and the piece it keeps are chosen in the design so far (verify)
+                d = design_tail(name, feats, out, nid)
+                d["pending"] = f.name
+                return d
+            tool, keep = got
+            body = next((x["body_names"][0] for x in out if x.get("body_names")), None)
+            g = {"id": nid, "name": f.name, "type": "split", "suppressed": False, "body": body,
+                 "plane": {"type": "origin", "name": "XY"}}
+            if "line" in tool:     # a straight line of the sketch before it
+                g.update({"sketch": ids[f.profile], "line": tool["line"]})
+            else:
+                g["plane"] = {"type": "custom", "plane": tool["plane"]}
+            out.append(g)
+            if keep is not None:   # the other piece removed (SolidCraft names it "<body> (1)")
+                nid += 1
+                gone = body + " (1)" if keep == 0 else body
+                out.append({"id": nid, "name": f.name + " (removed)", "type": "remove", "suppressed": False,
+                            "bodies": [gone]})
         elif f.kind == "hole":
             sk = sk_of[f.profile]
             through, flip = (fillets or {}).get("hole:" + f.name, (False, False))
@@ -2580,6 +3254,29 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             out.append({"id": nid, "name": f.name, "type": "import", "suppressed": False,
                         "file": f.name + ".step", "step": f.import_step or ""})
             first = False
+        elif f.kind in ("draft", "moveface"):
+            got = (fillets or {}).get(f.kind + ":" + f.name)
+            if got is None:        # its faces (a draft's neutral plane and pull) are found in the design so far (verify)
+                d = design_tail(name, feats, out, nid)
+                d["pending"] = f.name
+                return d
+            if f.kind == "draft":
+                faces, origin, pull = got
+                a = [1.0, 0.0, 0.0] if abs(pull[0]) < 0.9 else [0.0, 1.0, 0.0]
+                dot = sum(p * q for p, q in zip(a, pull))
+                x = [p - dot * q for p, q in zip(a, pull)]
+                ln = sum(c * c for c in x) ** 0.5
+                x = [c / ln for c in x]
+                y = [pull[1] * x[2] - pull[2] * x[1], pull[2] * x[0] - pull[0] * x[2], pull[0] * x[1] - pull[1] * x[0]]
+                out.append({"id": nid, "name": f.name, "type": "draft", "suppressed": False,
+                            "faces": [list(p) for p in faces], "angle": param_name(f.name, "D1"),
+                            "neutral": {"type": "custom", "plane": {"origin": list(origin), "x_dir": x, "y_dir": y}},
+                            "pull": list(pull)})
+            else:
+                faces, sign = got
+                out.append({"id": nid, "name": f.name, "type": "offset_face", "suppressed": False,
+                            "faces": [list(p) for p in faces],
+                            "distance": param_name(f.name, "D1") if sign > 0 else "-" + param_name(f.name, "D1")})
         elif f.kind == "plane":
             (x, y, _n), t = f.frame
             base = {"type": "custom", "plane": {"origin": [c * 1000 for c in t], "x_dir": list(x), "y_dir": list(y)}}
@@ -2598,6 +3295,10 @@ def design_tail(name: str, feats: list[Feature], out: list, nid: int) -> dict:
     params = [p for f in feats if f.kind == "sketch" and f.name in written for p in f.sketch.params]
     params += [{"name": param_name(f.name, "D1"), "expr": repr(round(f.radius_mm, 9)), "model": True, "unit": "mm"}
                for f in feats if f.kind in ("fillet", "chamfer") and f.name in written]
+    params += [{"name": param_name(f.name, "D1"), "expr": f"{round(f.draft_deg, 9)} deg", "model": True, "unit": "deg"}
+               for f in feats if f.kind == "draft" and f.name in written]
+    params += [{"name": param_name(f.name, "D1"), "expr": repr(round(f.move_mm, 9)), "model": True, "unit": "mm"}
+               for f in feats if f.kind == "moveface" and f.name in written]
     params += [{"name": param_name(f.name, "D2"), "expr": repr(round(f.chamfer_mm2, 9)), "model": True, "unit": "mm"}
                for f in feats if f.kind == "chamfer" and f.chamfer_mm2 is not None and f.name in written]
     params += [{"name": param_name(f.name, k), "expr": repr(v), "model": True, "unit": "mm"}

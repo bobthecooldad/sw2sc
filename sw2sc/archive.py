@@ -43,6 +43,28 @@ def start_number(stream: bytes) -> int | None:
 _NAMED_AFTER = re.compile(rb"([\x00-\xff][\x80-\xff])([\x00-\xff][\x80-\xff])\xff\xfe\xff", re.S)
 
 
+def _start_by_fit(stream: bytes, outside: set | None) -> int | None:
+    """A pre-2015 stream whose standard planes are in `Contents/Config-N` itself (SolidWorks 2012
+    saves of the NIST CTC set: no `moRefPlane_c` here): the start that lets the most records be
+    told apart in the stream's first 30 kB. A wrong start soon names a tag no class has, and the
+    records stop; the right one carries on (NIST CTC 01: 442 records against 332 for the next
+    best). It lies past every class number of the section it carries on from; taken only where
+    it stands clear of the next best."""
+    if not outside:
+        return None
+    head = stream[:30000]
+    lo = max(outside)
+    scores = sorted(((len(records(head, s, outside)), s) for s in range(lo, lo + 500)), reverse=True)
+    if len(scores) >= 2 and scores[0][0] < 1.15 * scores[1][0]:
+        # too close to tell (NIST CTC 04: 245 against 217): the best few again on 100 kB
+        # (1294 against 1086)
+        head = stream[:100000]
+        scores = sorted(((len(records(head, s, outside)), s) for _n, s in scores[:8]), reverse=True)
+    if len(scores) < 2 or scores[0][0] < 50 or scores[0][0] < 1.15 * scores[1][0]:
+        return None
+    return scores[0][1]
+
+
 def old_start_number(stream: bytes, outside: set | None = None) -> int | None:
     """The number a pre-2015 feature stream carries on from (it continues `Contents/Config-N`'s
     numbering and doesn't say where). Anchor: the three standard planes are written one after
@@ -51,7 +73,7 @@ def old_start_number(stream: bytes, outside: set | None = None) -> int | None:
     records()."""
     i = stream.find(b"moRefPlane_c")
     if i < 0:
-        return None
+        return _start_by_fit(stream, outside)
     # moRefPlane_c's number is settled where it is brought in, so only the stream up to there is
     # numbered for each start tried: numbering the whole stream up to 600 times made opening a
     # large old file take minutes

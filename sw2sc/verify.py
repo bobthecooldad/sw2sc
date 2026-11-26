@@ -501,6 +501,70 @@ def _mirror_planes(f, feats, choices, planes, constraints, picked, name, cli, tm
 SAME = 1e-6
 
 
+def face_moves(f, faces, lo=None, hi=None) -> list:
+    """The ways a draft or a move face can have been made, most faces first, found by where its
+    faces end up: each flat face of the body so far (`faces`, as model.faces gives them) whose
+    plane, drafted by the angle about an axis direction or moved by the distance along its normal,
+    is one of the part's own flat faces (`f.final_planes`). A draft: (face points, a point of its
+    neutral plane, its pull); the neutral plane is where each face's plane and its drafted plane
+    meet, so the faces that share one are one draft. A move face: (face points, +1 out / -1 in)."""
+    import math as _m
+    fin = f.final_planes
+    dot = lambda a, b: sum(x * y for x, y in zip(a, b))  # noqa: E731
+    near = lambda a, b: max(abs(x - y) for x, y in zip(a, b)) < 1e-5  # noqa: E731
+    size = max([h - l for l, h in zip(lo, hi)] + [1.0]) if lo and hi else 1000.0
+    tol = 1e-6 * size + 1e-4
+    groups: dict = {}
+    if f.kind == "draft":
+        t = _m.radians(f.draft_deg)
+        for x in faces:
+            m, q = x["plane_normal"], x["point"]
+            for ax in range(3):
+                if abs(m[ax]) > 1e-6:
+                    continue
+                for s in (1, -1):
+                    e = [0.0, 0.0, 0.0]
+                    e[ax] = float(s)
+                    n = [c * _m.cos(t) + d * _m.sin(t) for c, d in zip(m, e)]
+                    for nn, r in fin:
+                        if not near(nn, n):
+                            continue
+                        h = dot(n, [a - b for a, b in zip(r, q)]) / _m.sin(t)   # along the pull
+                        level = q[ax] + s * h
+                        if lo and hi and not (lo[ax] - tol <= level <= hi[ax] + tol):
+                            continue
+                        key = (ax, s, round(level, 4))
+                        pts = groups.setdefault(key, [])
+                        if not any(near(p, q) for p in pts):
+                            pts.append(list(q))
+        out = []
+        for (ax, s, level), pts in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+            o = [0.0, 0.0, 0.0]
+            o[ax] = level
+            pull = [0.0, 0.0, 0.0]
+            pull[ax] = float(s)
+            out.append((pts, o, pull))
+        return out
+    d = f.move_mm
+    strict: dict = {1: [], -1: []}
+    loose: dict = {1: [], -1: []}
+    for x in faces:
+        m, q = x["plane_normal"], x["point"]
+        here = dot(m, q)
+        stays = any(near(nn, m) and abs(dot(nn, r) - here) < tol for nn, r in fin)
+        for sgn in (1, -1):
+            if any(near(nn, m) and abs(dot(nn, r) - here - sgn * d) < tol for nn, r in fin):
+                loose[sgn].append(list(q))
+                if not stays:
+                    strict[sgn].append(list(q))
+    out = []
+    for sgn in (1, -1):
+        for pts in (strict[sgn], loose[sgn]):
+            if pts and (pts, sgn) not in out:
+                out.append((pts, sgn))
+    return sorted(out, key=lambda o: (o[0] is not strict[o[1]], -len(o[0])))
+
+
 def _prefix(name, feats, choices, planes, constraints, picked, upto, cli, tmp):
     d = features.design(name, feats, choices, planes, constraints, picked, upto)
     d.pop("pending", None)
@@ -533,8 +597,8 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
     sides for a one-sided chamfer). Revolves keep the choice in `choices`."""
     from . import fillets
     import math as _m
-    order = [f for f in feats if f.kind in ("boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome",
-                                            "sweep", "sweepcut", "shell", "scale")]
+    order = [f for f in feats if f.kind in ("boss", "cut", "fillet", "chamfer", "hole", "mirror", "thread", "pattern", "dome", "rib", "split",
+                                            "sweep", "sweepcut", "shell", "scale", "draft", "moveface")]
     # a scale changes the solid's size and place: before it, neither the volume bounds nor the
     # part's box say anything about the solid built so far
     first_scale = next((k for k, f in enumerate(order) if f.kind == "scale"), len(order))
@@ -562,7 +626,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
         a = [most(f) for f in rest if f.kind == "boss" or getattr(f, "alt_kind", None) == "boss"]
         t = [most(f) for f in rest if f.kind in ("cut", "hole") or getattr(f, "alt_kind", None) == "cut"]
         adds.append(None if any(x is None for x in a) else sum(a))
-        takes.append(None if any(x is None for x in t) or any(f.kind == "hole" for f in rest) else sum(t))
+        takes.append(None if any(x is None for x in t) or any(f.kind in ("hole", "split") for f in rest) else sum(t))
 
     def reachable(r, i):
         """Can the solid after step i still become the part? The bosses still to come add at
@@ -578,12 +642,14 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
         return True
 
     # whether a cut is still to come after step i: material outside the part's box can still go
-    cut_after = [any(x.kind in ("cut", "hole", "revcut", "sweepcut") or getattr(x, "alt_kind", None) == "cut"
+    # a split still to come may throw away a piece: the build before it can reach past the part
+    split_after = [any(x.kind == "split" for x in feats[feats.index(f) + 1:]) for f in order]
+    cut_after = [any(x.kind in ("cut", "hole", "revcut", "sweepcut", "split") or getattr(x, "alt_kind", None) == "cut"
                      for x in feats[feats.index(f) + 1:]) for f in order]
 
     # whether anything still to come after step i can add material (and so grow the solid's box):
     # cuts, holes, fillets, chamfers and shells never reach past the solid they work on
-    add_after = [any(x.kind in ("boss", "revolve", "sweep", "mirror", "pattern", "thread", "dome", "scale", "import")
+    add_after = [any(x.kind in ("boss", "revolve", "sweep", "mirror", "pattern", "thread", "dome", "rib", "scale", "import")
                      or getattr(x, "alt_kind", None) == "boss" for x in feats[feats.index(f) + 1:]) for f in order]
 
     def ok(r, i):
@@ -592,7 +658,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
         cut still to come can trim it (an imported blank wider than the part)."""
         if not r or r["errors"] or not r["volume"]:
             return False
-        if ref and ref.get("lo") and r.get("lo") and first_scale == len(order) and not (_box["relax"] and cut_after[i]):
+        if ref and ref.get("lo") and r.get("lo") and first_scale == len(order) and not (_box["relax"] and cut_after[i])                 and not split_after[i]:
             size = max(max(h - lo for lo, h in zip(ref["lo"], ref["hi"])), 1.0)
             tol = REL * size
             if any(a < b - tol for a, b in zip(r["lo"], ref["lo"])) or any(a > b + tol for a, b in zip(r["hi"], ref["hi"])):
@@ -601,7 +667,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                 return False
         # with nothing left that adds material, a build that falls short of the part's box can't
         # become the part (a boss read as a cut: the part goes on past it)
-        if ref and ref.get("lo") and r.get("lo") and first_scale == len(order) and not add_after[i]:
+        if ref and ref.get("lo") and r.get("lo") and first_scale == len(order) and not add_after[i] and not split_after[i]:
             tol = REL * max(max(h - lo for lo, h in zip(ref["lo"], ref["hi"])), 1.0)
             if any(a > b + tol for a, b in zip(r["lo"], ref["lo"])) or any(a < b - tol for a, b in zip(r["hi"], ref["hi"])):
                 return False
@@ -713,11 +779,15 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                     if out_ids and any(not set(ids) & set(out_ids) for ids, _p in features._loops(sk_f.sketch)):
                         drops.append(out_ids)
             sides = ["center", "inside", "outside"] if getattr(f, "thin_mm", None) else [None]
+            # a cut may keep its profile and take the rest (SolidWorks' flip side to cut): tried last
+            flips = [False, True] if f.kind == "cut" and not first and not getattr(f, "thin_mm", None) else [False]
             unchanged = None
-            for opt, op, to, side, sp, st, dr in ((o, p, t, sd, s_, s2, d2) for sd in sides for t in tos for p in ops
+            for opt, op, to, side, sp, st, dr, fl in ((o, p, t, sd, s_, s2, d2, fs) for fs in flips for sd in sides for t in tos for p in ops
                                                   for o in ("positive", "negative", "symmetric")
                                                   for s_ in ([None] + ([spans[o]] if o in spans and spans[o] > 1e-6 else []))
                                                   for s2 in [None] + starts for d2 in drops):
+                if fl and (to is not None or dr is not None):
+                    continue
                 if to is not None and (opt == "symmetric" or sp is not None):
                     continue
                 if st is not None and (to is not None or sp is not None):
@@ -734,6 +804,8 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                     p_to = dict(p_to, **{"drop:" + f.name: dr})
                 if side:
                     p_to = dict(p_to, **{"thin:" + f.name: side})
+                if fl:
+                    p_to = dict(p_to, **{"flipside:" + f.name: True})
                 _d, r = _prefix(name, feats, c2, planes, constraints, p_to, f.name, cli, tmp)
                 if not ok(r, i):
                     continue
@@ -778,6 +850,25 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                 seen.append(key)
                 yield from step(i + 1, choices, p2, res["volume"])
             return
+        if f.kind in ("draft", "moveface"):
+            # the faces of the body so far that end up as the part's own faces once drafted or moved
+            from . import fillets as _fl
+            d0, r0 = _prefix(name, feats, choices, planes, constraints, picked, f.name, cli, tmp)
+            faces = [x for x in (_fl.body_faces(d0, cli, tmp) or []) if x.get("plane_normal")]
+            seen = []
+            for opt in face_moves(f, faces, (r0 or {}).get("lo"), (r0 or {}).get("hi"))[:8]:
+                p2 = dict(picked, **{f.kind + ":" + f.name: opt})
+                _d, res = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
+                if not ok(res, i) or not reachable(res, i):
+                    continue
+                if r0 and r0.get("volume") and abs(res["volume"] - r0["volume"]) <= SAME * max(1.0, r0["volume"]):
+                    continue   # it changed nothing: not those faces
+                key = (round(res["volume"], 6), round(res["area"], 6))
+                if key in seen:
+                    continue
+                seen.append(key)
+                yield from step(i + 1, choices, p2, res["volume"])
+            return
         if f.kind in ("sweep", "sweepcut"):
             seen = []
             for swap in (False, True):
@@ -806,6 +897,20 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                 if not ok(res, i) or not reachable(res, i):
                     continue
                 key = (round(res["volume"], 6), round(res["area"], 6), tuple(round(x, 6) for x in (res["lo"] or [])))
+                if key in seen:
+                    continue
+                seen.append(key)
+                yield from step(i + 1, choices, p2, res["volume"])
+            return
+        if f.kind == "rib":
+            # which side of its free edge the wall fills, and whether the ends run on to the body
+            seen = []
+            for flip, extend in ((False, True), (True, True), (False, False), (True, False)):
+                p2 = dict(picked, **{"rib:" + f.name: (flip, extend)})
+                _d, res = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
+                if not ok(res, i) or not reachable(res, i):
+                    continue
+                key = (round(res["volume"], 6), round(res["area"], 6))
                 if key in seen:
                     continue
                 seen.append(key)
@@ -868,7 +973,9 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                               "count": repr(n), "angle": f"{tot:g} deg"}
                         if pc not in pats:
                             pats.append(pc)
-            seen = []
+            # every way first, then the ways that change the solid most: a direction that puts
+            # copies off the part changes it less (FTC 09's LPattern1: 2 of its 4 holes)
+            seen, ways = [], []
             for what in whats:
                 for p in pats[:40]:
                     p2 = dict(picked, **{"pattern:" + f.name: (p, what)})
@@ -879,7 +986,9 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                     if key in seen:
                         continue
                     seen.append(key)
-                    yield from step(i + 1, choices, p2, r["volume"])
+                    ways.append((abs(r["volume"] - vol) if vol is not None and r["volume"] is not None else 0.0, p2, r["volume"]))
+            for _change, p2, v in sorted(ways, key=lambda w: -w[0]):
+                yield from step(i + 1, choices, p2, v)
             return
         if f.kind == "thread":
             # on a cylinder of the body so far about its size (the major diameter outside, about
@@ -930,6 +1039,30 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
                     continue
                 seen.append(key)
                 yield from step(i + 1, choices, p2, r["volume"])
+            return
+        if f.kind == "split":
+            # each tool it may be (the planes its record names, else each straight line of its
+            # sketch), keeping both pieces, the first or the second
+            tools = []
+            for (x, y, _n), t in f.mirror_planes:
+                pl = {"origin": [round(c * 1000, 9) for c in t], "x_dir": [round(c, 12) for c in x], "y_dir": [round(c, 12) for c in y]}
+                if {"plane": pl} not in tools:
+                    tools.append({"plane": pl})
+            if f.profile:
+                sk = next(x.sketch for x in feats if x.name == f.profile)
+                tools += [{"line": f"l{n + 1}"} for n in range(len(sk.lines)) if n not in sk.construction]
+            seen = []
+            for tool in tools:
+                for keep in (None, 0, 1):
+                    p2 = dict(picked, **{"split:" + f.name: (tool, keep)})
+                    _d, r = _prefix(name, feats, choices, planes, constraints, p2, f.name, cli, tmp)
+                    if not ok(r, i) or not reachable(r, i):
+                        continue
+                    key = (round(r["volume"], 6), round(r["area"], 6))
+                    if key in seen:
+                        continue
+                    seen.append(key)
+                    yield from step(i + 1, choices, p2, r["volume"])
             return
         if f.kind == "hole":
             # blind (its depth) or through all, drilled one way or the other: the ways that cut

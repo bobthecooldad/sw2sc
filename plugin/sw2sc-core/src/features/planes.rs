@@ -20,7 +20,8 @@ pub fn data_start_at(b: &[u8], off: usize, new_class: bool) -> usize {
 /// The name of a feature record: its node tag, then `FF FE FF`, u8 length, UTF-16.
 pub fn name(b: &[u8], r: &Record) -> Option<String> {
     let s = data_start(b, r);
-    if b.get(s + 1..s + 2) != Some(&[0x80][..]) || b.get(s + 2..s + 5) != Some(&[0xff, 0xfe, 0xff][..]) {
+    // (the node tag's high byte is 0x81 and up where class numbers run past 255)
+    if b.get(s + 1).map_or(true, |x| x & 0x80 == 0) || b.get(s + 2..s + 5) != Some(&[0xff, 0xfe, 0xff][..]) {
         return None;
     }
     let n = *b.get(s + 5)? as usize;
@@ -88,6 +89,9 @@ pub fn plane_record(b: &[u8], off: usize, is_new: bool) -> Option<(u32, usize)> 
         }
         if j - z >= 40 && b.get(j..j + 16) == Some(&[0xff; 16][..]) {
             i = j;
+        } else if j - z >= 40 && b.get(j..j + 4) == Some(&[0xff; 4][..]) {
+            // no FF block: the id -1 straight after the zero run, a sketch on a face
+            return Some((0xFFFF_FFFF, j + 4));
         }
     }
     if i - z < 40 {
@@ -164,7 +168,10 @@ pub fn face_frame_at(b: &[u8], s0: usize) -> Option<Got> {
     // the record's own axes: where its z points into the part its y is the other way from y2,
     // and some files' sketches are drawn in it: a second candidate, the rebuild check chooses
     if dot(&y, &y2) < 0.0 {
-        return Some(Got::Many(vec![first, ([x, y, cross(&x, &y)], origin)]));
+        // and the first turned half round in its plane (NIST CTC 03's Sketch3 on a side face is
+        // drawn so: x the other way, its normal the face's)
+        let turned = ([x.map(|c| -c), y2.map(|c| -c), n], origin);
+        return Some(Got::Many(vec![first, ([x, y, cross(&x, &y)], origin), turned]));
     }
     Some(Got::One(first))
 }
@@ -237,6 +244,40 @@ pub fn face_plane(b: &[u8], recs: &[Record], after: usize) -> Option<Got> {
     (after..stop.max(after)).find_map(|s0| face_frame_at(b, s0))
 }
 
+/// A plane object after a -1 plane reference that stores only its origin and unit normal
+/// (`moRefPlane_c`: origin, normal, a flag byte, no axes). The sketch's axes aren't stored, so the
+/// standard plane's for that normal and its mirror are both offered and the rebuild check chooses.
+pub fn origin_normal_plane(b: &[u8], recs: &[Record], after: usize) -> Vec<Frame> {
+    let Some(r) = recs.iter().find(|r| after <= r.offset && r.offset < after + 40 && r.cls == "moRefPlane_c") else { return vec![] };
+    let end = recs.iter().find(|x| x.offset > r.offset).map_or(r.offset + 600, |x| x.offset);
+    let stop = end.min(r.offset + 600).min(b.len().saturating_sub(49));
+    for s0 in r.offset..stop.max(r.offset) {
+        let o: [f64; 3] = f64s(b, s0);
+        let n: [f64; 3] = f64s(b, s0 + 24);
+        if !o.iter().chain(n.iter()).all(|c| !c.is_nan() && c.abs() < 100.0) || (n.iter().map(|c| c * c).sum::<f64>() - 1.0).abs() > 1e-9 {
+            continue;
+        }
+        if o.iter().any(|&c| c != 0.0 && c.abs() < 1e-300) {
+            continue; // denormals: not a coordinate
+        }
+        let mut k = 0;
+        for a in 1..3 {
+            if n[a].abs() > n[k].abs() {
+                k = a;
+            }
+        }
+        if (n[k].abs() - 1.0).abs() > 1e-9 || o[k] == 0.0 || o[k].abs() < 1e-12 || ![0u8, 1, 0x80].contains(&b[s0 + 48]) {
+            continue;
+        }
+        let sg = if n[k] > 0.0 { 1.0 } else { -1.0 };
+        let x = if k == 0 { [0.0, 0.0, -sg] } else { [sg, 0.0, 0.0] };
+        let mx = [-x[0], -x[1], -x[2]];
+        // the first that reads is the record's; later ones are the same doubles read shifted
+        return vec![([x, cross(&n, &x), n], o), ([mx, cross(&n, &mx), n], o)];
+    }
+    vec![]
+}
+
 /// A plane read: one frame, or candidates to try.
 #[derive(Clone, Debug)]
 pub enum Got {
@@ -284,6 +325,10 @@ pub fn plane_from_ref(b: &[u8], recs: &[Record], off: usize, new_class: bool, by
         let c = face_candidates(b, recs, after, after + 1500);
         if !c.is_empty() {
             return (Some(Got::Many(c)), "face the sketch is on, its axes tried".into());
+        }
+        let on = origin_normal_plane(b, recs, after);
+        if !on.is_empty() {
+            return (Some(Got::Many(on)), "plane by origin and normal, its axes tried".into());
         }
         return (None, "sketch on a face: plane not read".into());
     }
@@ -357,6 +402,10 @@ pub fn plane_inside(b: &[u8], recs: &[Record], s: usize, e: usize, by_id: &ById,
             if !c.is_empty() {
                 return (Some(Got::Many(c)), "face it is on (after its points), its axes tried".into());
             }
+            let on = origin_normal_plane(b, recs, after);
+            if !on.is_empty() {
+                return (Some(Got::Many(on)), "plane by origin and normal (after its points), its axes tried".into());
+            }
         } else if let Some(f) = by_id.get(&pid) {
             return (Some(Got::One(*f)), format!("plane feature {pid} (after its points)"));
         }
@@ -374,4 +423,18 @@ pub fn sketch_plane(b: &[u8], recs: &[Record], k: usize, by_id: &ById, by_off: &
         h => h.to_string(),
     };
     (got, how)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn plane_record_flag_then_bare_minus_one() {
+        let mut b = vec![0x16, 0x81, 0x83, 0x80, 0x02, 0x00];
+        b.extend([0u8; 29]);
+        b.push(1);
+        b.extend([0u8; 11]);
+        b.extend([0xffu8; 4]);
+        b.extend([0x00, 0x8d]);
+        assert_eq!(super::plane_record(&b, 0, false), Some((0xFFFF_FFFF, b.len() - 2)));
+    }
 }

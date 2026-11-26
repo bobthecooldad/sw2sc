@@ -53,7 +53,9 @@ fn key9(p: (f64, f64)) -> (i64, i64) {
 
 /// A SolidCraft parameter name for SolidWorks' `D1@Sketch2`: `Sketch2_D1`.
 pub fn param_name(sketch: &str, dim: &str) -> String {
-    format!("{sketch}_{dim}").chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect()
+    let n: String = format!("{sketch}_{dim}").chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect();
+    // a leading digit would be read as a number by SolidCraft's expressions (see the Python)
+    if n.chars().next().is_some_and(|c| c.is_ascii_digit()) { format!("_{n}") } else { n }
 }
 
 /// A SolidCraft sketch feature: the sketch on a custom plane (origin, x and y directions in
@@ -688,6 +690,9 @@ fn face_sketch(name: &str, fid: i64, p: [f64; 3], n: [f64; 3], body: &str) -> Va
                       "counters": {"j": 1, "l": 0, "p": 0}}})
 }
 
+/// mm: half the side of the square a flipped cut takes from (past any part).
+pub const FLIP_SQUARE: f64 = 10000.0;
+
 pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &HashMap<String, usize>, constraints: bool, picks: &Picks, upto: Option<&str>) -> Value {
     let mut out: Vec<Value> = Vec::new();
     let mut ids: HashMap<String, i64> = HashMap::new();
@@ -752,6 +757,30 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                     .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
                     .unwrap_or_default();
                 let mut g = extrude_feature(f, nid, ids[&prof], &d, &op, &profile_loops_skip(sk, &skip), pick(&format!("to:{}", f.name)));
+                if f.kind == "cut" && pick(&format!("flipside:{}", f.name)).and_then(Value::as_bool).unwrap_or(false) {
+                    // flip side to cut: the profile kept, the rest taken. A square far round the
+                    // sketch's loops makes them holes in one region, cut instead (see the Python)
+                    if let Some(mut sk_g) = out.iter().find(|x| x["id"] == json!(ids[&prof])).cloned() {
+                        sk_g["id"] = json!(nid);
+                        sk_g["name"] = json!(format!("{} outside", f.name));
+                        let sq = FLIP_SQUARE;
+                        let k0 = sk_g["sketch"]["points"].as_array().map_or(0, |a| a.len());
+                        let nl = sk_g["sketch"]["counters"]["l"].as_i64().unwrap_or(0);
+                        for (n, (a, b)) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].into_iter().enumerate() {
+                            sk_g["sketch"]["points"].as_array_mut().unwrap().push(json!({"fixed": true, "id": format!("q{n}"), "pos": [a * sq, b * sq]}));
+                        }
+                        for n in 0..4 {
+                            sk_g["sketch"]["curves"].as_array_mut().unwrap().push(json!({"a": k0 + n, "b": k0 + (n + 1) % 4, "construction": false,
+                                                                                         "id": format!("l{}", nl + n as i64 + 1), "type": "line"}));
+                        }
+                        sk_g["sketch"]["counters"]["l"] = json!(nl + 4);
+                        out.push(sk_g);
+                        nid += 1;
+                        g["id"] = json!(nid);
+                        g["sketch"] = json!(nid - 1);
+                        g["profiles"] = json!({"type": "curves", "loops": [(0..4).map(|n| format!("l{}", nl + n + 1)).collect::<Vec<_>>()]});
+                    }
+                }
                 if let Some(span) = pick(&format!("span:{}", f.name)).and_then(Value::as_f64) {
                     g["extent"] = json!({"convention": "total_distance", "direction": d, "distance": repr(round(span, 9))});
                 }
@@ -815,6 +844,30 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 }
                 out.push(g);
             }
+            "draft" | "moveface" => {
+                // its faces (a draft's neutral plane and pull) are found in the design so far (search)
+                let Some(got) = pick(&format!("{}:{}", f.kind, f.name)) else {
+                    return pending(name, feats, out, nid, &feats[fi].name.clone());
+                };
+                let num = |v: &Value| v.as_f64().unwrap_or(0.0);
+                if f.kind == "draft" {
+                    let pull: Vec<f64> = got[2].as_array().map(|a| a.iter().map(num).collect()).unwrap_or_default();
+                    let a = if pull[0].abs() < 0.9 { [1.0, 0.0, 0.0] } else { [0.0, 1.0, 0.0] };
+                    let dot: f64 = (0..3).map(|k| a[k] * pull[k]).sum();
+                    let x0 = [0, 1, 2].map(|k| a[k] - dot * pull[k]);
+                    let ln = x0.iter().map(|c| c * c).sum::<f64>().sqrt();
+                    let x = x0.map(|c| c / ln);
+                    let y = [pull[1] * x[2] - pull[2] * x[1], pull[2] * x[0] - pull[0] * x[2], pull[0] * x[1] - pull[1] * x[0]];
+                    out.push(json!({"id": nid, "name": f.name, "type": "draft", "suppressed": false,
+                                    "faces": got[0], "angle": param_name(&f.name, "D1"),
+                                    "neutral": {"type": "custom", "plane": {"origin": got[1], "x_dir": x, "y_dir": y}},
+                                    "pull": got[2]}));
+                } else {
+                    let p = param_name(&f.name, "D1");
+                    out.push(json!({"id": nid, "name": f.name, "type": "offset_face", "suppressed": false,
+                                    "faces": got[0], "distance": if num(&got[1]) > 0.0 { p } else { format!("-{p}") }}));
+                }
+            }
             "shell" => {
                 let Some(got) = pick(&format!("shell:{}", f.name)) else {
                     return pending(name, feats, out, nid, &feats[fi].name.clone());
@@ -839,6 +892,13 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 }
                 out.push(g);
                 first = false;
+            }
+            "move" => {
+                // the part's body moved as SolidWorks moved it (a translation)
+                let body = out.iter().find_map(|x| x.get("body_names").and_then(|b| b.get(0)).cloned());
+                let t = f.translate.unwrap_or([0.0; 3]);
+                out.push(json!({"id": nid, "name": f.name, "type": "move", "suppressed": false,
+                    "bodies": body.map_or(vec![], |b| vec![b]), "translate": t.map(|x| repr(round(x, 9)))}));
             }
             "scale" => {
                 let Some(got) = pick(&format!("scale:{}", f.name)).cloned() else {
@@ -884,6 +944,32 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                     "operation": "join", "profiles": {"type": "curves", "loops": [["l1", "a1", "l2"]]},
                     "axis": {"type": "sketch_line", "curve": "l2"}, "angle": "360", "convention": "sketch_normal"}));
             }
+            "rib" => {
+                // its free-edge chain on its mid plane, then SolidCraft's rib (ported from
+                // cadkit-kernel crates/ck-swedit/src/rib.rs, MIT OR Apache-2.0); side and ends
+                // chosen in the rebuild
+                let got = pick(&format!("rib:{}", f.name)).and_then(Value::as_array).cloned();
+                let flip = got.as_ref().and_then(|g| g.first()).and_then(Value::as_bool).unwrap_or(false);
+                let extend = got.as_ref().and_then(|g| g.get(1)).and_then(Value::as_bool).unwrap_or(true);
+                let (o, x, y, ch) = f.rib.clone().unwrap_or_default();
+                let pts: Vec<Value> = ch.iter().enumerate().map(|(k, p)| json!({"fixed": false, "id": format!("p{k}"), "pos": [round(p[0], 9), round(p[1], 9)]})).collect();
+                let curves: Vec<Value> = (0..ch.len().saturating_sub(1)).map(|k| json!({"a": k, "b": k + 1, "construction": false, "id": format!("l{}", k + 1), "type": "line"})).collect();
+                let ids: Vec<String> = (0..curves.len()).map(|k| format!("l{}", k + 1)).collect();
+                out.push(json!({"id": nid, "name": format!("{} profile", f.name), "type": "sketch", "suppressed": false,
+                    "plane": {"type": "custom", "plane": {"origin": o, "x_dir": x, "y_dir": y}},
+                    "sketch": {"constraints": [], "curves": curves, "points": pts,
+                      "counters": {"a": 0, "c": 0, "k": 0, "l": ids.len()}}}));
+                nid += 1;
+                let mut g = json!({"id": nid, "name": f.name, "type": "rib", "sketch": nid - 1, "suppressed": false,
+                    "curves": ids, "thickness": repr(round(f.thin_mm.unwrap_or(0.0), 9))});
+                if flip {
+                    g["flip"] = json!(true);
+                }
+                if extend {
+                    g["extend"] = json!(true);
+                }
+                out.push(g);
+            }
             "pattern" => {
                 let Some(got) = pick(&format!("pattern:{}", f.name)).and_then(Value::as_array).cloned() else {
                     return pending(name, feats, out, nid, &feats[fi].name.clone());
@@ -923,6 +1009,28 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                     g["features"] = json!(what.as_array().map_or(vec![], |w| w.iter().filter_map(|n| bn.get(n.as_str().unwrap_or("")).cloned()).collect::<Vec<_>>()));
                 }
                 out.push(g);
+            }
+            "split" => {
+                let Some(got) = pick(&format!("split:{}", f.name)).and_then(Value::as_array).cloned() else {
+                    return pending(name, feats, out, nid, &feats[fi].name.clone());
+                };
+                let (tool, keep) = (&got[0], got[1].as_i64());
+                let body = out.iter().find_map(|x| x.get("body_names").and_then(|b| b.get(0)).and_then(Value::as_str).map(str::to_string)).unwrap_or_default();
+                let mut g = json!({"id": nid, "name": f.name, "type": "split", "suppressed": false, "body": body,
+                                   "plane": {"type": "origin", "name": "XY"}});
+                if let Some(line) = tool.get("line") {
+                    g["sketch"] = json!(ids[f.profile.as_deref().unwrap_or("")]);
+                    g["line"] = line.clone();
+                } else {
+                    g["plane"] = json!({"type": "custom", "plane": tool["plane"]});
+                }
+                out.push(g);
+                if let Some(k) = keep {
+                    // the other piece removed (SolidCraft names it "<body> (1)")
+                    nid += 1;
+                    let gone = if k == 0 { format!("{body} (1)") } else { body.clone() };
+                    out.push(json!({"id": nid, "name": format!("{} (removed)", f.name), "type": "remove", "suppressed": false, "bodies": [gone]}));
+                }
             }
             "hole" => {
                 let prof = f.profile.clone().unwrap_or_default();
@@ -1023,6 +1131,12 @@ pub fn design_tail(name: &str, feats: &[Feature], mut out: Vec<Value>, nid: i64)
     }
     for f in feats.iter().filter(|f| (f.kind == "fillet" || f.kind == "chamfer") && written.contains(&f.name)) {
         params.push(json!({"name": param_name(&f.name, "D1"), "expr": repr(round(f.radius_mm.unwrap_or(0.0), 9)), "model": true, "unit": "mm"}));
+    }
+    for f in feats.iter().filter(|f| f.kind == "draft" && written.contains(&f.name)) {
+        params.push(json!({"name": param_name(&f.name, "D1"), "expr": format!("{} deg", repr(round(f.draft_deg.unwrap_or(0.0), 9))), "model": true, "unit": "deg"}));
+    }
+    for f in feats.iter().filter(|f| f.kind == "moveface" && written.contains(&f.name)) {
+        params.push(json!({"name": param_name(&f.name, "D1"), "expr": repr(round(f.move_mm.unwrap_or(0.0), 9)), "model": true, "unit": "mm"}));
     }
     for f in feats.iter().filter(|f| f.kind == "chamfer" && written.contains(&f.name)) {
         if let Some(d2) = f.chamfer_mm2 {

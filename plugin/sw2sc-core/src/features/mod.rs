@@ -98,6 +98,8 @@ pub type V3 = [f64; 3];
 /// A placement: rotation rows (x, y, normal) and translation (metres).
 pub type Frame = ([V3; 3], V3);
 pub const FRONT: [V3; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+/// SolidWorks' Front, Top and Right planes as sketch frames (x, y, normal).
+pub const STANDARD_PLANES: [[V3; 3]; 3] = [FRONT, [[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]], [[0.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]]];
 pub const TOL: f64 = 1e-9; // metres
 
 /// A face a SolidWorks reference names: (side | end, feature id, entity number | 0/1).
@@ -274,10 +276,14 @@ pub struct Feature {
     pub thin_mm: Option<f64>,
     /// A dome's height.
     pub dome_mm: Option<f64>,
+    /// A rib's mid plane (origin, x, y; mm) and free-edge chain (2D points, mm).
+    pub rib: Option<([f64; 3], [f64; 3], [f64; 3], Vec<[f64; 2]>)>,
     /// A sweep's path sketch (its profile sketch is `profile`).
     pub path: Option<String>,
     /// A scale's factors (x, y, z).
     pub scale: Option<[f64; 3]>,
+    /// A body move's translation (mm).
+    pub translate: Option<[f64; 3]>,
     /// An import's body as imported (Parasolid), and as STEP once written.
     pub import_body: Option<Vec<u8>>,
     pub import_step: Option<String>,
@@ -290,6 +296,12 @@ pub struct Feature {
     pub edge_lines: Vec<Option<[[f64; 3]; 2]>>,
     /// A fillet's own faces in the part's solid, where all are cylinders: (point, axis, radius), mm.
     pub round_axes: Vec<([f64; 3], [f64; 3], f64)>,
+    /// A draft's angle (degrees).
+    pub draft_deg: Option<f64>,
+    /// A move face's offset distance (mm).
+    pub move_mm: Option<f64>,
+    /// A draft's / move face's: the part's own flat faces, (normal, point mm).
+    pub final_planes: Vec<([f64; 3], [f64; 3])>,
 }
 
 impl Feature {

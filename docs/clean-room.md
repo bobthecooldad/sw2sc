@@ -16,7 +16,7 @@ This converter has to stay free of proprietary code and data, so anyone can use 
 
 ## Other projects' code
 
-Another converter's code, whatever its licence, is read only once its authors say how they learned the format and that fits the rules above (public specifications and study of sample files, no SolidWorks API, SDK or Document Manager). Until then only results are compared, on the same public parts. cadkit-kernel (github.com/civilkit/cadkit-kernel, MIT OR Apache-2.0, crates `ck-sldprt` and `ck-swedit`): its author says it was made clean-room (asked 2026-11-24). It may be read as a guide; every finding it leads to is credited to it here and in the working log ("with help from cadkit-kernel"), and its code is not copied.
+Another converter's code, whatever its licence, is read only once its authors say how they learned the format and that fits the rules above (public specifications and study of sample files, no SolidWorks API, SDK or Document Manager). Until then only results are compared, on the same public parts. cadkit-kernel (github.com/civilkit/cadkit-kernel, MIT OR Apache-2.0, crates `ck-sldprt` and `ck-swedit`): its author says it was made clean-room (asked 2026-11-24). It may be read as a guide, and (the user's decision, 2026-11-26, the author having confirmed clean-room) its code may be ported where it solves a blocker: each ported function names its cadkit source path in a header comment ("ported from cadkit-kernel <path>, MIT OR Apache-2.0") and cadkit's MIT notice is kept in `THIRD_PARTY_NOTICES.md`. Every finding it leads to is credited here and in the working log ("with help from cadkit-kernel"). Ported so far: `ck-swedit/src/rib.rs` (a rib's wall from its own faces), `ck-swedit/src/hole.rs` (hole placement planes from the hole's own cylinders), `ck-sldprt/src/sketch.rs` (`entities` and the curve records of `build_sketch`).
 
 ### Findings from cadkit-kernel (credited)
 
@@ -93,3 +93,18 @@ Record each new finding here.
   rectangle's relations name (Part K: the origin on both diagonals).
 - **Offset dimension (`sgSkOffsetDim`):** a value and no handles; the offset loop is the one its
   curves' relations don't hold. Written as parallel + distance and concentric + tangent.
+
+- **Point record marker, older files:** files saved before about 2010 write `FF FF 07 00` where
+  later ones write `FF FF 1F 00`; the rest of the record (`F0 3F 1E 00`, x, y, handle list) is the
+  same (tutor1, Arduino 2560, tutorial 3). Found from the files.
+- **Arc tag that is the line class:** where a sketch brings `sgLineHandle` in inline (curve id 1)
+  and the next points name that edge under the tag the numbering gives `sgArcHandle` (also id 1),
+  every "arc" under that tag has two points and no centre: the tag is the line class (A2773 bolt,
+  its segment records give the same point pairs). Found from the files.
+- **Centre point with an inline class:** a point record can carry an inline `moTempAxisRef_w`
+  class after its `80 BF`, pushing its coordinates ~370 bytes on (figure 1); not used yet.
+- **Curve records index points by position** (with help from cadkit-kernel
+  `crates/ck-sldprt/src/sketch.rs`, MIT): a curve record's two ends, and an arc's or circle's
+  centre (first of six u16 at +20, the second being `FFFE`), are positions in the sketch's list of
+  point records, not point ids. Checked on the A2773 bolt (hexagon + circle), connecting rod, figure 1.
+  A point id can be written twice; the first record is the sketch's point.

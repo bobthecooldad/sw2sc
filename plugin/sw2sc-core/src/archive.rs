@@ -56,8 +56,31 @@ fn named_after() -> &'static Regex {
 /// numbering and doesn't say where). Anchor: the three standard planes are written one after
 /// another, Front bringing in `moRefPlane_c` and the next two tagged with its number; the start
 /// is the one that gives `moRefPlane_c` that number.
+/// A pre-2015 stream with no `moRefPlane_c` of its own (SolidWorks 2012 saves of the NIST CTC
+/// set), as `_start_by_fit`: the start past every class number of the section before that lets
+/// the most records be told apart in the first 30 kB, where it stands clear of the next best.
+fn start_by_fit(stream: &[u8], outside: Option<&HashSet<i64>>) -> Option<i64> {
+    let lo = *outside?.iter().max()?;
+    let head = &stream[..stream.len().min(30000)];
+    let mut scores: Vec<(usize, i64)> = (lo..lo + 500).map(|s| (records(head, Some(s), outside, false).len(), s)).collect();
+    scores.sort_by(|a, b| b.cmp(a));
+    if (scores[0].0 as f64) < START_FIT_MARGIN * scores[1].0 as f64 {
+        // too close to tell (NIST CTC 04): the best few again on 100 kB
+        let head = &stream[..stream.len().min(100000)];
+        scores = scores[..8].iter().map(|&(_n, s)| (records(head, Some(s), outside, false).len(), s)).collect();
+        scores.sort_by(|a, b| b.cmp(a));
+    }
+    let (best, s) = scores[0];
+    if best < 50 || (best as f64) < START_FIT_MARGIN * scores[1].0 as f64 {
+        return None;
+    }
+    Some(s)
+}
+
+const START_FIT_MARGIN: f64 = 1.15;
+
 pub fn old_start_number(stream: &[u8], outside: Option<&HashSet<i64>>) -> Option<i64> {
-    let i = find(stream, b"moRefPlane_c", 0)?;
+    let Some(i) = find(stream, b"moRefPlane_c", 0) else { return start_by_fit(stream, outside) };
     // moRefPlane_c's number is settled where it is brought in: only the stream up to there is
     // numbered for each start tried
     let head = &stream[..i + b"moRefPlane_c".len()];

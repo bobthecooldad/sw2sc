@@ -23,6 +23,20 @@ def _r(x: float) -> str:
     return s if "." in s else s + "."
 
 
+def _c(x: float) -> str:
+    """A coordinate: 12 significant digits (1e-9 mm on a metre-sized part), far below any
+    modelling tolerance; full repr made edge-spline control points most of a large file."""
+    return _r(float(f"{float(x):.11e}"))
+
+
+def _ks(ks) -> str:
+    """Knots at 12 digits, unless that would make two of them equal (then in full)."""
+    out = [_c(k) for k in ks]
+    if any(float(a) >= float(b) for a, b in zip(out, out[1:])):
+        out = [_r(k) for k in ks]
+    return ",".join(out)
+
+
 def _str(s: str) -> str:
     out = []
     for ch in s:
@@ -51,7 +65,7 @@ class Writer:
         k = SCALE if scale else 1.0
         key = ("P", round(p[0] * k, 12), round(p[1] * k, 12), round(p[2] * k, 12))
         if key not in self.cache:
-            self.cache[key] = self.add(f"CARTESIAN_POINT('',({_r(p[0] * k)},{_r(p[1] * k)},{_r(p[2] * k)}))")
+            self.cache[key] = self.add(f"CARTESIAN_POINT('',({_c(p[0] * k)},{_c(p[1] * k)},{_c(p[2] * k)}))")
         return self.cache[key]
 
     def direction(self, d) -> str:
@@ -85,11 +99,11 @@ class Writer:
     def bcurve(self, c: nurbs.Curve) -> str:
         ks, ms = nurbs.compress_knots(c.U, nurbs.knot_eps(c.U))
         pts = ",".join(self.point(p) for p in c.P)
-        knots = ",".join(_r(k) for k in ks)
+        knots = _ks(ks)
         mults = ",".join(str(m) for m in ms)
         if not c.W:
             return self.add(f"B_SPLINE_CURVE_WITH_KNOTS('',{c.p},({pts}),.UNSPECIFIED.,.F.,.F.,({mults}),({knots}),.UNSPECIFIED.)")
-        w = ",".join(_r(x) for x in c.W)
+        w = ",".join(_c(x) for x in c.W)
         return self.add(f"(BOUNDED_CURVE()B_SPLINE_CURVE({c.p},({pts}),.UNSPECIFIED.,.F.,.F.)"
                         f"B_SPLINE_CURVE_WITH_KNOTS(({mults}),({knots}),.UNSPECIFIED.)CURVE()"
                         f"GEOMETRIC_REPRESENTATION_ITEM()RATIONAL_B_SPLINE_CURVE(({w}))REPRESENTATION_ITEM(''))")
@@ -116,10 +130,10 @@ class Writer:
         vk, vm = nurbs.compress_knots(s.V, nurbs.knot_eps(s.V))
         rows = ",".join("(" + ",".join(self.point(p) for p in row) + ")" for row in s.G)
         common = (f"({','.join(map(str, um))}),({','.join(map(str, vm))}),"
-                  f"({','.join(_r(k) for k in uk)}),({','.join(_r(k) for k in vk)}),.UNSPECIFIED.")
+                  f"({_ks(uk)}),({_ks(vk)}),.UNSPECIFIED.")
         if not s.W:
             return self.add(f"B_SPLINE_SURFACE_WITH_KNOTS('',{s.pu},{s.pv},({rows}),.UNSPECIFIED.,.F.,.F.,.F.,{common})")
-        w = ",".join("(" + ",".join(_r(x) for x in row) + ")" for row in s.W)
+        w = ",".join("(" + ",".join(_c(x) for x in row) + ")" for row in s.W)
         return self.add(f"(BOUNDED_SURFACE()B_SPLINE_SURFACE({s.pu},{s.pv},({rows}),.UNSPECIFIED.,.F.,.F.,.F.)"
                         f"B_SPLINE_SURFACE_WITH_KNOTS({common})GEOMETRIC_REPRESENTATION_ITEM()"
                         f"RATIONAL_B_SPLINE_SURFACE(({w}))REPRESENTATION_ITEM('')SURFACE())")
