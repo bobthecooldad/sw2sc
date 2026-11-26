@@ -17,11 +17,11 @@ project success; an imported-solid fallback does not count.**
 | Measure | Before this batch | Current | Change |
 |---|---:|---:|---:|
 | **Exact feature-tree matches** | **0 / 19 (0%)** | **0 / 19 (0%)** | **No success yet** |
-| Fully decoded and attempted a rebuild | 4 / 19 (21.1%) | 10 / 19 (52.6%) | **+6 parts** |
-| Rebuilt, but did not match | 4 / 19 | 10 / 19 | +6 |
-| Still blocked by unread features/sketches | 15 / 19 | 9 / 19 | **-6 blockers** |
+| Fully decoded and attempted a rebuild | 4 / 19 (21.1%) | 12 / 19 (63.2%) | **+8 parts** |
+| Rebuilt, but did not match | 4 / 19 | 12 / 19 | +8 |
+| Still blocked by unread features/sketches | 15 / 19 | 7 / 19 | **-8 blockers** |
 | Public 35-part feature check (separate baseline) | 10 / 35 match | Not rerun | Must not regress |
-| Rebuild regression set | 21 / 22 match | Not accepted yet | Two loaded runs timed out; rerun quietly |
+| Rebuild regression set | 21 / 22 match | 19 / 22 on 0.50.0 at 240 seconds | Base has the same two timeouts; 300-second retry running |
 | Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 35 designs | No new difference |
 | Private external structural batch | No baseline | 6 / 40 exact rebuilds (15%) | First measured batch |
 
@@ -34,9 +34,9 @@ NIST run took about eight minutes with eight jobs.
 | Area | Before | Now |
 |---|---|---|
 | SolidWorks 2012 CTC 01/03/04/05 | Hole sizes, and some fillet/chamfer sizes, not read | All four reach a rebuild; none matches yet |
-| SolidWorks 2012 CTC 02 | Hole sizes unread | Hole sizes read; Fillet3 and a 3D sketch still block decoding |
+| SolidWorks 2012 CTC 02 | Hole sizes unread | Hole sizes and Fillet3 read; only a 3D sketch still blocks decoding |
 | FTC 08, both saves | Sketch9 plane not found | Both reach a rebuild; neither matches yet |
-| FTC 06, both saves | Fillet2 unread | Unchanged: still a reader blocker |
+| FTC 06, both saves | Fillet2 unread | Both reach a rebuild; neither matches yet |
 | FTC 07 | Variable-radius fillets and sketch text | Unchanged |
 | FTC 09 and FTC 11 | Sketch text | Unchanged known limitation |
 | FTC 10 | One 3D sketch | Unchanged: still a reader blocker |
@@ -62,16 +62,16 @@ NIST run took about eight minutes with eight jobs.
 - [x] Add eight-job `feature_check.py` and `rebuild_triage.py`, with ordered-report regression tests.
 - [ ] Finish verifying revolve/revolved-cut rebuild ordering (F-033).
 - [ ] Finish verifying Parasolid body/face colours (F-014).
-- [ ] Complete the remaining NIST fillet investigation (F-032).
+- [x] Complete the wider-spaced NIST fillet/chamfer reference reading (F-032).
 - [x] Run the full NIST set and update `logs/feature-check-nist.md` and `docs/dev-build.md`.
 - [x] Measure a rotating private external batch: 6 exact rebuilds, 8 built without a match,
   10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error out of 40.
 - [ ] Pass the unattended queue, then apply only sanitized diffs to public `dev`.
 
-Revolve and colour pass their Python/Rust tests and have zero feature/design differences on 54
-public-sample parts. Their first rebuild regressions each reported two lost matches while the
-machine was oversubscribed; those results are not accepted. Rerun them under controlled load
-before integration.
+Revolve, colour and the wider fillet groups pass their Python/Rust tests and have zero
+feature/design differences on 54 public-sample parts (43 designs for the fillet branch). On
+SolidCraft 0.50.0 the unmodified base also loses the same two rebuilds at 240 seconds, so those
+losses are not attributed to revolve or colour. A base-only 300-second retry is checking the budget.
 
 ## Ordered work queue
 
@@ -80,10 +80,10 @@ before integration.
 These tasks change `sw2sc/features.py`, the corresponding modules under
 `plugin/sw2sc-core/src/features/`, and existing feature tests.
 
-1. **Fillet and chamfer selections (F-032, F-044, F-045).** The latest public blocker scan names
-   14 parts with `Fillet_c` and 4 with `Chamfer_c`. Start with NIST CTC 02 Fillet3 and FTC 06
-   Fillet2, then older files' selections and full-round fillets. Do not confuse unread edge
-   selections with a fillet surface the kernel cannot build.
+1. **Fillet and chamfer selections (F-032, F-044, F-045).** The wider-spaced groups are fixed:
+   CTC 02 Fillet3 and FTC 06 Fillet2 now read in both saves. Continue with older files' selections,
+   merged faces and full-round fillets. Do not confuse unread edge selections with a fillet surface
+   the kernel cannot build.
 2. **3D sketches (`mo3DProfileFeature_c`, F-006/F-036).** Six parts in the scan; also the sole
    feature blocker on NIST FTC 10 and part of CTC 02. Read points, curves and references from the
    records before adding them to rebuilds.
