@@ -1413,3 +1413,11 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     stopped on a console Unicode encode error while printing a part name; its saved JSON was
     complete, and comparing that JSON (rather than Python tuples against JSON lists) gave the result
     above.
+
+184. **NIST after the wider fillet/chamfer edge groups.** Full 19-part check on SolidCraft 0.50.0:
+    exact structural matches remain **0 of 19**. Fully decoded parts attempting a rebuild rose from
+    10 to **12**, and reader blockers fell from 9 to **7**. Both FTC 06 saves now reach a rebuild
+    instead of stopping on unread Fillet2. CTC 02's Fillet3 is read in both saves; CTC 02 now stops
+    only on its 3D sketch. FTC 06 2018 reports no build to compare and its 2015 reference still
+    does not evaluate, so reading the fillets is progress, not a success claim. Parity on public
+    samples: 54 files / 43 designs, zero differences. Python: 90 tests OK; Rust: 5 tests OK.
