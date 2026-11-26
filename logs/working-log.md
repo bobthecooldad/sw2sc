@@ -1458,3 +1458,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     timeline has no error. Combined public integration: 100 Python tests OK, all Rust tests OK,
     feature parity 54/0 and design parity 43/0. The combined regression has no losses beyond the
     two already reproduced on the unmodified base.
+
+
+189. **PartT8 tangent-option experiment reverted.** `tangent_chain: false` produced an exact
+    match when forced for every fillet, proving the saved solid and selected edges can agree on
+    SolidCraft 0.50.0. Adding it as a searched per-fillet option did not match within the production
+    budget: propagation-first and picked-first both exhausted it, and grouping all picked-only
+    candidates first also failed. The extra candidates increased search cost and provided no accepted
+    improvement. All writer, search and test changes from that experiment are removed; B-023 stays
+    open with the area-only mismatch documented. No more work on PartT8 in this batch.
