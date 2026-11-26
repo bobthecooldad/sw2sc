@@ -15,7 +15,9 @@ or `~/.sw2sc-checks`, never in the repository: reports name parts. Which parts i
       "design_diffs_ok": 2,                     # accepted one-line STEP rounding differences
       "samples": "folder holding samples/ and 'Solidworks Example Grabcad/' (for the tests)",
       "regression": ["folders or list files of parts that rebuild"],
-      "sample_list": "a list file of parts for the long sample run", "sample_n": 200
+      "sample_list": "a list file of parts for the long sample run", "sample_n": 200,
+      "external_sample_list": "a private list for a rotating external batch",
+      "external_sample_n": 40, "external_sample_jobs": 8
     }
 
 A step that fails doesn't stop the others; the report says which passed. Regressions are judged
@@ -146,13 +148,17 @@ def run_suite(job: dict) -> bool:
             results.append(("sample run", *step(log, "Sample run through the plugin's converter",
                                                 [PY, "-X", "utf8", "tools/convert_sample.py", cfg["sample_list"], out,
                                                  "--n", str(cfg.get("sample_n", 200)), "--baseline", base], wt)))
+        external = external_sample(cfg, rev) if long else None
+        if external:
+            cmd, _out, _base = external
+            results.append(("external sample run", *step(log, "Private external sample through the plugin's converter", cmd, wt)))
         passed = all(g for _n, g, _l in results)
         log.write(f"\nfinished {now()}\n\n## {'PASSED' if passed else 'FAILED'}\n\n")
         for n, g, last in results:
             log.write(f"- {'ok  ' if g else 'FAIL'} {n}: {last}\n")
     if passed:
         # this commit's results are the baseline the next ones are judged against
-        for kind, ext in (("regression", "json"), ("sample", "jsonl")):
+        for kind, ext in (("regression", "json"), ("sample", "jsonl"), ("external-sample", "jsonl")):
             src = os.path.join(BASE, f"{kind}-{rev[:8]}.{ext}")
             if os.path.exists(src):
                 shutil.copyfile(src, os.path.join(BASE, f"{kind}.{ext}"))
@@ -175,9 +181,24 @@ def next_job():
     return job
 
 
+def external_sample(cfg: dict, rev: str):
+    """A deterministic private batch that rotates with the commit, with its own baseline."""
+    if not cfg.get("external_sample_list"):
+        return None
+    out = os.path.join(BASE, f"external-sample-{rev[:8]}.jsonl")
+    base = os.path.join(BASE, "external-sample.jsonl")
+    cmd = [PY, "-X", "utf8", "tools/convert_sample.py", cfg["external_sample_list"], out,
+           "--n", str(cfg.get("external_sample_n", 40)), "--seed", str(int(rev[:8], 16)),
+           "--jobs", str(cfg.get("external_sample_jobs", 8)), "--baseline", base]
+    return cmd, out, base
+
+
 def long_done(rev: str) -> bool:
-    p = os.path.join(BASE, f"sample-{rev[:8]}.jsonl")
-    return os.path.exists(p)
+    if config().get("sample_list") and not os.path.exists(os.path.join(BASE, f"sample-{rev[:8]}.jsonl")):
+        return False
+    if config().get("external_sample_list") and not os.path.exists(os.path.join(BASE, f"external-sample-{rev[:8]}.jsonl")):
+        return False
+    return True
 
 
 def watch(branch: str, poll: int) -> None:

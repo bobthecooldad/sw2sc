@@ -1375,3 +1375,16 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     CTC 01 (2018) has 1.8% too much material, consistent with a loop island or a cut that did not
     take. The other nine rebuild attempts report no build to compare. Kernel 0.47.0's report is
     superseded by `logs/feature-check-nist.md` on 0.50.0.
+
+182. **Private external structural samples and a five-minute triage budget.** A private folder
+    contributes 3,998 additional parts; its paths and filenames stay out of the repository. The
+    check queue's optional external batch uses a commit-derived seed, 40 parts, eight jobs and a
+    separate baseline, so each long run can cover a different deterministic group without changing
+    the existing sample baseline. Its first completed run took about nine minutes on SolidCraft
+    0.50.0: **6 exact feature-tree rebuilds (15%)**, 8 built without a match, 10 no-builds, 3 TBD,
+    11 without feature history, 1 unnumbered feature stream and 1 error. Only these aggregate
+    outcomes are public; the per-part JSONL stays in the private check directory. The first manual
+    smoke invocation missed the tools import path and was corrected before the successful run.
+    The new automation tests failed three times before implementation; the full suite is 95 tests
+    OK (5 skipped). Triage's default budget changed from 90 to **300 seconds**, with a CLI test
+    that first observed 90 != 300 before the change.

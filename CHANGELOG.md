@@ -10,9 +10,13 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
 15). Per-part results are in `logs/feature-check-nist.md` and working log 180.
 
 ### Added
+- The unattended check queue can run a rotating private external sample alongside the existing
+  long sample, with a commit-derived seed, eight jobs and a separate regression baseline. Private
+  filenames and paths stay in the private check directory; only aggregate outcomes go in public logs.
 - `tools/feature_check.py` and `tools/rebuild_triage.py` rebuild parts in parallel with `--jobs`
   (default 8), preserving report order and per-part errors. Process-based regression tests cover
-  the new runners; the default matches the eight-way full checks used for recent surveys.
+  the new runners; the default matches the eight-way full checks used for recent surveys. Triage's
+  default per-part budget is now 300 seconds (was 90), with a CLI regression test for the default.
 - Body moves (`moMoveCopyBody_c`, a translation) convert to SolidCraft's move (NIST FTC 10's
   Body-Move/Copy1: 62.5 mm along x). A move with a turn stays to be done. Python and Rust.
 - Ribs (`moRib_c`) convert to SolidCraft's rib: the wall's sides, thickness and free-edge profile

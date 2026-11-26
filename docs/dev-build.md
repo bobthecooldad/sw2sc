@@ -44,3 +44,10 @@ Latest full eight-job run: **0 of 19 converted; 10 of 19 fully decoded and attem
 | FTC 11 | SW 2018 | partly read | sketch text only |
 
 Sketch text can't match exactly, because SolidWorks keeps the words but not the letter shapes.
+
+## Additional private structural sample
+
+A separate rotating 40-part batch from a private model folder was run locally on SolidCraft 0.50.0.
+Only aggregate results are published: **6 exact feature-tree rebuilds (15%)**, 8 built without a
+match, 10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error. The
+per-part report, filenames, paths and geometry remain private.

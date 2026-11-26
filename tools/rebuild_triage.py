@@ -2,7 +2,7 @@
 but doesn't match), how far the in-order build gets, what stops it, and how close the closest
 complete design comes to the part's own solid.
 
-    python tools/rebuild_triage.py FOLDER [FOLDER...] [--names A,B] [--budget 90] [--out FILE] [--jobs 8]
+    python tools/rebuild_triage.py FOLDER [FOLDER...] [--names A,B] [--budget 300] [--out FILE] [--jobs 8]
 """
 import argparse
 import itertools
@@ -103,7 +103,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("folders", nargs="+")
     ap.add_argument("--names", default="")
-    ap.add_argument("--budget", type=float, default=90)
+    ap.add_argument("--budget", type=float, default=300)
     ap.add_argument("--out", default="")
     ap.add_argument("--jobs", type=int, default=8)
     a = ap.parse_args()

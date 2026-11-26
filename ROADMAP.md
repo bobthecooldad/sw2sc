@@ -23,6 +23,7 @@ project success; an imported-solid fallback does not count.**
 | Public 35-part feature check (separate baseline) | 10 / 35 match | Not rerun | Must not regress |
 | Rebuild regression set | 21 / 22 match | Not accepted yet | Two loaded runs timed out; rerun quietly |
 | Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 35 designs | No new difference |
+| Private external structural batch | No baseline | 6 / 40 exact rebuilds (15%) | First measured batch |
 
 The current dev batch contains the SolidWorks 2012 parameter reader, missing standard sketch
 planes, revolve rebuild ordering, body/face colours, and eight-job feature checks/triage. The full
@@ -63,6 +64,8 @@ NIST run took about eight minutes with eight jobs.
 - [ ] Finish verifying Parasolid body/face colours (F-014).
 - [ ] Complete the remaining NIST fillet investigation (F-032).
 - [x] Run the full NIST set and update `logs/feature-check-nist.md` and `docs/dev-build.md`.
+- [x] Measure a rotating private external batch: 6 exact rebuilds, 8 built without a match,
+  10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error out of 40.
 - [ ] Pass the unattended queue, then apply only sanitized diffs to public `dev`.
 
 Revolve and colour pass their Python/Rust tests and have zero feature/design differences on 54
@@ -148,7 +151,8 @@ Core part conversion comes first; then:
 - **Lane A — readers:** one worker per feature class or record layout.
 - **Lane B — rebuild/search:** loop nesting, end-condition use, pruning and timeout diagnosis.
 - **Lane C — STEP/kernel:** geometry failures and minimal upstream reproductions.
-- **Lane D — automation:** regression tooling, NIST reports and blocker counts.
+- **Lane D — automation:** regression tooling, NIST reports, blocker counts and rotating private
+  external-sample batches. Only aggregate outcomes from private batches may enter public logs.
 
 A local model may summarize sanitized reports or review a bounded diff. It is not file-format
 evidence and never decides parity or acceptance. Deterministic tools and the main reviewer make
@@ -163,6 +167,7 @@ those decisions.
    differences beyond the documented pre-existing STEP baseline.
 5. Run `tools/rebuild_set.py` with a before baseline: zero previously matching parts lost.
 6. Run the affected NIST parts, then all 19 before a dev push; report exact counts and rates.
+   Also run the rotating private external batch when available, but publish only aggregate counts.
 7. Update `logs/working-log.md`, `CHANGELOG.md`, `ISSUES.md`, this roadmap and
    `docs/dev-build.md` as applicable, including failed attempts.
 8. Run `python tools/publish.py check`. Private filenames, paths and geometry stay out of every

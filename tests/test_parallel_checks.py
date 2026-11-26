@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
@@ -35,6 +36,16 @@ class ParallelCheckTests(unittest.TestCase):
             rows = rebuild_triage.run_triages(paths, "", budget=0.01, jobs=2)
         self.assertEqual([p for p, _r in rows], paths)
         self.assertTrue(all(r["result"].startswith("error ") for _p, r in rows))
+
+    def test_triage_budget_defaults_to_five_minutes(self):
+        with mock.patch.object(rebuild_triage, "run_triages", return_value=[]) as run, \
+                mock.patch.object(rebuild_triage, "parts", return_value=[]), \
+                mock.patch.object(rebuild_triage.verify, "find_cli", return_value=None), \
+                mock.patch.object(rebuild_triage.verify, "kernel_status", return_value={"stale": False}), \
+                mock.patch.object(rebuild_triage.verify, "kernel_line", return_value="test"), \
+                mock.patch.object(sys, "argv", ["rebuild_triage.py", "folder"]):
+            rebuild_triage.main()
+        self.assertEqual(run.call_args.args[2], 300)
 
 
 if __name__ == "__main__":
