@@ -6,7 +6,12 @@ use sw2sc_core::cli::CliEvaluator;
 use sw2sc_core::design::{design, Choices, Picks};
 use sw2sc_core::features::{Feature, Sketch, FRONT};
 use sw2sc_core::search::rebuild;
-use sw2sc_core::verify::Evaluator;
+use sw2sc_core::verify::{Evaluator, TIME_BUDGET};
+
+#[test]
+fn rebuild_budget_is_five_minutes() {
+    assert_eq!(TIME_BUDGET, 300.0);
+}
 
 #[test]
 fn the_rebuild_finds_what_a_scale_is_about() {

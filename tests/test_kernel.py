@@ -6,6 +6,9 @@ from sw2sc import verify
 
 
 class VersionTests(unittest.TestCase):
+    def test_rebuild_budget_is_five_minutes(self):
+        self.assertEqual(verify.TIME_BUDGET, 300)
+
     def test_a_nightly_suffix_reads_as_its_release(self):
         # the daily build: the suffix must not throw the parse away (an older release would win)
         self.assertEqual(verify._parse_version("solidcraft-cli 0.47.0-nightly.20261123.157.1"), (0, 47, 0))

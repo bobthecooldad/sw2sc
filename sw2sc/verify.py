@@ -19,7 +19,7 @@ from . import features
 
 REL = 1e-3
 MAX_TRIES = 120
-TIME_BUDGET = 240   # seconds a part's rebuild search may take; past it the part keeps its solid
+TIME_BUDGET = 300   # seconds a part's rebuild search may take; past it the part keeps its solid
 _deadline = [float("inf")]
 # the box check's two passes: strict first; a second pass lets a partial build lie outside the
 # part's box when a cut still to come could trim it, only where the first pass found nothing and

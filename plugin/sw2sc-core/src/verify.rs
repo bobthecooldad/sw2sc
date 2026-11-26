@@ -16,7 +16,7 @@ pub const REL: f64 = 1e-3;
 pub const SAME: f64 = 1e-6;
 pub const MAX_FILLET_CHOICES: usize = 10;
 /// Seconds a part's rebuild search may take; past it the part keeps its solid.
-pub const TIME_BUDGET: f64 = 240.0;
+pub const TIME_BUDGET: f64 = 300.0;
 
 /// What an evaluation of a design says: its total volume and area, its box, and the timeline's
 /// errors.

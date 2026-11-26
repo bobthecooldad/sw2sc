@@ -1467,3 +1467,11 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     candidates first also failed. The extra candidates increased search cost and provided no accepted
     improvement. All writer, search and test changes from that experiment are removed; B-023 stays
     open with the area-only mismatch documented. No more work on PartT8 in this batch.
+
+
+190. **A five-minute main rebuild budget.** Python and Rust used 240 seconds while triage used
+    90; the user asked for 300. New constant tests first failed on 240, then passed on 300 in both
+    implementations. The full regression on SolidCraft 0.50.0 improved from 19 to **20 of 22**:
+    the base part that had matched with a manually raised budget now matches with the default.
+    PartT8 remains the separate B-023 area-only mismatch. Full suite: 101 Python tests OK, all
+    Rust tests OK.

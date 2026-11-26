@@ -27,6 +27,8 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- The main rebuild search budget is now 300 seconds in Python and Rust (was 240), matching the
+  triage default. One previously timed-out regression part matches again; PartT8 remains B-023.
 - Revolves and revolved cuts are included at their own place in the sequential rebuild, and the
   material bounds account for later revolves. Previously the design writer emitted them but the
   rebuild skipped them. Python and Rust, with rebuild tests; older unread centrelines remain F-039.

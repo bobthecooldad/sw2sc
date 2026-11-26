@@ -21,7 +21,7 @@ project success; an imported-solid fallback does not count.**
 | Rebuilt, but did not match | 4 / 19 | 12 / 19 | +8 |
 | Still blocked by unread features/sketches | 15 / 19 | 7 / 19 | **-8 blockers** |
 | Public 35-part feature check (separate baseline) | 10 / 35 match | Not rerun | Must not regress |
-| Rebuild regression set | 21 / 22 match | 19 / 22 on 0.50.0 at 240 seconds | One matches at 300 seconds; PartT8 remains 0.1265% off (B-023) |
+| Rebuild regression set | 21 / 22 match | 20 / 22 on 0.50.0 at 300 seconds | One recovered; PartT8 remains 0.1265% off (B-023) |
 | Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 35 designs | No new difference |
 | Private external structural batch | No baseline | 6 / 40 exact rebuilds (15%) | First measured batch |
 
