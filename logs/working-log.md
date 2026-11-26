@@ -1322,3 +1322,15 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     `param_value` read the 2012 place only where the later reading fails. In the five parts, 25
     holes, 14 fillets and 6 chamfers now convert; nothing else in the census changes. Left: CTC 02
     Fillet3 (also tbd in its 2018 save) and a 3D sketch (sketch-planes work). Parity 204/0.
+
+175. **NIST FTC 08 Sketch9; what CTC 03/04/05 (2018) stop on.** FTC 08 numbers no plane object
+    at all (no `moRefPlane_c` in either save), so the reference before Cut-Extrude1, which names
+    plane feature 2, found nothing. The standard planes are still in the stream as named records
+    (`FF FE FF` name, 7 zero bytes, flag 0x40/0xC0, u16 id: Front 2, Top 3, Right 4); where no plane
+    object is numbered, the lowest three in a row with consecutive ids are taken as Front, Top and
+    Right (Python and Rust, parity 44 files). Sketch9 reads on Front in both saves; FTC 08 now
+    decodes fully but doesn't rebuild to a match (the search runs out of time). CTC 2018 saves,
+    traced eval by eval: 03 stops on SolidCraft's offset_face for Move Face2 ("the wall is too
+    thick", logs 163-165); 04 evaluates all 105 builds without an error and none matches (the
+    holes and the cuts with no depth read are the suspects); 05 stops on Draft2: SMLib refuses the
+    offset ("the new faces beside edge 55/58 that was tangent no longer meet") or moves no face.
