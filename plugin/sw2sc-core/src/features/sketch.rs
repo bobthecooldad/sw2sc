@@ -714,14 +714,18 @@ pub fn param_value(b: &[u8], s: usize) -> Option<f64> {
     if b.get(i..i + 4) != Some(&[0xff; 4][..]) {
         return None;
     }
-    i += 8;
-    if b.get(i..i + 3) == Some(&[0xff, 0xfe, 0xff][..]) {
-        i += 4 + 2 * *b.get(i + 3)? as usize;
+    let mut j = i + 8;
+    if b.get(j..j + 3) == Some(&[0xff, 0xfe, 0xff][..]) {
+        j += 4 + 2 * *b.get(j + 3)? as usize;
     }
-    if b.get(i..i + 2) != Some(&[0, 0][..]) {
-        return None;
+    if b.get(j..j + 2) == Some(&[0, 0][..]) && j + 10 <= b.len() {
+        return Some(f64_at(b, j + 2));
     }
-    (i + 10 <= b.len()).then(|| f64_at(b, i + 2))
+    // saved by SolidWorks 2012: `FF FF FF FF`, 2 zero bytes and the double (see the Python)
+    if b.get(i + 4..i + 6) == Some(&[0, 0][..]) && i + 14 <= b.len() {
+        return Some(f64_at(b, i + 6));
+    }
+    None
 }
 
 fn rel_head() -> &'static Regex {

@@ -1298,7 +1298,6 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     the dimension records give only the normal. cadkit-kernel's `plane_refs` / `resolve_plane`
     read the 12-double frame after a reference, which `_triads` already finds: nothing to port for
     these. Python and Rust both; parity 0 differences on 50 parts.
-
 173. **NIST set after merging the six parallel branches (5459af2).** `logs/feature-check-nist.md`,
     SolidCraft CLI 0.47.0. No NIST part rebuilds to a match yet; what stops each:
     - SW2012 CTC 01-05 (trees now read): every Hole Wizard hole "hole's size not read" (2012
@@ -1314,3 +1313,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     - FTC 10: 3DSketch1 only.
     Next (two workers): SW2012 hole sizes, fillets, CTC 01's extra material; FTC 08 Sketch9, the
     no-build parts, 3D sketches.
+
+174. **SolidWorks 2012 parameter values (the five NIST CTC 2012 saves).** Every Hole Wizard hole of
+    those saves said "hole's size not read", and most fillets and chamfers "size or edges not
+    read": the parameter record's value sits elsewhere in 2012. Later saves: name, 8 flag bytes,
+    `FF FF FF FF`, 4 zero bytes, an empty text field, 2 zero bytes, the double. 2012: `FF FF FF
+    FF`, 2 zero bytes, the double (e.g. `Hole Dia.` 0.02 in CTC 01). `_param_value` /
+    `param_value` read the 2012 place only where the later reading fails. In the five parts, 25
+    holes, 14 fillets and 6 chamfers now convert; nothing else in the census changes. Left: CTC 02
+    Fillet3 (also tbd in its 2018 save) and a 3D sketch (sketch-planes work). Parity 204/0.

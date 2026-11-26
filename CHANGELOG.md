@@ -52,6 +52,8 @@ NIST status (all branches merged): no part rebuilds to a match yet; per-part blo
   edge (the one at the cone's radius, nearest the cone along its axis; hole bores, seams left
   out). The search tries a pattern's directions in order of how much they change the solid, so a
   direction that puts copies off the part comes last.
+- Parameter values saved by SolidWorks 2012 (2 zero bytes after `FF FF FF FF`, not 4 and an
+  empty text field): the five NIST CTC 2012 saves' Hole Wizard holes, fillets and chamfers convert.
 - Linear and circular patterns found by name (KeyWords `LPattern`, `CirPattern`) are recovered
   (FTC 06, 08 and 09's 2015 saves).
 ### Fixed

@@ -1436,19 +1436,23 @@ def _edge_groups(b: bytes, raw: list, s0: int, end: int) -> list:
 def _param_value(b: bytes, s: int) -> float | None:
     """The value of a dimension's parameter record starting at s: its name (`FF FE FF`, u8
     length, UTF-16, e.g. "D1"), 8 flag bytes, `FF FF FF FF` and 4 zero bytes, then (2015+) an
-    empty text field, then 2 zero bytes and the value as a double, in metres or radians."""
+    empty text field, then 2 zero bytes and the value as a double, in metres or radians. Saved by
+    SolidWorks 2012, where that reading fails: `FF FF FF FF`, 2 zero bytes and the double (the
+    NIST CTC saves' Hole Wizard sizes)."""
     i = b.find(b"\xff\xfe\xff", s, s + 16)
     if i < 0:
         return None
     i += 4 + 2 * b[i + 3] + 8
     if b[i:i + 4] != b"\xff\xff\xff\xff":
         return None
-    i += 8
-    if b[i:i + 3] == b"\xff\xfe\xff":
-        i += 4 + 2 * b[i + 3]
-    if b[i:i + 2] != b"\x00\x00":
-        return None
-    return struct.unpack_from("<d", b, i + 2)[0]
+    j = i + 8
+    if b[j:j + 3] == b"\xff\xfe\xff":
+        j += 4 + 2 * b[j + 3]
+    if b[j:j + 2] == b"\x00\x00" and j + 10 <= len(b):
+        return struct.unpack_from("<d", b, j + 2)[0]
+    if b[i + 4:i + 6] == b"\x00\x00" and i + 14 <= len(b):
+        return struct.unpack_from("<d", b, i + 6)[0]
+    return None
 
 
 # the length units KeyWords can show a document's sizes in, as mm: mm, inch, cm, m, foot
