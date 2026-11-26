@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use regex::bytes::Regex;
 
-use super::{f64s, find_in, u16_at, u32_at, Frame, V3, FRONT};
+use super::{f64s, find_in, u16_at, u32_at, Frame, V3, FRONT, STANDARD_PLANES};
 use crate::archive::Record;
 
 /// Where a record's data starts (past its tag, or its new-class header).
@@ -141,7 +141,52 @@ pub fn plane_frames(b: &[u8], recs: &[Record]) -> (ById, ByOff) {
             }
         }
     }
+    if by_id.is_empty() {
+        by_id = standard_planes_by_name(b);
+    }
     (by_id, by_off)
+}
+
+/// Where no plane object is numbered (the stream's numbering drifts): the three standard planes
+/// by their named records alone (`FF FE FF` name, 7 zero bytes, flag 0x40/0xC0, u16 id), three in
+/// a row with consecutive ids (the lowest such), as Front, Top and Right.
+pub fn standard_planes_by_name(b: &[u8]) -> ById {
+    const TAG: [u8; 3] = [0xff, 0xfe, 0xff];
+    let mut trios: Vec<[u32; 3]> = Vec::new();
+    let mut i = find_in(b, &TAG, 0, b.len());
+    while let Some(i0) = i {
+        if i0 + 4 >= b.len() {
+            break;
+        }
+        let mut ids = Vec::new();
+        let mut j = Some(i0);
+        for _ in 0..3 {
+            let Some(jj) = j else { break };
+            if b.get(jj + 3).copied().unwrap_or(0) == 0 {
+                break;
+            }
+            let e = jj + 4 + 2 * b[jj + 3] as usize;
+            let Some(tail) = b.get(e..e + 10) else { break };
+            if tail[..7] != [0u8; 7] || !(tail[7] == 0x40 || tail[7] == 0xC0) {
+                break;
+            }
+            ids.push(u16_at(tail, 8) as u32);
+            let mut n = find_in(b, &TAG, e, e + 700);
+            while let Some(k) = n {
+                if b.get(k + 3).copied().unwrap_or(0) != 0 {
+                    break;
+                }
+                n = find_in(b, &TAG, k + 4, e + 700); // (empty strings in between)
+            }
+            j = n;
+        }
+        if ids.len() == 3 && ids[1] == ids[0] + 1 && ids[2] == ids[0] + 2 {
+            trios.push([ids[0], ids[1], ids[2]]);
+        }
+        i = find_in(b, &TAG, i0 + 3, b.len());
+    }
+    let Some(ids) = trios.into_iter().min() else { return ById::new() };
+    ids.iter().zip(STANDARD_PLANES).map(|(&p, fr)| (p, (fr, [0.0; 3]))).collect()
 }
 
 /// A face-plane record's data at s0: origin, the face's normal, a flag byte, then the sketch's

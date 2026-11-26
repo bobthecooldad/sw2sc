@@ -253,7 +253,43 @@ def _plane_frames(b: bytes, recs: list) -> tuple[dict, dict]:
         tail = b[end:end + 10]
         if len(tail) == 10 and tail[:7] == bytes(7) and tail[7] in (0x40, 0xC0):
             by_id[struct.unpack_from("<H", tail, 8)[0]] = ft
+    if not by_id:
+        by_id = _standard_planes_by_name(b)
     return by_id, by_off
+
+
+_NAME_TAG = bytes((0xFF, 0xFE, 0xFF))
+
+
+def _standard_planes_by_name(b: bytes) -> dict:
+    """Where no plane object is numbered (the stream's numbering drifts): the three standard
+    planes by their named records alone (`FF FE FF` name, 7 zero bytes, flag 0x40/0xC0, u16 id),
+    three in a row with consecutive ids (the lowest such), as Front, Top and Right."""
+    trios = []
+    i = b.find(_NAME_TAG)
+    while 0 <= i < len(b) - 4:
+        ids = []
+        j = i
+        for _k in range(3):
+            if b[j:j + 3] != _NAME_TAG or b[j + 3] == 0:
+                break
+            e = j + 4 + 2 * b[j + 3]
+            tail = b[e:e + 10]
+            if len(tail) < 10 or tail[:7] != bytes(7) or tail[7] not in (0x40, 0xC0):
+                break
+            ids.append(struct.unpack_from("<H", tail, 8)[0])
+            j = b.find(_NAME_TAG, e, e + 700)
+            while 0 <= j and b[j + 3] == 0:   # (empty strings in between)
+                j = b.find(_NAME_TAG, j + 4, e + 700)
+            if j < 0:
+                break
+        if len(ids) == 3 and ids[1] == ids[0] + 1 and ids[2] == ids[0] + 2:
+            trios.append(ids)
+        i = b.find(_NAME_TAG, i + 3)
+    if not trios:
+        return {}
+    ids = min(trios)   # the standard planes come first in the tree: the lowest ids
+    return {pid: (fr, (0.0, 0.0, 0.0)) for pid, fr in zip(ids, STANDARD_PLANES)}
 
 
 def _face_frame_at(b: bytes, s0: int):
