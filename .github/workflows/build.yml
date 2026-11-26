@@ -107,6 +107,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: sw2sc-${{ needs.build.outputs.version }}
@@ -114,7 +116,8 @@ jobs:
       - name: Name the zip and write the notes
         run: |
           mv "sw2sc-${{ needs.build.outputs.version }}.zip" sw2sc-dev.zip
-          printf 'Development build of `dev` at %s (not a release; may be broken).\n\nIn SolidCraft: Preferences > Plugins > Install plugin..., choose `sw2sc-dev.zip` and allow the memory it asks for. What changed: `CHANGELOG.md` [Unreleased] and `logs/working-log.md` on the dev branch.\n' "${GITHUB_SHA::7}" > notes.md
+          printf 'Development build of `dev` at %s (not a release; may be broken).\n\n**Install:** in SolidCraft, Preferences > Plugins > Install plugin..., choose `sw2sc-dev.zip` and allow the memory it asks for.\n\n' "${GITHUB_SHA::7}" > notes.md
+          cat docs/dev-build.md >> notes.md
 
       - name: Move the dev-build tag to this commit
         env:
