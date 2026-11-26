@@ -1438,3 +1438,13 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     write AP214 `COLOUR_RGB` / `STYLED_ITEM` chains for the owning body or face. Identical RGB
     values share one presentation style. SolidCraft opens the styled STEP without errors. Python:
     90 tests OK; Rust: 4 tests OK, including body and face styles and unchanged no-colour output.
+
+
+187. **The two rebuild losses also occur on the unmodified base (B-023).** On SolidCraft 0.50.0,
+    the base and each feature branch report the same two misses at the 240-second budget, so the
+    revolve and colour changes did not cause them. A base-only retry at 300 seconds recovered one
+    part in 306 seconds including conversion/evaluation overhead. The other, PartT8, completed its
+    whole three-feature tree in 399 seconds but its closest result was 0.1265% away from the saved
+    solid, just beyond the 0.1% match threshold. Triage reached Fillet2, the final feature, with no
+    kernel error. This is recorded as a separate base/kernel investigation; the threshold was not
+    relaxed and the old baseline was not edited to hide it.
