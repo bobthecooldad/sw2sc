@@ -62,6 +62,9 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   direction that puts copies off the part comes last.
 - Parameter values saved by SolidWorks 2012 (2 zero bytes after `FF FF FF FF`, not 4 and an
   empty text field): the five NIST CTC 2012 saves' Hole Wizard holes, fillets and chamfers convert.
+- Fillet and chamfer edge groups whose four face references have wider, varying spacing now read
+  sequentially, skipping header-shaped bytes inside a reference. NIST CTC 02's Fillet3 (both saves)
+  and FTC 06's Fillet2 (2015 and 2018) convert. Python and Rust.
 - Linear and circular patterns found by name (KeyWords `LPattern`, `CirPattern`) are recovered
   (FTC 06, 08 and 09's 2015 saves).
 ### Fixed

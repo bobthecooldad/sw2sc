@@ -1453,18 +1453,21 @@ _GROUP_HEAD = bytes([4, 0, 0, 0, 0, 2, 0, 0])
 def _edge_groups(b: bytes, raw: list, s0: int, end: int) -> list:
     """A chamfer's or fillet's edges where its own faces aren't numbered 1…N in order (FTC 09's
     chamfers: 4, 3, 2, 1, or 2, 3, 1, 4): each edge is a group headed `04 00 00 00 00 02 00 00`
-    (four references), a u32, 16 bytes, then its four face references (two sides, two ends:
-    sides 20 bytes apart in 2018 saves, 24 in 2015). The references read (`raw`) that start
-    within the group, four per header; none where any header has fewer."""
+    (four references), a u32, 16 bytes, then its four face references (two sides, two ends).
+    The first reference starts within 40 bytes after the 8-byte header; the rest follow at varying
+    intervals (up to 72 bytes on the NIST parts). A header-shaped run inside a reference is skipped.
+    The references read (`raw`), four per header; a group repeated later is the same edge."""
     out, j = [], b.find(_GROUP_HEAD, s0, end)
     while j >= 0:
-        head = j + len(_GROUP_HEAD)
-        inside = [r for r in raw if head < r[4] < head + 40 + 4 * 24][:4]
-        if len(inside) < 4 or inside[0][4] > head + 40:
+        inside = [r for r in raw if r[4] > j][:4]
+        if not inside or not 8 < inside[0][4] - j <= 48:
+            j = b.find(_GROUP_HEAD, j + 1, end)
+            continue
+        if len(inside) < 4 or any(inside[n + 1][4] - inside[n][4] > 72 for n in range(3)):
             return []
         key = [r[:4] for r in inside]
         if all([r[:4] for r in out[n:n + 4]] != key for n in range(0, len(out), 4)):
-            out.extend(inside)   # (a group repeated later in the record names the same edge)
+            out.extend(inside)
         j = b.find(_GROUP_HEAD, inside[-1][4] + 20, end)
     return out
 

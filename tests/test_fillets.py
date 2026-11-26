@@ -46,6 +46,19 @@ class SolverTests(unittest.TestCase):
               (("side", 50, 9), ("side", 50, 7))]
         self.assertEqual(fillets.solve(sw, box_edges(), {50: 2}, {2: ["l1", "l2", "l3", "l4"]}), [])
 
+    def test_edge_group_allows_wide_reference_spacing(self):
+        b = bytearray(300)
+        b[10:18] = features._GROUP_HEAD
+        raw = [(1, 2, 3, 4, o) for o in (40, 84, 128, 178)]
+        self.assertEqual(features._edge_groups(b, raw, 0, len(b)), raw)
+
+    def test_edge_group_skips_a_header_shaped_reference_prefix(self):
+        b = bytearray(300)
+        b[10:18] = features._GROUP_HEAD
+        b[100:108] = features._GROUP_HEAD
+        raw = [(1, 2, 3, 4, o) for o in (130, 174, 218, 262)]
+        self.assertEqual(features._edge_groups(b, [(9, 9, 9, 9, 12)] + raw, 0, len(b)), raw)
+
 
 class ReadTests(unittest.TestCase):
     def part(self, name):

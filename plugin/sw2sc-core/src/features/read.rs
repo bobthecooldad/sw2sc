@@ -450,15 +450,19 @@ fn edge_refs(b: &[u8], recs: &[Record], k: Option<usize>, end: usize, fids: &Has
 const GROUP_HEAD: [u8; 8] = [4, 0, 0, 0, 0, 2, 0, 0];
 
 /// A fillet's or chamfer's edges where its own faces aren't numbered 1…N in order: each edge a
-/// group headed `04 00 00 00 00 02 00 00`, a u32 and 16 bytes, then its four face references;
-/// a group repeated later is the same edge (see the Python).
+/// group headed `04 00 00 00 00 02 00 00`, a u32 and 16 bytes, then its four face references.
+/// The first starts within 40 bytes after the 8-byte header, the rest at varying intervals (up to
+/// 72 bytes on the NIST parts). A header-shaped run inside a reference is skipped (see the Python).
 fn edge_groups(b: &[u8], raw: &[RawRef], s0: usize, end: usize) -> Vec<RawRef> {
     let mut out: Vec<RawRef> = Vec::new();
     let mut j = find_in(b, &GROUP_HEAD, s0, end);
     while let Some(at) = j {
-        let head = at + GROUP_HEAD.len();
-        let inside: Vec<RawRef> = raw.iter().filter(|r| head < r.4 && r.4 < head + 40 + 4 * 24).take(4).copied().collect();
-        if inside.len() < 4 || inside[0].4 > head + 40 {
+        let inside: Vec<RawRef> = raw.iter().filter(|r| r.4 > at).take(4).copied().collect();
+        if inside.first().is_none_or(|r| !(9..=48).contains(&(r.4 - at))) {
+            j = find_in(b, &GROUP_HEAD, at + 1, end);
+            continue;
+        }
+        if inside.len() < 4 || inside.windows(2).any(|w| w[1].4 - w[0].4 > 72) {
             return vec![];
         }
         let key: Vec<(u16, u32, u32, u32)> = inside.iter().map(|r| (r.0, r.1, r.2, r.3)).collect();
@@ -1778,4 +1782,27 @@ fn body_move(b: &[u8], s: usize, e: usize) -> Option<([f64; 9], [f64; 3])> {
     }
     let t: [f64; 3] = f64s(b, i + 80);
     t.iter().all(|x| x.abs() < 100.0).then(|| (f64s::<9>(b, i), t))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edge_group_allows_wide_reference_spacing() {
+        let mut b = [0u8; 300];
+        b[10..18].copy_from_slice(&GROUP_HEAD);
+        let raw: Vec<RawRef> = [40, 84, 128, 178].into_iter().map(|o| (1, 2, 3, 4, o)).collect();
+        assert_eq!(edge_groups(&b, &raw, 0, b.len()), raw);
+    }
+
+    #[test]
+    fn edge_group_skips_a_header_shaped_reference_prefix() {
+        let mut b = [0u8; 300];
+        b[10..18].copy_from_slice(&GROUP_HEAD);
+        b[100..108].copy_from_slice(&GROUP_HEAD);
+        let raw: Vec<RawRef> = [130, 174, 218, 262].into_iter().map(|o| (1, 2, 3, 4, o)).collect();
+        let with_false_ref = [&[(9, 9, 9, 9, 12)], raw.as_slice()].concat();
+        assert_eq!(edge_groups(&b, &with_false_ref, 0, b.len()), raw);
+    }
 }

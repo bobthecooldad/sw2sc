@@ -1388,3 +1388,28 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     The new automation tests failed three times before implementation; the full suite is 95 tests
     OK (5 skipped). Triage's default budget changed from 90 to **300 seconds**, with a CLI test
     that first observed 90 != 300 before the change.
+
+183. **Fillet/chamfer edge groups whose references have wider spacing (F-032).** The post-merge NIST
+    check had 10 mismatches and 9 not fully decoded, no matches. The sample blocker census had 10
+    parts with a Fillet_c blocker, 4 blocked by fillets alone. CTC 02 Fillet3 (2012 and 2018) and
+    FTC 06 Fillet2 (2015 and 2018) all had their radius but no edges. Their group reader assumed
+    four references lay in a 4 x 24-byte window: a CTC 02 group's fourth is at +162 and an FTC 06
+    group's at +178, so the whole selection was discarded. Another apparent group header is the two
+    bytes before a reference, not a group. Read the first reference in the old range (within 40
+    bytes after the 8-byte header), then four sequential references, gaps at most 72 bytes; skip a
+    header whose first reference starts inside the header. Found from the sample bytes, no cadkit
+    code. CTC 02 Fillet3 reads 46 edges, FTC 06 Fillet2 18. Across 201 sample parts, 6 fillets newly
+    convert (the four NIST targets and two on other public parts), no existing fillet/chamfer
+    selection changes. Blockers: 10 -> 5 with Fillet_c, 4 -> 2 fillet-only; fully decoded 173 -> 175.
+    Priority rebuilds stay 0 of 3 (0 gained, 0 lost). Four previously matching public fillet/chamfer
+    parts rebuild 4 of 4 before and after: one first timed out at 243 seconds with other checks
+    running, then matched on its single-part retry (223 seconds), so no match was lost. Triage:
+    FTC 06 2018 reaches Boss-Extrude1 and
+    stops before Boss-Extrude2, before either fillet; its 2015 reference doesn't evaluate. CTC 02
+    still has its 3D sketch. Gaps beyond 72 bytes, or other group headers, remain unproven and are
+    left unread. Parity: 204/0 features, 101 designs with 2 imported-STEP text diffs, reproduced
+    identically by the archived pre-change Python and Rust readers (so pre-existing, not from this
+    change). Python: 90 tests pass; Rust: 5 tests pass. The census report itself initially
+    stopped on a console Unicode encode error while printing a part name; its saved JSON was
+    complete, and comparing that JSON (rather than Python tuples against JSON lists) gave the result
+    above.

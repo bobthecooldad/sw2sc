@@ -108,3 +108,12 @@ Record each new finding here.
   centre (first of six u16 at +20, the second being `FFFE`), are positions in the sketch's list of
   point records, not point ids. Checked on the A2773 bolt (hexagon + circle), connecting rod, figure 1.
   A point id can be written twice; the first record is the sketch's point.
+- **Fillet/chamfer edge groups with non-sequential own-face numbers:** each edge also has a group
+  headed `04 00 00 00 00 02 00 00`, followed by four face references. The first is within 40 bytes
+  after the 8-byte header; later references do not have fixed 20/24-byte spacing. Direct evidence:
+  a CTC 02 Fillet3 group has references at +30, +74, +118 and +162 bytes from the header, and an
+  FTC 06 Fillet2 group at +30, +74, +126 and +178 (the same in its 2015 and 2018 saves). The old
+  4 × 24-byte collection window missed the fourth. A header-shaped run inside a reference is not a
+  group: its supposed first reference begins inside the 8-byte header itself. Reading four sequential
+  references with gaps of at most 72 bytes yields 46 distinct edges for CTC 02 Fillet3 and 18 for
+  FTC 06 Fillet2. Found from the public sample files; no external implementation was used.

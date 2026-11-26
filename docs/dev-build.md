@@ -17,24 +17,24 @@ A part counts as **converted** only when its editable feature tree rebuilds in S
 matches the part's own solid (volume, area and bounding box within 0.1%). An imported-solid
 fallback is not counted as conversion success.
 
-Latest full eight-job run: **0 of 19 converted; 10 of 19 fully decoded and attempted a rebuild;
-9 of 19 still blocked by unread features or sketches.** Before this batch those figures were 0,
+Latest full eight-job run: **0 of 19 converted; 12 of 19 fully decoded and attempted a rebuild;
+7 of 19 still blocked by unread features or sketches.** Before this batch those figures were 0,
 4 and 15 respectively.
 
 | Part | Saved in | Tree | Current blocker |
 |---|---|---|---|
 | CTC 01 | SW 2012 | rebuilds, no match | no build to compare |
-| CTC 02 | SW 2012 | partly read | Fillet3; a 3D sketch |
+| CTC 02 | SW 2012 | partly read | a 3D sketch |
 | CTC 03 | SW 2012 | rebuilds, no match | no build to compare |
 | CTC 04 | SW 2012 | rebuilds, no match | no build to compare |
 | CTC 05 | SW 2012 | rebuilds, no match | no build to compare |
-| CTC 01 | SW 2018 | rebuilds, no match | 1.8% too much material (a loop is an island, or a cut did not take) |
-| CTC 02 | SW 2018 | partly read | Fillet3; a 3D sketch |
+| CTC 01 | SW 2018 | rebuilds, no match | 2.3% too much material (a loop is an island, or a cut did not take) |
+| CTC 02 | SW 2018 | partly read | a 3D sketch |
 | CTC 03 | SW 2018 | rebuilds, no match | no build to compare |
 | CTC 04 | SW 2018 | rebuilds, no match | no build to compare |
 | CTC 05 | SW 2018 | rebuilds, no match | no build to compare |
-| FTC 06 | SW 2015 | partly read | Fillet2 only |
-| FTC 06 | SW 2018 | partly read | Fillet2 only |
+| FTC 06 | SW 2015 | rebuilds, no match | no build to compare |
+| FTC 06 | SW 2018 | rebuilds, no match | no build to compare |
 | FTC 07 | SW 2018 | partly read | variable-radius fillets; sketch text |
 | FTC 08 | SW 2015 | rebuilds, no match | no build to compare |
 | FTC 08 | SW 2018 | rebuilds, no match | no build to compare |
