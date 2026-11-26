@@ -1448,3 +1448,13 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     solid, just beyond the 0.1% match threshold. Triage reached Fillet2, the final feature, with no
     kernel error. This is recorded as a separate base/kernel investigation; the threshold was not
     relaxed and the old baseline was not edited to hide it.
+
+
+188. **PartT8's mismatch is area-only (B-023).** Detailed base-only measurement on SolidCraft
+    0.50.0: reference volume 3016.2494 mm³ / area 2334.0546 mm²; closest rebuild 3016.4740 /
+    2337.0065. Volume differs by 0.2246 mm³ (0.0075%), but area is 2.9519 mm² higher (0.1265%),
+    so the mismatch signature is a missing or wrong fillet/chamfer, not a general size error or a
+    reason to relax the 0.1% threshold. Bounding boxes agree within the check tolerance and the
+    timeline has no error. Combined public integration: 100 Python tests OK, all Rust tests OK,
+    feature parity 54/0 and design parity 43/0. The combined regression has no losses beyond the
+    two already reproduced on the unmodified base.
