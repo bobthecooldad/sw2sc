@@ -5,8 +5,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
 
 ## [Unreleased]
 
-NIST status (all branches merged): no part rebuilds to a match yet; per-part blockers in
-`logs/feature-check-nist.md` and working log 173.
+NIST status after the 2012 parameter and standard-plane fixes: **0 of 19 exact feature-tree
+matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-blocked (was 0, 4 and
+15). Per-part results are in `logs/feature-check-nist.md` and working log 180.
 
 ### Added
 - `tools/feature_check.py` and `tools/rebuild_triage.py` rebuild parts in parallel with `--jobs`

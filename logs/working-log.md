@@ -1355,3 +1355,14 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     difference. The private check baseline is therefore three known differences; any additional
     difference still fails the queue. Feature parity remained zero and the rebuild regression lost
     no parts.
+
+
+180. **Full NIST check after the 2012 parameter and standard-plane fixes.** Eight jobs, about
+    eight minutes, SolidCraft CLI 0.47.0. Exact feature-tree matches remain **0 of 19**: the
+    imported-solid fallback is not project success. Fully decoded parts that attempt a rebuild
+    rose from 4 to **10 of 19**; reader-blocked parts fell from 15 to **9**. Four of the five 2012
+    CTC parts moved from unread hole/fillet/chamfer sizes to rebuild mismatches; CTC 02 still has
+    Fillet3 and its 3D sketch. Both FTC 08 saves moved from a missing Sketch9 plane to rebuild
+    mismatches. The other reader blockers are FTC 06's Fillet2 (both saves), FTC 07's variable
+    fillets and text, FTC 09's text (both saves), FTC 10's 3D sketch and FTC 11's text. All ten
+    rebuild attempts currently report no build to compare. Report: `logs/feature-check-nist.md`.

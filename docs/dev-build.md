@@ -12,28 +12,34 @@ Full detail: `CHANGELOG.md` [Unreleased] and `logs/working-log.md` on the dev br
 
 ## NIST test set: where each part is up to
 
-A part counts as **converted** when its feature tree rebuilds in SolidCraft and matches the part's own solid (volume, area and bounding box within 0.1%). Every part already opens as an imported solid.
+A part counts as **converted** only when its editable feature tree rebuilds in SolidCraft and
+matches the part's own solid (volume, area and bounding box within 0.1%). An imported-solid
+fallback is not counted as conversion success.
 
-| Part | Saved in | Tree | What still stops it |
+Latest full eight-job run: **0 of 19 converted; 10 of 19 fully decoded and attempted a rebuild;
+9 of 19 still blocked by unread features or sketches.** Before this batch those figures were 0,
+4 and 15 respectively.
+
+| Part | Saved in | Tree | Current blocker |
 |---|---|---|---|
-| CTC 01 | SW 2012 | partly read | Hole Wizard hole sizes (2012 layout); Fillet1 |
-| CTC 02 | SW 2012 | partly read | Hole Wizard hole sizes (2012 layout) |
-| CTC 03 | SW 2012 | partly read | Hole Wizard hole sizes (2012 layout) |
-| CTC 04 | SW 2012 | partly read | Hole Wizard hole sizes (2012 layout) |
-| CTC 05 | SW 2012 | partly read | Hole Wizard hole sizes (2012 layout); Chamfer1 |
-| CTC 01 | SW 2018 | **rebuilds** | 1.8% too much material (a cut that doesn't take) |
+| CTC 01 | SW 2012 | rebuilds, no match | no build to compare |
+| CTC 02 | SW 2012 | partly read | Fillet3; a 3D sketch |
+| CTC 03 | SW 2012 | rebuilds, no match | no build to compare |
+| CTC 04 | SW 2012 | rebuilds, no match | no build to compare |
+| CTC 05 | SW 2012 | rebuilds, no match | no build to compare |
+| CTC 01 | SW 2018 | rebuilds, no match | no build to compare |
 | CTC 02 | SW 2018 | partly read | Fillet3; a 3D sketch |
-| CTC 03 | SW 2018 | fully read | SolidCraft doesn't build it (Offset Face; "flip side to cut") |
-| CTC 04 | SW 2018 | fully read | SolidCraft doesn't build it |
-| CTC 05 | SW 2018 | fully read | SolidCraft doesn't build it |
+| CTC 03 | SW 2018 | rebuilds, no match | no build to compare |
+| CTC 04 | SW 2018 | rebuilds, no match | no build to compare |
+| CTC 05 | SW 2018 | rebuilds, no match | no build to compare |
 | FTC 06 | SW 2015 | partly read | Fillet2 only |
 | FTC 06 | SW 2018 | partly read | Fillet2 only |
 | FTC 07 | SW 2018 | partly read | variable-radius fillets; sketch text |
-| FTC 08 | SW 2015 | partly read | one sketch with no plane found |
-| FTC 08 | SW 2018 | partly read | one sketch with no plane found |
+| FTC 08 | SW 2015 | rebuilds, no match | no build to compare |
+| FTC 08 | SW 2018 | rebuilds, no match | no build to compare |
 | FTC 09 | SW 2015 | partly read | sketch text only |
 | FTC 09 | SW 2018 | partly read | sketch text only |
 | FTC 10 | SW 2018 | partly read | a 3D sketch only |
 | FTC 11 | SW 2018 | partly read | sketch text only |
 
-Converted: 0 of 19. Sketch text can't match exactly, because SolidWorks keeps the words but not the letter shapes.
+Sketch text can't match exactly, because SolidWorks keeps the words but not the letter shapes.
