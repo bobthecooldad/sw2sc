@@ -1495,3 +1495,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     A background batch of **356 GrabCAD parts** is running with eight jobs and 3600 seconds per part;
     its JSONL stays in the private check directory. `feature_blockers.py` separately ranks missing
     feature classes. Results are not claimed until the batch completes.
+
+
+193. **Full-batch memory limits after a system crash.** The first 356-part batch used eight
+    workers and was lost with its feature-blocker process. No converter processes remained on
+    inspection. `convert_sample.py` now partitions files by size: those over 250 MB run through
+    `run_batch(..., jobs=1)` before ordinary files use the selected worker count. The regression
+    test observes one worker for a 2 MiB test file and two for a small file. The restarted batch
+    uses two ordinary workers and one for large files, with no competing heavy jobs. Assemblies
+    are not included in this Rust-plugin part runner; they need a separate conservative checker.

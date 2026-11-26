@@ -12,7 +12,8 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
 ### Added
 - `tools/convert_sample.py` accepts a whole folder as well as a list, skips lock files, and takes
   `--timeout` for long per-part conversion runs. JSONL results are flushed after every part and
-  aggregate progress prints every ten parts.
+  aggregate progress prints every ten parts. Files over 250 MB run singly by default to limit
+  memory pressure; ordinary files keep the selected `--jobs` count.
 - The unattended check queue can run a rotating private external sample alongside the existing
   long sample, with a commit-derived seed, eight jobs and a separate regression baseline. Private
   filenames and paths stay in the private check directory; only aggregate outcomes go in public logs.

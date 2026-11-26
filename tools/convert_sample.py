@@ -1,7 +1,7 @@
 """Run the plugin's converter (`convert_one`, the Rust build) on a sample of parts in parallel,
 record each outcome, and compare with an earlier run.
 
-    python tools/convert_sample.py LIST_OR_FOLDER OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--timeout 900] [--baseline OLD.jsonl]
+    python tools/convert_sample.py LIST_OR_FOLDER OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--timeout 900] [--large-mb 250] [--baseline OLD.jsonl]
 
 LIST_OR_FOLDER is a text file with one part path per line or a folder searched recursively.
 Lock files are excluded; the same seed picks the same sample. Exit
@@ -62,6 +62,25 @@ def outcome(r: dict) -> str:
     return s[:50]
 
 
+def split_large(paths, large_mb):
+    if large_mb <= 0:
+        return [], list(paths)
+    limit = large_mb * 1024 * 1024
+    large = [p for p in paths if os.path.getsize(p) >= limit]
+    normal = [p for p in paths if os.path.getsize(p) < limit]
+    return large, normal
+
+
+def run_batch(paths, jobs, timeout, fh, results):
+    if not paths:
+        return
+    with ThreadPoolExecutor(jobs) as pool:
+        for r in pool.map(lambda p: run(p, timeout), paths):
+            fh.write(json.dumps(r) + "\n")
+            fh.flush()
+            results.append(r)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("list")
@@ -70,19 +89,19 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=20)
     ap.add_argument("--timeout", type=int, default=900)
+    ap.add_argument("--large-mb", type=int, default=250)
     ap.add_argument("--baseline")
     a = ap.parse_args(argv)
     paths = paths_of(a.list)
     random.Random(a.seed).shuffle(paths)
     paths = paths[:a.n]
-    with ThreadPoolExecutor(a.jobs) as pool, open(a.out, "w", encoding="utf-8") as fh:
+    large, normal = split_large(paths, a.large_mb)
+    with open(a.out, "w", encoding="utf-8") as fh:
         results = []
-        for r in pool.map(lambda p: run(p, a.timeout), paths):
-            fh.write(json.dumps(r) + "\n")
-            fh.flush()
-            results.append(r)
-            if len(results) % 10 == 0:
-                print(f"{len(results)} of {len(paths)} complete", flush=True)
+        run_batch(large, 1, a.timeout, fh, results)
+        run_batch(normal, a.jobs, a.timeout, fh, results)
+        if len(results) % 10 == 0:
+            print(f"{len(results)} of {len(paths)} complete", flush=True)
     now = {r["file"]: outcome(r) for r in results}
     count = collections.Counter(now.values())
     bad = []
