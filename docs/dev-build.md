@@ -13,7 +13,7 @@
 - **Large imported parts (issue #1):** STEP output about 14% smaller.
 - **Credit:** parts of the rib, hole and sketch readers are ported from [cadkit-kernel](https://github.com/civilkit/cadkit-kernel) (MIT OR Apache-2.0, clean-room); see `THIRD_PARTY_NOTICES.md`.
 
-Full detail: `CHANGELOG.md` [Unreleased] and `logs/working-log.md` on the dev branch.
+Full detail: `CHANGELOG.md` **0.18.0** and `logs/working-log.md` on the dev branch.
 
 ## NIST test set: where each part is up to
 

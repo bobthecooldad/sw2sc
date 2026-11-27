@@ -1,7 +1,7 @@
 {
   "id": "sw2sc",
   "name": "SolidWorks Parts (sw2sc)",
-  "version": "0.17.3",
+  "version": "0.18.0",
   "description": "Opens SolidWorks parts with their feature tree: sketches, dimensions, constraints and features, checked against the part's own solid.",
   "capabilities": [
     "formats@0.2",

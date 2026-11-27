@@ -1684,3 +1684,20 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     limit events. These aggregate counts are all that enter public documentation. The private baseline
     stays in the local check directory. The remaining 3,958-model scan is now running locally with 20
     workers, incremental JSONL and the same limits; no partial success rate is claimed for it.
+
+211. **Release 0.18.0 prepared.** The changelog's complete post-0.17.3 fix list is retained under
+    the new version, with the 43 GB eager-product failure, lazy iteration, watchdog, previous-feature
+    crash correction and measured regressions called out explicitly. B-023, B-024 and B-025 are fixed
+    in 0.18.0. `logs/survey-0.18.0.md` records 21 / 22 regression matches with zero losses, 29 / 356
+    public exact rebuilds, unchanged 0 / 19 NIST structural success, 6 / 40 private-sample exact
+    rebuilds, tests and parity. No private identifiers are included. The long remaining private scan
+    is diagnostic and is not awaited. `origin/main` is an ancestor of this history, so the release can
+    be fast-forwarded normally after the version-stamped test run.
+
+212. **Version-stamped 0.18.0 tests pass.** Python: **120 tests OK (5 skipped)** in 226 seconds.
+    Rust: **all 19 tests OK**. The first Rust attempt hit Windows LNK1104 because the active private
+    scan had `convert_one.exe` open, not because of a test or code failure; the unchanged standard
+    Cargo test command passed in an isolated target directory, which was then removed. The first
+    Python harness attempt timed out at 300 seconds under the private scan's CPU load without a test
+    failure; a 900-second outer allowance completed normally. No private process was stopped and no
+    release test was skipped.

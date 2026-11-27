@@ -5,9 +5,28 @@ Each release has a survey log in `logs/survey-<version>.md`.
 
 ## [Unreleased]
 
-Current NIST status: **0 of 19 exact feature-tree matches**, 12 of 19 fully decoded and
-attempting a rebuild, 7 still reader-blocked (was 0, 4 and 15 before this batch). Per-part results
-are in `logs/feature-check-nist.md` and working log 184.
+## [0.18.0] - 2026-11-27
+
+This release expands editable feature-tree conversion and fixes a serious rebuild-memory failure.
+Rust previously allocated every sketch-plane combination before trying one: 293,932,800,000
+combinations in one public NIST case, driving a conversion to **43 GB**. The search now iterates
+lazily, and the process watchdog terminates a conversion and its process tree when its memory cap is
+exceeded. The complete 356-part public batch finished with **zero memory-limit terminations**.
+
+### Release verification
+
+- **21 of 22 regression parts rebuild, with zero losses.** PartT8 is restored by using only the
+  file-selected fillet edges; the timeout and 0.1% match threshold are unchanged.
+- Full public structural batch: **29 of 356 exact feature-tree rebuilds (8.1%)**, up from 26.
+  All 12 previous crashes are cleared; no previous match is lost.
+- NIST: **0 of 19 exact matches**, 12 fully decoded rebuild attempts and 7 reader-blocked parts.
+  This is unchanged in success rate; imported-solid fallbacks are not counted.
+- Private release sample: **6 of 40 exact rebuilds**, no losses, crashes or memory-limit events.
+  Only this aggregate is public; names, paths, geometry and per-file results remain local.
+- **120 Python tests pass (5 skipped); all 19 Rust tests pass.** Python/Rust parity is zero
+  differences on 54 public files and 43 designs. Checks used SolidCraft CLI 0.50.0.
+- See `logs/survey-0.18.0.md` for the measured release summary. The remaining long private scan is
+  diagnostic work and is not needed to validate this release.
 
 ### Added
 - `tools/process_limit.py` adds a watchdog that checks working-set memory and terminates a
