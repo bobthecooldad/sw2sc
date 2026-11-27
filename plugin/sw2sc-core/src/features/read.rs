@@ -535,6 +535,25 @@ fn end_type(b: &[u8], recs: &[Record], k: usize, end: usize) -> Option<u32> {
     None
 }
 
+fn straight_pattern_path(b: &[u8], start: usize, end: usize, feats: &[Feature]) -> Option<String> {
+    let mut found = Vec::new();
+    for f in feats {
+        let Some(sk) = &f.sketch else { continue };
+        if f.kind != "sketch" || sk.used || sk.lines.len() != 1 || !sk.arcs.is_empty() || !sk.circles.is_empty() || f.fid == 0 {
+            continue;
+        }
+        let (a, c) = sk.lines[0];
+        let (Some(&p), Some(&q)) = (sk.points.get(&a), sk.points.get(&c)) else { continue };
+        if (q.0 - p.0).hypot(q.1 - p.1) < 1e-12 {
+            continue;
+        }
+        if b[start..end].windows(4).any(|w| w == f.fid.to_le_bytes()) {
+            found.push(f.name.clone());
+        }
+    }
+    (found.len() == 1).then(|| found.remove(0))
+}
+
 fn first_face(b: &[u8], from: usize, end: usize, fids: &HashSet<u32>, own: u32) -> Option<FaceRef> {
     let hi = end.min(from + 2000);
     let mut i = from;
@@ -882,8 +901,15 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 let s2 = kw_length(dmap.get("D4").map(|s| s.as_str()), b, r.offset, end, &mut unit);
                 f.pattern.insert("spacing2".into(), num_or_null(s2));
             }
+            if kind == "curve" {
+                f.path = straight_pattern_path(b, r.offset, end, &out);
+                f.pattern.insert("kind".into(), json!("linear"));
+            }
             let zero = |x: Option<f64>| x.is_none_or(|v| v == 0.0);
-            if zero(val("D1")) || (kind == "circular" && zero(angle)) || (kind == "linear" && zero(val("D3"))) {
+            if kind == "curve" && (zero(val("D1")) || zero(val("D3")) || f.path.is_none()) {
+                f.kind = "tbd".into();
+                f.reason = "curve pattern's straight path, count or spacing not read".into();
+            } else if zero(val("D1")) || (kind == "circular" && zero(angle)) || (kind == "linear" && zero(val("D3"))) {
                 f.kind = "tbd".into();
                 f.reason = "pattern's counts not read".into();
             }
@@ -1837,6 +1863,33 @@ fn body_move(b: &[u8], s: usize, e: usize) -> Option<([f64; 9], [f64; 3])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn curve_pattern_path_is_a_referenced_unused_line() {
+        let mut sk = Sketch::default();
+        sk.name = "Path".into();
+        sk.points.insert(1, (0.0, 0.0));
+        sk.points.insert(2, (0.01, 0.0));
+        sk.lines.push((1, 2));
+        let mut feature = Feature::new("sketch", "Path", 0, SKETCH);
+        feature.fid = 42;
+        feature.sketch = Some(sk);
+        let raw = 42u32.to_le_bytes();
+        assert_eq!(straight_pattern_path(&raw, 0, raw.len(), &[feature]), Some("Path".into()));
+    }
+
+    #[test]
+    fn straight_curve_pattern_direction_follows_the_path() {
+        let mut sk = Sketch::default();
+        sk.points.insert(1, (0.0, 0.0));
+        sk.points.insert(2, (0.01, 0.01));
+        sk.lines.push((1, 2));
+        sk.planes.push(((FRONT, [0.0; 3]), "test".into()));
+        let directions = straight_pattern_directions(&sk, 0);
+        assert!((directions[0][0] - 0.5f64.sqrt()).abs() < 1e-9);
+        assert!((directions[0][1] - 0.5f64.sqrt()).abs() < 1e-9);
+        assert_eq!(directions[1], [-directions[0][0], -directions[0][1], -directions[0][2]]);
+    }
 
     #[test]
     fn end_spec_type_is_the_word_sixteen_bytes_into_the_object() {

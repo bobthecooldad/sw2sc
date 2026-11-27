@@ -960,6 +960,9 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
             pats = []
             if pt["kind"] == "linear":
                 axes = [(1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (0, 0, 1), (0, 0, -1)]
+                if f.path:
+                    path = next((x.sketch for x in feats if x.name == f.path), None)
+                    axes = features.straight_pattern_directions(path, planes.get(f.path, 0)) if path else []
                 for a in axes:
                     p = {"type": "rectangular", "dir1": list(a), "count1": repr(int(pt["count1"])), "spacing1": repr(pt["spacing1"])}
                     if pt.get("count2") and pt.get("spacing2"):

@@ -30,7 +30,42 @@ CHAMFER = "Chamfer_c"
 HOLE = "moHoleWzd_c"
 MIRRORS = {"moMirrorPattern_c", "moMirrorSolid_c"}
 THREAD = "moSweepThread_c"
-PATTERNS = {"moLPattern_c": "linear", "moCirPattern_c": "circular"}
+PATTERNS = {"moLPattern_c": "linear", "moCirPattern_c": "circular", "moCurvePattern_c": "curve"}
+
+
+def _straight_pattern_path(b: bytes, start: int, end: int, feats: list) -> str | None:
+    """The unique unused one-line sketch whose feature id a curve pattern references."""
+    found = []
+    for f in feats:
+        if f.kind != "sketch" or f.sketch.used or len(f.sketch.lines) != 1 or f.sketch.arcs or f.sketch.circles:
+            continue
+        a, c = f.sketch.lines[0]
+        if a not in f.sketch.points or c not in f.sketch.points or not f.fid:
+            continue
+        p, q = f.sketch.points[a], f.sketch.points[c]
+        if math.dist(p, q) < 1e-12:
+            continue
+        if b.find(struct.pack("<I", f.fid), start, end) >= 0:
+            found.append(f.name)
+    return found[0] if len(found) == 1 else None
+
+
+def straight_pattern_directions(sk: Sketch, choice=0) -> list:
+    """A straight curve pattern's forward and reverse model-space directions."""
+    if len(sk.lines) != 1 or not sk.planes:
+        return []
+    a, c = sk.lines[0]
+    if a not in sk.points or c not in sk.points:
+        return []
+    x, y, _n = sk.planes[min(choice, len(sk.planes) - 1)][0]
+    p, q = sk.points[a], sk.points[c]
+    du, dv = q[0] - p[0], q[1] - p[1]
+    length = math.hypot(du, dv)
+    if length < 1e-12:
+        return []
+    du, dv = du / length, dv / length
+    direction = [du * x[i] + dv * y[i] for i in range(3)]
+    return [direction, [-v for v in direction]]
 
 
 def _fixed_pattern_dims(dims: dict) -> dict:
@@ -1916,7 +1951,12 @@ def read(sw) -> list[Feature] | None:
             else:
                 f.pattern.update(spacing1=_kw_length(dims.get("D3"), b, r.offset, end, unit), count2=val("D2"),
                                  spacing2=_kw_length(dims.get("D4"), b, r.offset, end, unit))
-            if not f.pattern["count1"] or (kind == "circular" and not angle) or (kind == "linear" and not f.pattern["spacing1"]):
+            if kind == "curve":
+                f.path = _straight_pattern_path(b, r.offset, end, out)
+                f.pattern["kind"] = "linear"
+            if kind == "curve" and (not f.pattern["count1"] or not f.pattern["spacing1"] or not f.path):
+                f.kind, f.reason = "tbd", "curve pattern's straight path, count or spacing not read"
+            elif not f.pattern["count1"] or (kind == "circular" and not angle) or (kind == "linear" and not f.pattern["spacing1"]):
                 f.kind, f.reason = "tbd", "pattern's counts not read"
         elif r.cls == THREAD:
             # a modelled thread: its sizes are KeyWords' dimensions for it (`<MOD-DIAM>4` the

@@ -8,6 +8,7 @@
 - **Holes and chamfers:** Hole Wizard placement sketches recovered; hole placement planes taken from the hole itself; chamfers on hole rims.
 - **Patterns:** linear patterns with a consecutive `FIX_n` spacing/count pair now read in Python and Rust, fully decoding two more public parts.
 - **Mid-plane extrudes:** `moEndSpec_c` type 6 now becomes a symmetric total-distance extrude directly from the file, rather than a three-way direction search.
+- **Straight curve patterns:** uniformly spaced patterns with a unique referenced one-line path now convert as linear patterns in Python and Rust. Two more parts are fully decoded, but both currently time out without a build, so they add no exact matches.
 - **Large imported parts (issue #1):** STEP output about 14% smaller.
 - **Credit:** parts of the rib, hole and sketch readers are ported from [cadkit-kernel](https://github.com/civilkit/cadkit-kernel) (MIT OR Apache-2.0, clean-room); see `THIRD_PARTY_NOTICES.md`.
 

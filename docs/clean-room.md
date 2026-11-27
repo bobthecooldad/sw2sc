@@ -141,3 +141,10 @@ Record each new finding here.
   the sketch association directly rather than inferring it from proximity. Only one of the 15 unread
   split features in the full public batch has this layout, so it is recorded as evidence but not yet
   made a production shortcut. The others need their face/surface tool references decoded instead.
+- **Straight, uniformly spaced curve patterns:** `moCurvePattern_c` uses KeyWords' `D1` instance
+  count and `D3` spacing in the two checked public cases. Each pattern record directly references
+  the feature id of an earlier, otherwise-unused sketch containing exactly one nonzero line and no
+  arcs or circles. Accept only a unique referenced candidate. The line and its selected sketch plane
+  give the model-space direction; forward and reverse are both candidates. These straight paths are
+  equivalent to a linear rectangular pattern, not a general curve-driven pattern. Two other public
+  cases have a count but no spacing and remain TBD. Found from the public records; no external code.

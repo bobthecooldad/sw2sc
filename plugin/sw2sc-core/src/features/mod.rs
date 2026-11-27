@@ -35,6 +35,7 @@ pub fn pattern_kind(cls: &str) -> Option<&'static str> {
     match cls {
         "moLPattern_c" => Some("linear"),
         "moCirPattern_c" => Some("circular"),
+        "moCurvePattern_c" => Some("curve"),
         _ => None,
     }
 }
@@ -117,6 +118,25 @@ impl FaceRef {
 }
 
 pub type Edge = (FaceRef, FaceRef);
+
+pub fn straight_pattern_directions(sk: &Sketch, choice: usize) -> Vec<V3> {
+    if sk.lines.len() != 1 || sk.planes.is_empty() {
+        return Vec::new();
+    }
+    let (a, c) = sk.lines[0];
+    let (Some(&p), Some(&q)) = (sk.points.get(&a), sk.points.get(&c)) else {
+        return Vec::new();
+    };
+    let frame = sk.planes[choice.min(sk.planes.len() - 1)].0.0;
+    let (du, dv) = (q.0 - p.0, q.1 - p.1);
+    let length = du.hypot(dv);
+    if length < 1e-12 {
+        return Vec::new();
+    }
+    let (du, dv) = (du / length, dv / length);
+    let direction = [du * frame[0][0] + dv * frame[1][0], du * frame[0][1] + dv * frame[1][1], du * frame[0][2] + dv * frame[1][2]];
+    vec![direction, direction.map(|v| -v)]
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct Sketch {

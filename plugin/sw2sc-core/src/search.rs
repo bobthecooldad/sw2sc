@@ -1125,12 +1125,19 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             let num = |k: &str| pt.get(k).and_then(Value::as_f64);
             let mut pats: Vec<Value> = Vec::new();
             if pt.get("kind").and_then(Value::as_str) == Some("linear") {
-                let axes: [[f64; 3]; 6] = [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]];
+                let axes: Vec<[f64; 3]> = if let Some(path) = &f.path {
+                    ctx.by_fname(path).and_then(|x| x.sketch.as_ref()).map(|sk| {
+                        let choice = ctx.planes.get(path).copied().unwrap_or(0);
+                        crate::features::straight_pattern_directions(sk, choice)
+                    }).unwrap_or_default()
+                } else {
+                    vec![[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]
+                };
                 let int_repr = |x: f64| format!("{}", x.trunc() as i64);
-                for a in axes {
+                for a in axes.iter().copied() {
                     let p = json!({"type": "rectangular", "dir1": a.map(|x| x as i64), "count1": int_repr(num("count1").unwrap_or(0.0)), "spacing1": repr(num("spacing1").unwrap_or(0.0))});
                     if num("count2").is_some_and(|c| c != 0.0) && num("spacing2").is_some_and(|s| s != 0.0) {
-                        for a2 in axes {
+                        for a2 in axes.iter().copied() {
                             if (a[0] * a2[0] + a[1] * a2[1] + a[2] * a2[2]).abs() < 1e-9 {
                                 let mut q = p.clone();
                                 q["dir2"] = json!(a2.map(|x| x as i64));

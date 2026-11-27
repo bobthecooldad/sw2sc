@@ -198,6 +198,27 @@ class PatternDimensionTests(unittest.TestCase):
         self.assertEqual(features._fixed_pattern_dims({"FIX_26": "20", "FIX_27": "2", "FIX_28": "3"}), {})
         self.assertEqual(features._fixed_pattern_dims({"FIX_26": "20", "FIX_27": "2.5"}), {})
 
+    def test_curve_pattern_path_is_a_unique_referenced_unused_line(self):
+        import struct
+        sk = sketch({1: (0, 0), 2: (10, 0)}, lines=[(1, 2)])
+        sk.name = "Path"
+        feature = features.Feature("sketch", "Path", 0, features.SKETCH, sketch=sk, fid=42)
+        raw = struct.pack("<I", 42)
+        self.assertEqual(features._straight_pattern_path(raw, 0, len(raw), [feature]), "Path")
+        self.assertIsNone(features._straight_pattern_path(bytes(4), 0, 4, [feature]))
+        other_sk = sketch({1: (0, 0), 2: (20, 0)}, lines=[(1, 2)])
+        other_sk.name = "Other"
+        other = features.Feature("sketch", "Other", 0, features.SKETCH, sketch=other_sk, fid=43)
+        both = raw + struct.pack("<I", 43)
+        self.assertIsNone(features._straight_pattern_path(both, 0, len(both), [feature, other]))
+
+    def test_straight_curve_pattern_direction_follows_the_path(self):
+        sk = sketch({1: (0, 0), 2: (10, 10)}, lines=[(1, 2)])
+        directions = features.straight_pattern_directions(sk, 0)
+        self.assertAlmostEqual(directions[0][0], math.sqrt(0.5))
+        self.assertAlmostEqual(directions[0][1], math.sqrt(0.5))
+        self.assertEqual(directions[1], [-directions[0][0], -directions[0][1], -directions[0][2]])
+
 
 class RealPartTests(unittest.TestCase):
     def read(self, path):

@@ -1614,3 +1614,27 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     The first NIST comparison found identical counts but unstable tie ordering from completion-order
     aggregation; tied report rows are now alphabetical. The rerun is byte-identical to the prior NIST
     report. Full Python suite: **115 tests OK (5 skipped)**. The bounded full-folder census is running.
+
+204. **The bounded full blocker census completes.** All 356 parts returned records in 348 seconds
+    with eight workers; none was unread or hit the memory cap, and one hit its per-part timeout.
+    **289 parts are fully decoded at the reader level** (not exact rebuild matches). Single-blocker
+    leaders: 8 pre-2015 numbering, 5 sketch-text-only, 4 general-3D-sketch-only, 4 curve-pattern-only,
+    3 fillet-only, 3 InkMarkup-only and 2 split-only. Across all blockers: 13 sketch text, 11 general
+    3D sketches, 8 sheet-metal class groups, 7 fillets and 7 sketch planes. The two straight spaced
+    curve patterns are the small next increment; genuinely curved or unspaced paths are not guessed.
+
+205. **Straight, uniformly spaced curve patterns.** The four curve-pattern-only parts split into two
+    narrow readable cases and two that must stay TBD. In the readable records, KeyWords supplies D1
+    count / D3 spacing and the pattern directly references the feature id of an otherwise-unused,
+    one-line, nonzero path sketch. The reader requires a unique referenced candidate and no arcs or
+    circles; it converts the straight path to a linear pattern, using the selected sketch plane to
+    derive exact forward/reverse model directions. The two usable parts are fully decoded with counts
+    5 / 16 and spacings 0.8 / 0.25 mm. Two other parts have count 2 but no spacing and remain unread.
+    Tests failed before the helpers existed and now cover unique path selection and direction. Full
+    suite: **117 Python tests OK (5 skipped), all 18 Rust tests OK**. Four feature trees and two
+    default designs have zero Python/Rust differences. Real rebuilds of both newly decoded parts end
+    at the 300-second search budget with no build to compare, so exact full-batch success remains
+    **29 / 356 (8.1%)** pending any later full rerun; no new match is claimed. Earlier-feature search
+    work on these two is left bounded, not allowed to consume the next batch. Full public parity:
+    54 files / 43 designs, zero differences. The 22-part regression remains 20 / 22 with zero new
+    losses; only the known B-023 PartT8 mismatch differs from its older baseline.

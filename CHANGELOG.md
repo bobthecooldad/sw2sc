@@ -38,6 +38,10 @@ are in `logs/feature-check-nist.md` and working log 184.
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- Straight, uniformly spaced `moCurvePattern_c` features now convert as linear patterns when the
+  record uniquely references an unused one-line path sketch. The line and sketch plane supply the
+  direction; count and spacing are required. Two public parts become fully decoded; unspaced and
+  genuinely curved cases remain TBD. Python and Rust.
 - Mid-plane extrudes (`moEndSpec_c` type 6) are read from the file and written as symmetric
   total-distance extrudes, with only the symmetric direction offered to the rebuild search.
   Other end conditions keep their previous behavior. Python and Rust; layout checked against

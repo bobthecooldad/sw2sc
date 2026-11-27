@@ -65,6 +65,7 @@ NIST run took about eight minutes with eight jobs.
 - [x] Complete the wider-spaced NIST fillet/chamfer reference reading (F-032).
 - [x] Read linear patterns with a consecutive `FIX_n` spacing/count pair (ten features, two parts).
 - [x] Read mid-plane extrude end conditions (F-035); other end-condition layouts remain open.
+- [x] Convert straight uniformly spaced curve patterns with a unique one-line path (two parts).
 - [x] Run the full NIST set and update `logs/feature-check-nist.md` and `docs/dev-build.md`.
 - [x] Measure a rotating private external batch: 6 exact rebuilds, 8 built without a match,
   10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error out of 40.
