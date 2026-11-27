@@ -8,8 +8,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
 ### Added
 - `tools/convert_sample.py --cycle` runs shuffled chunks that cover a whole model set before
   reshuffling; `--cycles` bounds a run and `--include` pins selected regressions. A persistent
-  baseline does not learn new losses. The native converter can write the final design, and each
-  result counts expected versus delivered sketch dimensions without including private names in
+  baseline does not learn new losses. `--exe` selects a copied converter without locking the build
+  output. The native converter can write the final design, and each result counts expected versus
+  delivered sketch dimensions without including private names in
   the aggregate console summary.
 - `tools/feature_blockers.py --dimensions-only` separately censuses saved-but-unread dimensions,
   dimensions rejected by the writer and losses during shared-sketch contour selection, using the

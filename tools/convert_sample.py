@@ -1,7 +1,7 @@
 """Run the plugin's converter (`convert_one`, the Rust build) on a sample of parts in parallel,
 record each outcome, and compare with an earlier run.
 
-    python tools/convert_sample.py LIST_OR_FOLDER OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--timeout 900] [--large-mb 250] [--memory-mb 8192] [--baseline OLD.jsonl]
+    python tools/convert_sample.py LIST_OR_FOLDER OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--timeout 900] [--large-mb 250] [--memory-mb 8192] [--baseline OLD.jsonl] [--exe CONVERTER]
     Add --cycle to keep running, --cycles N for a bounded run, and --include PATH to pin a regression.
 
 LIST_OR_FOLDER is a text file with one part path per line or a folder searched recursively.
@@ -177,9 +177,11 @@ def run_once(a, out: str, seed: int, cycle: int = 0) -> int:
 
 
 def main(argv=None) -> int:
+    global EXE
     ap = argparse.ArgumentParser()
     ap.add_argument("list")
     ap.add_argument("out")
+    ap.add_argument("--exe", default=EXE, help="converter executable; a copied binary avoids locking the build output")
     ap.add_argument("--n", type=int, default=200)
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=20)
@@ -191,6 +193,7 @@ def main(argv=None) -> int:
     ap.add_argument("--cycle", action="store_true", help="keep covering shuffled chunks until stopped")
     ap.add_argument("--cycles", type=int, help="run this many cycles (also useful for a bounded check)")
     a = ap.parse_args(argv)
+    EXE = os.path.abspath(a.exe)
     if a.cycles is not None and a.cycles < 1:
         ap.error("--cycles must be positive")
     if not a.cycle and a.cycles is None:

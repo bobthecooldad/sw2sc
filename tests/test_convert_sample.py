@@ -90,6 +90,15 @@ class ConvertSampleTests(unittest.TestCase):
             with open(baseline, encoding="utf-8") as fh:
                 self.assertEqual(json.loads(fh.read()), good)
 
+    def test_converter_executable_can_be_overridden(self):
+        previous = convert_sample.EXE
+        try:
+            with mock.patch.object(convert_sample, "run_once", return_value=0):
+                self.assertEqual(convert_sample.main(["parts", "out.jsonl", "--exe", "custom-converter.exe"]), 0)
+            self.assertEqual(convert_sample.EXE, os.path.abspath("custom-converter.exe"))
+        finally:
+            convert_sample.EXE = previous
+
     def test_run_uses_requested_timeout(self):
         result = subprocess_result = mock.Mock()
         result.stdout = "{}"

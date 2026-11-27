@@ -1873,3 +1873,17 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     temporary local diagnostic test and face debug output were removed; no private geometry or model
     details are published. Native release tests: all 35 Rust tests OK. Full Python suite: 140 OK
     (5 skipped). Continuous private cycles remain active.
+
+
+224. **Matched random A/B shows no broad gain yet.** The same 40 newly randomized private models
+    were run through the pre-fix converter (fe430db) and the fixed native binary, with parallel workers
+    and per-process limits. Both retain **8 of 394 expected dimensions**; zero models improve and zero
+    worsen in dimension count. Geometry is unchanged: zero rebuilds gained or lost, with five accepted
+    before and after. This does not invalidate the targeted host/native fixes, but it shows they are not
+    yet a population-wide dimension solution. B-028 remains the active priority; no success claim is
+    made from unchanged random results. The continuous worker now uses a copied fixed executable through
+    the new `--exe` option, avoiding the build-output lock. Full suite: **141 Python tests OK (5
+    skipped)**; privacy check clean. The comparison's first reader used the unsuffixed cycle filename
+    and then needed to handle absent dimension records; both local reporting errors were corrected
+    before the above counts were read, with no effect on converter results. No private names or paths
+    are included.
