@@ -64,6 +64,7 @@ NIST run took about eight minutes with eight jobs.
 - [x] Finish verifying Parasolid body/face colours (F-014).
 - [x] Complete the wider-spaced NIST fillet/chamfer reference reading (F-032).
 - [x] Read linear patterns with a consecutive `FIX_n` spacing/count pair (ten features, two parts).
+- [x] Read mid-plane extrude end conditions (F-035); other end-condition layouts remain open.
 - [x] Run the full NIST set and update `logs/feature-check-nist.md` and `docs/dev-build.md`.
 - [x] Measure a rotating private external batch: 6 exact rebuilds, 8 built without a match,
   10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error out of 40.
@@ -88,9 +89,10 @@ These tasks change `sw2sc/features.py`, the corresponding modules under
 2. **3D sketches (`mo3DProfileFeature_c`, F-006/F-036).** Six parts in the scan; also the sole
    feature blocker on NIST FTC 10 and part of CTC 02. Read points, curves and references from the
    records before adding them to rebuilds.
-3. **Extrude end conditions (F-035).** Decode `moEndSpec_c` layouts by version: through all,
-   up to next/face, mid-plane and offsets. This removes search branches and addresses no-build
-   cuts such as the NIST CTC 04 suspects. Hard, high value.
+3. **Remaining extrude end conditions (F-035).** Type 6 (mid-plane) now reads as a symmetric
+   total-distance extrude. Continue with through all, up to next/face and offset references by
+   version. This removes search branches and addresses no-build cuts such as the NIST CTC 04
+   suspects. Hard, high value.
 4. **Older record numbering (F-039, B-019, B-020).** Needed for older construction centrelines,
    arc centres and drifted class tags. Keep this separate from the revolve rebuild-order fix.
 5. **Remaining sketch planes and curves (F-036, F-047).** External/derived references, sketch

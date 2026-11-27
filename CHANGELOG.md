@@ -35,6 +35,10 @@ are in `logs/feature-check-nist.md` and working log 184.
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- Mid-plane extrudes (`moEndSpec_c` type 6) are read from the file and written as symmetric
+  total-distance extrudes, with only the symmetric direction offered to the rebuild search.
+  Other end conditions keep their previous behavior. Python and Rust; layout checked against
+  public samples with help from cadkit-kernel.
 - Linear patterns whose KeyWords contain one consecutive `FIX_n` spacing/count pair now read those
   values instead of becoming TBD. Two public parts, with five such patterns each, are now fully
   decoded. Ordinary `D1`/`D3` dimensions remain unchanged. Python and Rust.

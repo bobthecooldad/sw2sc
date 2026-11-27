@@ -7,6 +7,7 @@
 - **Sketches:** more sketch planes found (in our 4,000-part test set, 55 of 93 parts that had a sketch with no plane now have every plane, up from 8); curves and arc centres read from the sketch's curve records; sketches in pre-2010 files read.
 - **Holes and chamfers:** Hole Wizard placement sketches recovered; hole placement planes taken from the hole itself; chamfers on hole rims.
 - **Patterns:** linear patterns with a consecutive `FIX_n` spacing/count pair now read in Python and Rust, fully decoding two more public parts.
+- **Mid-plane extrudes:** `moEndSpec_c` type 6 now becomes a symmetric total-distance extrude directly from the file, rather than a three-way direction search.
 - **Large imported parts (issue #1):** STEP output about 14% smaller.
 - **Credit:** parts of the rib, hole and sketch readers are ported from [cadkit-kernel](https://github.com/civilkit/cadkit-kernel) (MIT OR Apache-2.0, clean-room); see `THIRD_PARTY_NOTICES.md`.
 
@@ -53,6 +54,10 @@ All 356 parts in the example folder were checked with 12 workers and a 2 GiB per
 117 without feature history, 8 unnumbered streams, 12 crashes and 1 error. No process hit the
 memory limit. The previous-feature underflow behind the 12 crashes is fixed; they now return
 normal timeout/build results. The completed JSONL is the next regression baseline.
+
+A targeted rerun of the two formerly TBD parts with `FIX_n` linear patterns now reaches the rebuild
+stage in both cases; both report no build to compare. Exact matches therefore remain 26 in the
+completed baseline, with no new exact match claimed from this targeted change.
 
 ## Additional private structural sample
 

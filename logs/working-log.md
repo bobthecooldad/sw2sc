@@ -1558,4 +1558,5 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     tests OK (5 skipped). Rust: all tests OK. The first quick rebuild invocation used the old example
     binary while it was still compiling, reproduced the old TBD result, and was discarded before the
     verified rerun above. Targeted Python/Rust parity on both parts: 2 / 2 feature trees and
-    2 / 2 default designs identical.
+    2 / 2 default designs identical. The 22-part regression is 20 / 22 with zero new losses: only
+    the already documented B-023 PartT8 area-only mismatch differs from its older baseline.
