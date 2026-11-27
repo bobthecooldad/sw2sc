@@ -70,7 +70,7 @@ def triage(path, cli, budget):
                         err = max(err, abs(r["volume"] - rr["volume"]) / rr["volume"])
                     if best is None or err < best:
                         best = err
-                    if verify.same(r, rr):
+                    if verify.same(r, rr) and verify.same_shape(cli, q, p):
                         return {"result": "matches", "best": 0.0}
     finally:
         verify._prefix, fillets.candidates = orig_prefix, orig_cand

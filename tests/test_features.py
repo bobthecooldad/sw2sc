@@ -220,6 +220,37 @@ class PatternDimensionTests(unittest.TestCase):
         self.assertEqual(directions[1], [-directions[0][0], -directions[0][1], -directions[0][2]])
 
 
+class SavedSketchGeometryTests(unittest.TestCase):
+    def test_saved_arc_sense_is_preserved(self):
+        from sw2sc import xtgeom
+        sk = sketch({1: (10, 0), 2: (0, 10), 3: (0, 0)}, arcs=[(1, 2, 3)])
+        edge = xtgeom.Edge(xtgeom.Vertex((0.01, 0.0, 0.0)), xtgeom.Vertex((0.0, 0.01, 0.0)),
+                           ("circle", (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0), 0.01), False)
+        features._correct_sketch_from_saved(sk, [edge])
+        self.assertEqual(sk.arcs, [(2, 1, 3)])
+
+    def test_saved_circle_selects_an_existing_point_as_its_centre(self):
+        from sw2sc import xtgeom
+        sk = sketch({1: (20, 0), 2: (0, 0), 3: (2, 0)})
+        sk.circles = [(1, 0.003)]
+        edge = xtgeom.Edge(xtgeom.Vertex((0.002, 0.0, 0.0)), xtgeom.Vertex((0.002, 0.0, 0.0)),
+                           ("circle", (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0), 0.002), True)
+        features._correct_sketch_from_saved(sk, [edge])
+        self.assertEqual(sk.circles, [(2, 0.002)])
+
+    def test_contour_selection_filters_geometry_and_its_relations(self):
+        sk = sketch({1: (0, 0), 2: (10, 0), 3: (10, 10), 4: (0, 10), 5: (5, 5), 6: (7, 5)},
+                    lines=[(1, 2), (2, 3), (3, 4), (4, 1)])
+        sk.circles = [(5, 0.002)]
+        sk.curve_of = {("arc", 7): "c1", ("line", 1): "l1"}
+        sk.relations = [(9, [[("arc", 7)]]), (1, [[("line", 1)]])]
+        selected = features.select_sketch_loops(sk, [["l1", "l2", "l3", "l4"]])
+        self.assertEqual(len(selected.lines), 4)
+        self.assertEqual(selected.circles, [])
+        self.assertEqual(selected.relations, [(1, [[("line", 1)]])])
+        self.assertEqual(selected.curve_of, {("line", 1): "l1"})
+
+
 class RealPartTests(unittest.TestCase):
     def read(self, path):
         if not os.path.isfile(path):

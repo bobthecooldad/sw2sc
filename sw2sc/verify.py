@@ -2,9 +2,10 @@
 
 The feature tree read by sw2sc.features is written as SolidCraft features and evaluated with
 solidcraft-cli; it is used only when its volume, surface area and bounding box match the part's
-own solid (converted as an import) within 0.1 %. What the file leaves open, an extrude's
-direction or which of two plane references a sketch uses, is settled by trying the candidates
-the file gives and keeping the one that matches.
+own solid (converted as an import) within 0.1 %, and both geometric differences fit the same
+relative volume tolerance. What the file leaves open, an extrude's direction or which of two
+plane references a sketch uses, is settled by trying the candidates the file gives and keeping
+the one that matches.
 """
 from __future__ import annotations
 
@@ -261,6 +262,75 @@ def same(a: dict | None, b: dict | None) -> bool:
     return True
 
 
+def _raw_eval(cli: str, path: str, script: str | None = None) -> dict | None:
+    args = [cli, "eval", script or path]
+    if script:
+        args += ["--in", path]
+    try:
+        result = subprocess.run(args, capture_output=True, timeout=180)
+        return json.loads(result.stdout.decode("utf-8", "replace"))
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def _difference_volume(cli: str, target_path: str, tool_path: str) -> float | None:
+    """Volume of target minus tool through SolidCraft, or None if that difference cannot be checked."""
+    target = _raw_eval(cli, target_path)
+    tool = _raw_eval(cli, tool_path)
+    target_names = [b.get("name") for b in (target or {}).get("bodies", []) if b.get("name")]
+    tool_names = [b.get("name") for b in (tool or {}).get("bodies", []) if b.get("name")]
+    if len(target_names) != 1 or len(tool_names) != 1:
+        return None
+    tmp = tempfile.mkdtemp(prefix="sw2sc-shape-")
+    try:
+        insert = os.path.join(tmp, "insert.json")
+        combined = os.path.join(tmp, "combined.solidcraft")
+        reply = os.path.join(tmp, "insert-result.json")
+        script = {"commands": [{"command": "component.insert_design", "params": {"path": tool_path, "name": "Reference"}}]}
+        with open(insert, "w", encoding="utf-8") as fh:
+            json.dump(script, fh)
+        result = subprocess.run([cli, "run", insert, "--in", target_path, "--results", "--json-out", reply,
+                                 "--save", combined], capture_output=True, timeout=180)
+        if result.returncode:
+            return None
+        with open(reply, encoding="utf-8") as fh:
+            inserted = json.load(fh)
+        created = inserted[-1].get("created_bodies", []) if inserted else []
+        if len(created) != 1:
+            return None
+        cut = os.path.join(tmp, "cut.json")
+        script = {"commands": [{"command": "solid.combine", "params": {"target": target_names[0], "tools": created, "operation": "cut"}}]}
+        with open(cut, "w", encoding="utf-8") as fh:
+            json.dump(script, fh)
+        evaluated = _raw_eval(cli, combined, cut)
+        if not evaluated or any(s.get("error") for s in evaluated.get("timeline", [])):
+            return None
+        volume = evaluated.get("total", {}).get("volume_mm3")
+        return float(volume) if volume is not None else None
+    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
+        return None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def shape_differences_within(extra: float | None, missing: float | None, reference_volume: float) -> bool:
+    """Both directions must be checked and within the same relative volume tolerance."""
+    if extra is None or missing is None:
+        return False
+    return abs(extra) <= REL * max(abs(reference_volume), 1.0) and abs(missing) <= REL * max(abs(reference_volume), 1.0)
+
+
+def same_shape(cli: str, reference_path: str, candidate_path: str) -> bool:
+    """Metric agreement followed by actual geometric difference in both directions."""
+    reference = _raw_eval(cli, reference_path)
+    volume = (reference or {}).get("total", {}).get("volume_mm3")
+    if not volume:
+        return False
+    extra = _difference_volume(cli, candidate_path, reference_path)
+    missing = _difference_volume(cli, reference_path, candidate_path)
+    return shape_differences_within(extra, missing, volume)
+
+
 LAST: dict = {}   # the closest rebuild attempt yet: its numbers, against the reference
 
 
@@ -353,12 +423,12 @@ def rebuild(feats: list, reference: dict, name: str, cli: str | None = None) -> 
         _box.update(relax=False, blocked=False)
         for constraints in (True, False):   # without the sketches' constraints only if they spoil it
             tries = 0
-            found = _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints)
+            found = _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints, ref_path)
             if found:
                 return found
             if _box["blocked"]:
                 _box["relax"] = True
-                found = _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints)
+                found = _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints, ref_path)
                 _box.update(relax=False, blocked=False)
                 if found:
                     return found
@@ -368,7 +438,7 @@ def rebuild(feats: list, reference: dict, name: str, cli: str | None = None) -> 
         _deadline[0] = float("inf")
 
 
-def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints):
+def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref, constraints, ref_path):
     """Try the candidates the file leaves open (sketch planes, revolve axes and sides, extrude
     directions); the first design whose rebuild matches `ref`, or None."""
     tries = 0
@@ -435,7 +505,7 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                     for d in _sequential(name, feats, dict(choices), planes, constraints, cli, os.path.dirname(path), ref, reach):
                         with open(path, "w", encoding="utf-8") as fh:
                             json.dump(d, fh)
-                        if _judge(cli, path, ref):
+                        if _judge(cli, path, ref) and same_shape(cli, ref_path, path):
                             return d
                         tries += 1
                         if tries > MAX_TRIES:
@@ -447,7 +517,7 @@ def _search(name, feats, extr, revs, sk_list, options, rev_opts, path, cli, ref,
                 for d in _with_fillets(name, feats, choices, planes, constraints, cli, os.path.dirname(path), {}):
                     with open(path, "w", encoding="utf-8") as fh:
                         json.dump(d, fh)
-                    if _judge(cli, path, ref):
+                    if _judge(cli, path, ref) and same_shape(cli, ref_path, path):
                         return d
                     tries += 1
                     if tries > MAX_TRIES:

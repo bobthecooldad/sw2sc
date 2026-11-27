@@ -44,6 +44,12 @@ impl Evaluator for Timed<'_> {
     fn faces(&mut self, design: &Value) -> Option<Value> {
         if self.inner.now() > self.deadline { None } else { self.inner.faces(design) }
     }
+    fn difference_volume(&mut self, target: &Value, tool: &Value) -> Option<f64> {
+        if self.inner.now() > self.deadline { None } else { self.inner.difference_volume(target, tool) }
+    }
+    fn shape_matches(&mut self, reference: &Value, candidate: &Value) -> bool {
+        self.inner.now() <= self.deadline && self.inner.shape_matches(reference, candidate)
+    }
     fn now(&self) -> f64 {
         self.inner.now()
     }
@@ -55,6 +61,7 @@ struct Ctx<'a> {
     planes: HashMap<String, usize>,
     constraints: bool,
     ev: &'a mut dyn Evaluator,
+    reference: &'a Value,
     rf: Option<Eval>,
     deadline: f64,
     out: Outcome,
@@ -103,7 +110,10 @@ impl Ctx<'_> {
                 self.out.closest = Some(r.clone());
             }
         }
-        same(r.as_ref(), self.rf.as_ref())
+        if !same(r.as_ref(), self.rf.as_ref()) {
+            return false;
+        }
+        self.ev.shape_matches(self.reference, d)
     }
 
     fn by_fname(&self, n: &str) -> Option<&Feature> {
@@ -167,7 +177,7 @@ pub fn rebuild(feats: &mut Vec<Feature>, reference: &Value, name: &str, ev: &mut
     let deadline = ev.now() + TIME_BUDGET;
     let mut timed = Timed { inner: ev, deadline };
     let mut ctx = Ctx {
-        name: name.into(), feats, planes: HashMap::new(), constraints: true, ev: &mut timed, rf: Some(rf), deadline, out: outcome,
+        name: name.into(), feats, planes: HashMap::new(), constraints: true, ev: &mut timed, reference, rf: Some(rf), deadline, out: outcome,
         relax_box: false, box_blocked: false, reach: None,
     };
     for constraints in [true, false] {
@@ -1374,6 +1384,18 @@ mod tests {
         }
         fn edges(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
         fn faces(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
+        fn difference_volume(&mut self, _target: &Value, _tool: &Value) -> Option<f64> { Some(0.0) }
+        fn now(&self) -> f64 { 0.0 }
+    }
+
+    struct RejectShape;
+    impl crate::verify::Evaluator for RejectShape {
+        fn evaluate(&mut self, _design: &Value) -> Option<crate::verify::Eval> {
+            Some(crate::verify::Eval { volume: Some(100.0), area: Some(100.0), ..Default::default() })
+        }
+        fn edges(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
+        fn faces(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
+        fn difference_volume(&mut self, _target: &Value, _tool: &Value) -> Option<f64> { None }
         fn now(&self) -> f64 { 0.0 }
     }
 
@@ -1390,6 +1412,37 @@ mod tests {
         boss.through_all = true;
         let mut feats = vec![imported, sk, boss];
         let _ = rebuild(&mut feats, &json!({"features": []}), "t", &mut EvalAll);
+    }
+
+    #[test]
+    fn rebuild_cannot_accept_when_the_shape_check_fails() {
+        let mut sketch = Sketch::new("Sketch1", 0);
+        sketch.add_plane(&(crate::features::FRONT, [0.0; 3]), "test", false);
+        let mut sk = Feature::new("sketch", "Sketch1", 0, "moProfileFeature_c");
+        sk.sketch = Some(sketch);
+        let mut boss = Feature::new("boss", "Boss-Extrude1", 1, "moExtrusion_c");
+        boss.profile = Some("Sketch1".into());
+        boss.depth_mm = Some(10.0);
+        let mut feats = vec![sk, boss];
+        let (built, _) = rebuild(&mut feats, &json!({"features": []}), "Box", &mut RejectShape);
+        assert!(built.is_none());
+    }
+
+    struct AcceptInspectedShape;
+    impl crate::verify::Evaluator for AcceptInspectedShape {
+        fn evaluate(&mut self, design: &Value) -> Option<crate::verify::Eval> { EvalAll.evaluate(design) }
+        fn edges(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
+        fn faces(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
+        fn difference_volume(&mut self, _target: &Value, _tool: &Value) -> Option<f64> { None }
+        fn shape_matches(&mut self, _reference: &Value, _candidate: &Value) -> bool { true }
+        fn now(&self) -> f64 { 0.0 }
+    }
+
+    #[test]
+    fn timed_evaluator_forwards_the_hosts_shape_check() {
+        let mut inner = AcceptInspectedShape;
+        let mut timed = Timed { inner: &mut inner, deadline: 10.0 };
+        assert!(timed.shape_matches(&json!({}), &json!({})));
     }
 
     #[test]

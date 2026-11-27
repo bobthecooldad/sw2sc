@@ -18,8 +18,9 @@ Full detail: `CHANGELOG.md` **0.18.0** and `logs/working-log.md` on the dev bran
 ## NIST test set: where each part is up to
 
 A part counts as **converted** only when its editable feature tree rebuilds in SolidCraft and
-matches the part's own solid (volume, area and bounding box within 0.1%). An imported-solid
-fallback is not counted as conversion success.
+matches the part's own solid (volume, area and bounding box within 0.1%, followed by geometric
+evidence). Native checks use two-way boolean differences; the read-only host compares exact face
+surfaces, areas and centres. An imported-solid fallback is not counted as conversion success.
 
 Latest full eight-job run: **0 of 19 converted; 12 of 19 fully decoded and attempted a rebuild;
 7 of 19 still blocked by unread features or sketches.** Before this batch those figures were 0,
@@ -68,5 +69,5 @@ A separate rotating 40-part batch from a private model folder was run locally on
 Only aggregate results are published: **6 exact feature-tree rebuilds (15%)**, 5 built without a
 match, 10 no-builds, 6 TBD, 12 without feature history and 1 missing-geometry error. No match was
 lost; there were no crashes or memory-limit events. The per-part report, filenames, paths and
-geometry remain private. The remaining private models continue scanning locally without blocking
-this measured release sample.
+geometry remain private. The full private scan is stopped and is not used as verification; focused
+regression samples run without waiting for it.

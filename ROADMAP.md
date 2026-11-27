@@ -2,7 +2,8 @@
 
 sw2sc reads SolidWorks files without SolidWorks and rebuilds their **editable feature structure**
 in SolidCraft. Success is a feature-tree rebuild whose volume, surface area and bounding box match
-the saved solid within 0.1%. An imported STEP solid is only a fallback and does **not** count.
+the saved solid within 0.1%, followed by geometric evidence (two-way differences natively, or exact
+face geometry in the read-only host). An imported STEP solid is only a fallback and does **not** count.
 
 This file is for choosing and allocating work. `ISSUES.md` holds diagnoses, `docs/clean-room.md`
 holds format evidence, and `logs/working-log.md` holds attempted fixes and measurements. Current

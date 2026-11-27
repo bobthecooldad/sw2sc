@@ -1032,6 +1032,7 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             last_sketch = Some(out.len() - 1);
         }
     }
+    correct_repeated_sketches(sw, &mut out);
     shared_sketches(&mut out);
     // the first sketch with no plane reference at all: the three standard planes, for the
     // rebuild check to choose between (see the Python)
@@ -1530,30 +1531,290 @@ fn hole_planes(sw: &SwFile, feats: &mut [Feature]) {
     }
 }
 
+/// Circular edges in the part's own saved solid, with their loop orientation.
+fn saved_circular_edges(sw: &SwFile) -> Vec<std::rc::Rc<crate::xtgeom::Edge>> {
+    let mut out = Vec::new();
+    for (_name, data) in crate::step::parasolid_sources(sw) {
+        let Ok(part) = crate::parasolid::read(&data) else { continue };
+        let bodies = crate::xtgeom::Converter::new(&part).bodies();
+        for body in bodies {
+            for shell in body.outer.iter().chain(body.voids.iter()) {
+                for face in &shell.faces {
+                    for lp in &face.loops {
+                        for (edge, _orientation) in &lp.edges {
+                            if matches!(&edge.curve, crate::xtgeom::CurveSpec::Circle(..)) && edge.start.is_some() && edge.end.is_some() {
+                                out.push(edge.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Resolve a repeated sketch's ambiguous centres and arc senses from its saved circular edges.
+fn correct_sketch_from_saved(sk: &mut Sketch, edges: &[std::rc::Rc<crate::xtgeom::Edge>]) {
+    let Some((frame, _)) = sk.planes.first() else { return };
+    let ([x, y, normal], origin) = *frame;
+    let points = sk.points.clone();
+    if points.is_empty() {
+        return;
+    }
+    let dot = crate::xtgeom::dot;
+    let dist = crate::xtgeom::dist;
+    let world = |p: (f64, f64)| [0, 1, 2].map(|i| origin[i] + p.0 * x[i] + p.1 * y[i]);
+    let point_id = |p: V3| {
+        let q = [0, 1, 2].map(|i| p[i] - origin[i]);
+        let uv = (dot(q, x), dot(q, y));
+        let mut best: Option<(u32, f64)> = None;
+        for (&pid, &at) in &points {
+            let d = (at.0 - uv.0).hypot(at.1 - uv.1);
+            if best.is_none_or(|(_, current)| d < current) {
+                best = Some((pid, d));
+            }
+        }
+        let (pid, d) = best?;
+        (d <= 5e-5).then_some(pid)
+    };
+
+    for (n, (a, b, ctr)) in sk.arcs.clone().into_iter().enumerate() {
+        let (Some(&pa), Some(&pb), Some(&pc)) = (points.get(&a), points.get(&b), points.get(&ctr)) else { continue };
+        let centre = world(pc);
+        let radius = (pa.0 - pc.0).hypot(pa.1 - pc.1);
+        let mut choices = HashSet::new();
+        for edge in edges {
+            let crate::xtgeom::CurveSpec::Circle(c, normal2, _axis, r) = &edge.curve else { continue };
+            if dist(centre, *c) > 1e-6 || (radius - r).abs() > 1e-6 || (dot(*c, normal) - dot(origin, normal)).abs() > 5e-5 {
+                continue;
+            }
+            let ends = [world(pa), world(pb)];
+            let (Some(start), Some(end)) = (edge.start.as_ref(), edge.end.as_ref()) else { continue };
+            let saved = [start.point, end.point];
+            let touches = ends.iter().any(|p| saved.iter().map(|q| dist(*p, *q)).fold(f64::INFINITY, f64::min) <= 5e-5);
+            if dist(saved[0], saved[1]) < TOL || !touches {
+                continue;
+            }
+            let forward = edge.same_sense == (dot(*normal2, normal) > 0.0);
+            let directed = if forward { saved } else { [saved[1], saved[0]] };
+            if let (Some(first), Some(last)) = (point_id(directed[0]), point_id(directed[1])) {
+                if first != last {
+                    choices.insert((first, last));
+                }
+            }
+        }
+        if choices.len() == 1 {
+            let (a2, b2) = choices.iter().next().copied().unwrap();
+            sk.arcs[n] = (a2, b2, ctr);
+        }
+    }
+
+    let mut full: Vec<(V3, u32, f64)> = Vec::new();
+    for edge in edges {
+        let crate::xtgeom::CurveSpec::Circle(centre, _normal, _axis, radius) = &edge.curve else { continue };
+        let (Some(start), Some(end)) = (edge.start.as_ref(), edge.end.as_ref()) else { continue };
+        if dist(start.point, end.point) >= TOL {
+            continue;
+        }
+        let Some(pid) = point_id(*centre) else { continue };
+        if points.iter().any(|(&p, &at)| {
+            p != pid && ((at.0 - points[&pid].0).hypot(at.1 - points[&pid].1) - radius).abs() <= 1e-6
+        }) {
+            full.push((*centre, pid, *radius));
+        }
+    }
+    for (n, (ctr, radius)) in sk.circles.clone().into_iter().enumerate() {
+        let Some(&point) = points.get(&ctr) else { continue };
+        let centre = world(point);
+        if full.iter().any(|(c, _p, r)| dist(centre, *c) <= 1e-6 && (radius - r).abs() <= 1e-6) {
+            continue;
+        }
+        let mut best: Vec<(u32, f64, f64)> = Vec::new();
+        for &(c, pid, r) in &full {
+            let d = dist(centre, c);
+            if let Some(item) = best.iter_mut().find(|(p, saved_r, _)| *p == pid && *saved_r == r) {
+                item.2 = item.2.min(d);
+            } else {
+                best.push((pid, r, d));
+            }
+        }
+        if best.is_empty() {
+            continue;
+        }
+        let mut nearest = 0;
+        for i in 1..best.len() {
+            if best[i].2 < best[nearest].2 {
+                nearest = i;
+            }
+        }
+        let distance = best[nearest].2;
+        if best.iter().filter(|item| (item.2 - distance).abs() <= 1e-9).count() == 1 {
+            sk.circles[n] = (best[nearest].0, best[nearest].1);
+        }
+    }
+}
+
+/// Select contours whose geometry belongs to each repeated feature's own saved side faces.
+fn select_boss_loops(part: &crate::parasolid::Partition, feats: &mut [Feature], targets: &HashSet<String>) {
+    let tagged = tagged_faces(part);
+    if tagged.is_empty() {
+        return;
+    }
+    let sketches: HashMap<String, Sketch> = feats.iter().filter(|f| f.kind == "sketch").filter_map(|f| f.sketch.clone().map(|sk| (f.name.clone(), sk))).collect();
+    let dist = crate::xtgeom::dist;
+    for f in feats {
+        if !["boss", "cut"].contains(&f.kind.as_str()) || !f.profile.as_ref().is_some_and(|p| targets.contains(p)) {
+            continue;
+        }
+        let Some(sk) = f.profile.as_ref().and_then(|p| sketches.get(p)) else { continue };
+        let Some((frame, _)) = sk.planes.first() else { continue };
+        let ([x, y, _normal], origin) = *frame;
+        let loops: Vec<Vec<String>> = crate::design::loops(sk).into_iter().map(|(ids, _poly)| ids).collect();
+        let loop_count = loops.len();
+        if loop_count < 2 {
+            continue;
+        }
+        let world = |p: (f64, f64)| [0, 1, 2].map(|i| origin[i] + p.0 * x[i] + p.1 * y[i]);
+        let mut own: Vec<(&crate::parasolid::Node, i64)> = Vec::new();
+        for ((kind, fid, _local), surfaces) in &tagged {
+            if *fid != f.fid as i64 || ![74, 83].contains(kind) {
+                continue;
+            }
+            for (surface, face) in surfaces {
+                if let Some(node) = part.get(*surface) {
+                    own.push((node, *face));
+                }
+            }
+        }
+        let mut selected = Vec::new();
+        for ids in loops {
+            let mut evidence = false;
+            if ids.len() == 1 && ids[0].starts_with('c') {
+                let index = ids[0][1..].parse::<usize>().ok().and_then(|n| n.checked_sub(1));
+                if let Some((ctr, radius)) = index.and_then(|n| sk.circles.get(n)).copied() {
+                    let Some(&point) = sk.points.get(&ctr) else { continue };
+                    let centre = world(point);
+                    for (surface, _face) in &own {
+                        let saved_radius = surface.get("radius").map_or(0.0, crate::parasolid::F::real);
+                        if surface.name != "CYLINDER" || (saved_radius - radius).abs() > 1e-6 || surface.get("axis").is_none() {
+                            continue;
+                        }
+                        let pvec = surface.v("pvec");
+                        let axis = surface.v("axis");
+                        let delta = [0, 1, 2].map(|i| pvec[i] - centre[i]);
+                        let along = crate::xtgeom::dot(delta, axis);
+                        let off = (crate::xtgeom::dot(delta, delta) - along * along).max(0.0).sqrt();
+                        if off <= 1e-6 {
+                            evidence = true;
+                            break;
+                        }
+                    }
+                }
+            } else {
+                let mut points = HashSet::new();
+                for curve in &ids {
+                    let Some(n) = curve.get(1..).and_then(|n| n.parse::<usize>().ok()).and_then(|n| n.checked_sub(1)) else { continue };
+                    if curve.starts_with('l') {
+                        if let Some(&(a, b)) = sk.lines.get(n) {
+                            points.extend([a, b]);
+                        }
+                    } else if curve.starts_with('a') {
+                        if let Some(&(a, b, _)) = sk.arcs.get(n) {
+                            points.extend([a, b]);
+                        }
+                    }
+                }
+                'faces: for (_surface, face) in &own {
+                    for p in face_points(part, *face) {
+                        if points.iter().filter_map(|q| sk.points.get(q)).any(|q| dist(world(*q), p) <= 5e-5) {
+                            evidence = true;
+                            break 'faces;
+                        }
+                    }
+                }
+            }
+            if evidence {
+                selected.push(ids);
+            }
+        }
+        if !selected.is_empty() && selected.len() < loop_count {
+            f.selected_loops = Some(selected);
+        }
+    }
+}
+
+fn correct_repeated_sketches(sw: &SwFile, feats: &mut [Feature]) {
+    let mut uses: HashMap<String, usize> = HashMap::new();
+    for f in feats.iter() {
+        if ["boss", "cut"].contains(&f.kind.as_str()) {
+            if let Some(profile) = f.profile.as_ref() {
+                *uses.entry(profile.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    let targets: HashSet<String> = uses.into_iter().filter(|(_, count)| *count > 1).map(|(name, _)| name).collect();
+    if targets.is_empty() {
+        return;
+    }
+    let edges = saved_circular_edges(sw);
+    if edges.is_empty() {
+        return;
+    }
+    for f in feats.iter_mut() {
+        if f.kind == "sketch" && targets.contains(&f.name) {
+            if let Some(sk) = f.sketch.as_mut() {
+                correct_sketch_from_saved(sk, &edges);
+            }
+        }
+    }
+    let sources = crate::step::parasolid_sources(sw);
+    let Some((_name, data)) = sources.first() else { return };
+    let Ok(part) = crate::parasolid::read(data) else { return };
+    select_boss_loops(&part, feats, &targets);
+}
+
 /// A sketch used by a second feature is written again as `SketchN<k>`: no points and no plane
 /// reference of its own, only which of SketchN's contours it takes (not read). It is given
-/// SketchN's geometry and planes; the rebuild check says if that holds.
-fn shared_sketches(out: &mut [Feature]) {
+/// SketchN's geometry and planes; the rebuild check says if that holds. A matching earlier
+/// extrude is reassigned to the clone, which moves immediately before that extrude.
+fn shared_sketches(out: &mut Vec<Feature>) {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"^(.*)<\d+>$").unwrap());
     let base: HashMap<String, Sketch> = out
         .iter()
         .filter_map(|f| f.sketch.as_ref().filter(|s| !s.points.is_empty()).map(|s| (f.name.clone(), s.clone())))
         .collect();
-    for f in out.iter_mut() {
-        let Some(s) = f.sketch.as_ref() else { continue };
+    let mut moves: Vec<(String, usize, String, usize)> = Vec::new();
+    for index in 0..out.len() {
+        let Some(s) = out[index].sketch.as_ref() else { continue };
         if !s.points.is_empty() || !s.planes.is_empty() {
             continue;
         }
-        let Some(m) = re.captures(&f.name) else { continue };
-        let Some(src) = base.get(&m[1]) else { continue };
+        let Some(base_name) = re.captures(&out[index].name).map(|m| m[1].to_string()) else { continue };
+        let Some(src) = base.get(&base_name).cloned() else { continue };
+        let (name, offset, end) = (s.name.clone(), s.offset, s.end);
         let mut new = src.clone();
-        new.name = s.name.clone();
-        new.offset = s.offset;
-        new.end = s.end;
+        new.name = name;
+        new.offset = offset;
+        new.end = end;
         new.used = false;
         new.planes = src.planes.iter().map(|(fr, how)| (*fr, format!("shared sketch: {}'s {}", src.name, how))).collect();
-        f.sketch = Some(new);
+        out[index].sketch = Some(new);
+        let previous = (0..index).rev().find(|&i| {
+            ["boss", "cut"].contains(&out[i].kind.as_str()) && out[i].profile.as_deref() == Some(base_name.as_str())
+        });
+        if let Some(previous) = previous {
+            let clone_name = out[index].name.clone();
+            out[previous].profile = Some(clone_name);
+            moves.push((out[index].name.clone(), out[index].offset, out[previous].name.clone(), out[previous].offset));
+        }
+    }
+    for (sketch_name, sketch_offset, feature_name, feature_offset) in moves {
+        let sketch_index = out.iter().position(|f| f.name == sketch_name && f.offset == sketch_offset).unwrap();
+        let sketch = out.remove(sketch_index);
+        let feature_index = out.iter().position(|f| f.name == feature_name && f.offset == feature_offset).unwrap();
+        out.insert(feature_index, sketch);
     }
 }
 
@@ -1863,6 +2124,108 @@ fn body_move(b: &[u8], s: usize, e: usize) -> Option<([f64; 9], [f64; 3])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_sketch(points: &[(u32, (f64, f64))]) -> Sketch {
+        let mut sk = Sketch::new("S", 0);
+        sk.points.extend(points.iter().copied());
+        sk.add_plane(&(FRONT, [0.0; 3]), "test", false);
+        sk
+    }
+
+    fn circular_edge(start: V3, end: V3, centre: V3, radius: f64, same_sense: bool) -> std::rc::Rc<crate::xtgeom::Edge> {
+        use crate::xtgeom::{CurveSpec, Edge, Vertex};
+        std::rc::Rc::new(Edge {
+            id: 1,
+            start: Some(std::rc::Rc::new(Vertex { id: 1, point: start })),
+            end: Some(std::rc::Rc::new(Vertex { id: 2, point: end })),
+            curve: CurveSpec::Circle(centre, [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], radius),
+            same_sense,
+            approx: false,
+        })
+    }
+
+    #[test]
+    fn saved_arc_sense_is_preserved() {
+        let mut sk = test_sketch(&[(1, (0.01, 0.0)), (2, (0.0, 0.01)), (3, (0.0, 0.0))]);
+        sk.arcs = vec![(1, 2, 3)];
+        let edge = circular_edge([0.01, 0.0, 0.0], [0.0, 0.01, 0.0], [0.0; 3], 0.01, false);
+        correct_sketch_from_saved(&mut sk, &[edge]);
+        assert_eq!(sk.arcs, [(2, 1, 3)]);
+    }
+
+    #[test]
+    fn saved_circle_selects_an_existing_point_as_its_centre() {
+        let mut sk = test_sketch(&[(1, (0.02, 0.0)), (2, (0.0, 0.0)), (3, (0.002, 0.0))]);
+        sk.circles = vec![(1, 0.003)];
+        let edge = circular_edge([0.002, 0.0, 0.0], [0.002, 0.0, 0.0], [0.0; 3], 0.002, true);
+        correct_sketch_from_saved(&mut sk, &[edge]);
+        assert_eq!(sk.circles, [(2, 0.002)]);
+    }
+
+    #[test]
+    fn shared_sketch_moves_before_and_reassigns_the_previous_extrude() {
+        let mut source = test_sketch(&[(1, (0.0, 0.0)), (2, (0.01, 0.0))]);
+        source.name = "Sketch1".into();
+        source.lines = vec![(1, 2)];
+        let mut original = Feature::new("sketch", "Sketch1", 0, SKETCH);
+        original.sketch = Some(source);
+        let mut first = Feature::new("boss", "Boss1", 10, BOSS);
+        first.profile = Some("Sketch1".into());
+        let mut clone = Feature::new("sketch", "Sketch1<2>", 20, SKETCH);
+        let mut empty = Sketch::new("Sketch1<2>", 20);
+        empty.end = 30;
+        clone.sketch = Some(empty);
+        let mut second = Feature::new("boss", "Boss2", 40, BOSS);
+        second.profile = Some("Sketch1<2>".into());
+        let mut feats = vec![original, first, clone, second];
+        shared_sketches(&mut feats);
+        let names: Vec<&str> = feats.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["Sketch1", "Sketch1<2>", "Boss1", "Boss2"]);
+        assert_eq!(feats[2].profile.as_deref(), Some("Sketch1<2>"));
+        assert_eq!(feats[3].profile.as_deref(), Some("Sketch1<2>"));
+        let copied = feats[1].sketch.as_ref().unwrap();
+        assert_eq!(copied.lines, [(1, 2)]);
+        assert_eq!(copied.offset, 20);
+        assert_eq!(copied.end, 30);
+        assert_eq!(copied.planes[0].1, "shared sketch: Sketch1's test");
+    }
+
+    #[test]
+    fn saved_side_cylinder_selects_only_its_circle_contour() {
+        use crate::parasolid::{Node, Partition, F};
+        let node = |index, name: &str, fields: &[(&str, F)]| Node {
+            ty: 0,
+            name: name.into(),
+            index,
+            f: fields.iter().map(|(k, v)| ((*k).into(), v.clone())).collect(),
+        };
+        let nodes = [
+            node(1, "CYLINDER", &[("pvec", F::V3([0.0; 3])), ("axis", F::V3([0.0, 0.0, 1.0])), ("radius", F::Real(0.002))]),
+            node(2, "FACE", &[("surface", F::Ptr(1)), ("attributes_groups", F::Ptr(3))]),
+            node(3, "ATTRIBUTE", &[("definition", F::Ptr(4)), ("fields", F::List(vec![F::Ptr(5)])), ("next", F::Ptr(0))]),
+            node(4, "ATTDEF", &[("identifier", F::Ptr(6))]),
+            node(5, "INT_VALUES", &[("values", F::List(vec![F::Int(74), F::Int(42), F::Int(0), F::Int(0), F::Int(1)]))]),
+            node(6, "IDENTIFIER", &[("string", F::List("FACE_ID_2001".chars().map(F::Char).collect()))]),
+        ];
+        let part = Partition {
+            modeller: String::new(),
+            schema: String::new(),
+            nodes: nodes.into_iter().map(|n| (n.index, n)).collect(),
+            order: vec![1, 2, 3, 4, 5, 6],
+            warnings: vec![],
+        };
+        let mut sk = test_sketch(&[(1, (0.0, 0.0)), (2, (0.002, 0.0)), (3, (0.01, 0.0)), (4, (0.013, 0.0))]);
+        sk.circles = vec![(1, 0.002), (3, 0.003)];
+        let mut sketch = Feature::new("sketch", "S", 0, SKETCH);
+        sketch.sketch = Some(sk);
+        let mut boss = Feature::new("boss", "Boss1", 1, BOSS);
+        boss.profile = Some("S".into());
+        boss.fid = 42;
+        let mut feats = vec![sketch, boss];
+        let targets = HashSet::from(["S".to_string()]);
+        select_boss_loops(&part, &mut feats, &targets);
+        assert_eq!(feats[1].selected_loops, Some(vec![vec!["c1".to_string()]]));
+    }
 
     #[test]
     fn curve_pattern_path_is_a_referenced_unused_line() {

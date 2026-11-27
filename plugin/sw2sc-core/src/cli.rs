@@ -37,15 +37,20 @@ impl CliEvaluator {
         p
     }
 
-    fn eval_raw(&self, path: &Path) -> Option<Value> {
-        let out = Command::new(&self.cli).arg("eval").arg(path).output().ok()?;
+    fn eval_raw(&self, path: &Path, script: Option<&Path>) -> Option<Value> {
+        let mut command = Command::new(&self.cli);
+        command.arg("eval").arg(script.unwrap_or(path));
+        if script.is_some() {
+            command.arg("--in").arg(path);
+        }
+        let out = command.output().ok()?;
         serde_json::from_slice(&out.stdout).ok()
     }
 
     /// `model.<what>` for each body of the design, the results joined.
     fn per_body(&mut self, design: &Value, what: &str, key: &str) -> Option<Value> {
         let src = self.write(design);
-        let ev = self.eval_raw(&src)?;
+        let ev = self.eval_raw(&src, None)?;
         let names: Vec<String> = ev["bodies"].as_array()?.iter().filter_map(|b| b["name"].as_str().map(String::from)).collect();
         if names.is_empty() {
             return None;
@@ -65,7 +70,7 @@ impl CliEvaluator {
 impl Evaluator for CliEvaluator {
     fn evaluate(&mut self, design: &Value) -> Option<Eval> {
         let p = self.write(design);
-        self.eval_raw(&p).map(|d| eval_from(&d))
+        self.eval_raw(&p, None).map(|d| eval_from(&d))
     }
 
     fn edges(&mut self, design: &Value) -> Option<Value> {
@@ -74,6 +79,60 @@ impl Evaluator for CliEvaluator {
 
     fn faces(&mut self, design: &Value) -> Option<Value> {
         self.per_body(design, "faces", "faces")
+    }
+
+    fn difference_volume(&mut self, target: &Value, tool: &Value) -> Option<f64> {
+        let target_path = self.write(target);
+        let tool_path = self.write(tool);
+        let target_eval = self.eval_raw(&target_path, None)?;
+        let tool_eval = self.eval_raw(&tool_path, None)?;
+        let names = |d: &Value| {
+            d["bodies"].as_array().map_or(vec![], |bodies| bodies.iter().filter_map(|b| b["name"].as_str().filter(|n| !n.is_empty()).map(String::from)).collect::<Vec<_>>())
+        };
+        let target_names = names(&target_eval);
+        let tool_names = names(&tool_eval);
+        if target_names.len() != 1 || tool_names.len() != 1 {
+            return None;
+        }
+        let tmp = self.dir.join(format!("shape-{}", self.n));
+        std::fs::create_dir_all(&tmp).ok()?;
+        let result = (|| {
+            let insert = tmp.join("insert.json");
+            let combined = tmp.join("combined.solidcraft");
+            let reply = tmp.join("insert-result.json");
+            let script = json!({"commands": [{"command": "component.insert_design", "params": {"path": tool_path, "name": "Reference"}}]});
+            std::fs::write(&insert, serde_json::to_vec(&script).ok()?).ok()?;
+            let result = Command::new(&self.cli)
+                .arg("run")
+                .arg(&insert)
+                .arg("--in")
+                .arg(&target_path)
+                .arg("--results")
+                .arg("--json-out")
+                .arg(&reply)
+                .arg("--save")
+                .arg(&combined)
+                .output()
+                .ok()?;
+            if !result.status.success() {
+                return None;
+            }
+            let inserted: Value = serde_json::from_slice(&std::fs::read(&reply).ok()?).ok()?;
+            let created = inserted.as_array()?.last()?.get("created_bodies")?.as_array()?;
+            if created.len() != 1 {
+                return None;
+            }
+            let cut = tmp.join("cut.json");
+            let script = json!({"commands": [{"command": "solid.combine", "params": {"target": target_names[0], "tools": created, "operation": "cut"}}]});
+            std::fs::write(&cut, serde_json::to_vec(&script).ok()?).ok()?;
+            let evaluated = self.eval_raw(&combined, Some(&cut))?;
+            if !eval_from(&evaluated).errors.is_empty() {
+                return None;
+            }
+            evaluated["total"]["volume_mm3"].as_f64()
+        })();
+        let _ = std::fs::remove_dir_all(&tmp);
+        result
     }
 
     fn now(&self) -> f64 {

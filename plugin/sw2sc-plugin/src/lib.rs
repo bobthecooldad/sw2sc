@@ -13,7 +13,7 @@ use exports::craft::plugin::importer::Guest;
 use serde_json::{json, Value};
 use sw2sc_core::convert::convert_part;
 use sw2sc_core::swfile::SwFile;
-use sw2sc_core::verify::{eval_from, Eval, Evaluator};
+use sw2sc_core::verify::{check_shape_by_faces, eval_from, Eval, Evaluator};
 
 const CHUNK: usize = 1 << 20;
 
@@ -22,6 +22,7 @@ struct HostEvaluator {
     /// Evaluations so far: a second each at least, so the time budget runs out even where the
     /// clock reads 0 (a plugin whose clock permission wasn't granted).
     evals: std::cell::Cell<u64>,
+    shape_failure: Option<&'static str>,
 }
 
 impl HostEvaluator {
@@ -30,7 +31,7 @@ impl HostEvaluator {
         self.evals.set(self.evals.get() + 1);
         let n = self.evals.get();
         if n % 5 == 1 {
-            // the search can take minutes: say what it's doing (its budget is 240 s)
+            // the search can take minutes: say what it's doing (its budget is 300 s)
             let f = (self.now() / sw2sc_core::verify::TIME_BUDGET).min(1.0) as f32;
             control::progress(0.15 + 0.8 * f, &format!("Rebuilding the feature tree: {n} designs tried"));
         }
@@ -84,6 +85,17 @@ impl Evaluator for HostEvaluator {
         self.per_body(d, "faces")
     }
 
+    fn difference_volume(&mut self, _target: &Value, _tool: &Value) -> Option<f64> {
+        None
+    }
+
+    fn shape_matches(&mut self, reference: &Value, candidate: &Value) -> bool {
+        // The host permits read-only inspection only, not insertion or boolean commands.
+        let result = check_shape_by_faces(self, reference, candidate);
+        self.shape_failure = result.err();
+        result.is_ok()
+    }
+
     fn now(&self) -> f64 {
         if control::cancelled() {
             return f64::INFINITY; // the user cancelled: the search's time is up
@@ -116,8 +128,11 @@ impl Guest for Importer {
             return Err(PluginError::Unsupported("assemblies are not converted by this plugin yet; open their parts".into()));
         }
         control::progress(0.15, "Reading the feature tree and the solid");
-        let mut ev = HostEvaluator { start_ms: clock::now(), evals: std::cell::Cell::new(0) };
-        let (d, report) = convert_part(&sw, &name, &file.name, &mut ev).map_err(|e| PluginError::Unsupported(e))?;
+        let mut ev = HostEvaluator { start_ms: clock::now(), evals: std::cell::Cell::new(0), shape_failure: None };
+        let (d, mut report) = convert_part(&sw, &name, &file.name, &mut ev).map_err(|e| PluginError::Unsupported(e))?;
+        if let Some(reason) = ev.shape_failure {
+            report.details["host_shape_check"] = json!(reason);
+        }
         log::log(log::Level::Info, &report.summary);
         control::progress(0.95, "Writing the design");
         let text = serde_json::to_vec(&d).map_err(|e| invalid("design", e))?;

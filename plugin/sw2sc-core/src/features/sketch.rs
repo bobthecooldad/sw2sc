@@ -609,6 +609,46 @@ pub fn alternative_centres(sk: &mut Sketch) {
     }
 }
 
+/// A sketch carrying only one feature's confirmed contours, with unrelated relations left out.
+pub fn select_sketch_loops(sk: &Sketch, loops: &[Vec<String>]) -> Sketch {
+    let keep: HashSet<&str> = loops.iter().flatten().map(String::as_str).collect();
+    let mut out = sk.clone();
+    let mut new_lines = HashMap::new();
+    out.lines.clear();
+    for (old, &(a, c)) in sk.lines.iter().enumerate() {
+        if keep.contains(format!("l{}", old + 1).as_str()) {
+            new_lines.insert(old, out.lines.len());
+            out.lines.push((a, c));
+        }
+    }
+    out.construction = sk.construction.iter().filter_map(|old| new_lines.get(old).copied()).collect();
+    out.arcs = sk.arcs.iter().enumerate().filter(|(n, _)| keep.contains(format!("a{}", n + 1).as_str())).map(|(_, &(a, c, ctr))| (a, c, ctr)).collect();
+    out.circles = sk.circles.iter().enumerate().filter(|(n, _)| keep.contains(format!("c{}", n + 1).as_str())).map(|(_, &(ctr, r))| (ctr, r)).collect();
+    out.curve_of.retain(|_, value| keep.contains(value.as_str()));
+    let allowed: HashSet<(String, u16)> = out.curve_of.keys().map(|(kind, id)| (kind.clone(), *id)).collect();
+    let relevant = |groups: &[Vec<Handle>]| {
+        groups.iter().flatten().all(|h| h.cls == "point" || allowed.contains(&(h.cls.clone(), h.id as u16)))
+    };
+    out.relations = sk.relations.iter().filter(|r| relevant(&r.groups)).cloned().collect();
+    out.dims = sk.dims.iter().filter(|d| {
+        if d.handles.is_empty() {
+            return false;
+        }
+        let raw = d.handles.iter().map(|h| Handle {
+            cls: match h.cls.as_str() {
+                "sgPointHandle" => "point",
+                "sgLineHandle" => "line",
+                "sgArcHandle" => "arc",
+                other => other,
+            }.into(),
+            id: h.id,
+        }).collect::<Vec<_>>();
+        relevant(&[raw])
+    }).cloned().collect();
+    out.offsets.clear();
+    out
+}
+
 /// The sketch with the arcs in `flips` turned about their alternative centre.
 pub fn with_centres(sk: &Sketch, flips: &[usize]) -> Sketch {
     let mut s2 = sk.clone();
@@ -1060,4 +1100,35 @@ fn curves_from_records(b: &[u8], sk: &mut Sketch, s: usize, e: usize) {
     sk.curve_of = curve_of;
     sk.problems.retain(|p| !bad.contains(p));
     sk.dropped.extend(dropped);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contour_selection_filters_geometry_and_its_relations() {
+        let mut sk = Sketch::new("S", 0);
+        sk.points.extend([
+            (1, (0.0, 0.0)),
+            (2, (0.01, 0.0)),
+            (3, (0.01, 0.01)),
+            (4, (0.0, 0.01)),
+            (5, (0.005, 0.005)),
+            (6, (0.007, 0.005)),
+        ]);
+        sk.lines = vec![(1, 2), (2, 3), (3, 4), (4, 1)];
+        sk.circles = vec![(5, 0.002)];
+        sk.curve_of.insert(("arc".into(), 7), "c1".into());
+        sk.curve_of.insert(("line".into(), 1), "l1".into());
+        sk.relations = vec![
+            Relation { kind: 9, groups: vec![vec![Handle { cls: "arc".into(), id: 7 }]] },
+            Relation { kind: 1, groups: vec![vec![Handle { cls: "line".into(), id: 1 }]] },
+        ];
+        let selected = select_sketch_loops(&sk, &[vec!["l1".into(), "l2".into(), "l3".into(), "l4".into()]]);
+        assert_eq!(selected.lines.len(), 4);
+        assert!(selected.circles.is_empty());
+        assert_eq!(selected.relations, [Relation { kind: 1, groups: vec![vec![Handle { cls: "line".into(), id: 1 }]] }]);
+        assert_eq!(selected.curve_of.into_iter().collect::<Vec<_>>(), [(("line".into(), 1), "l1".into())]);
+    }
 }

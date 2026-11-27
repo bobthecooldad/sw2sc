@@ -32,7 +32,7 @@ fn feature(f: &Feature) -> Value {
     });
     json!({
         "kind": f.kind, "name": f.name, "offset": f.offset, "cls": f.cls, "sketch": sk,
-        "depth_mm": f.depth_mm, "profile": f.profile, "reason": f.reason, "frame": f.frame.as_ref().map(frame),
+        "depth_mm": f.depth_mm, "profile": f.profile, "selected_loops": f.selected_loops, "reason": f.reason, "frame": f.frame.as_ref().map(frame),
         "through_all": f.through_all, "mid_plane": f.mid_plane, "angle_deg": f.angle_deg, "fid": f.fid, "radius_mm": f.radius_mm,
         "chamfer_deg": f.chamfer_deg, "chamfer_mm2": f.chamfer_mm2, "hole": f.hole, "alt_kind": f.alt_kind, "from_face": f.from_face,
         "edge_lines": f.edge_lines, "round_axes": f.round_axes.iter().map(|(p, a, r)| json!([p, a, r])).collect::<Vec<_>>(),

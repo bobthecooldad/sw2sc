@@ -1701,3 +1701,47 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     Python harness attempt timed out at 300 seconds under the private scan's CPU load without a test
     failure; a 900-second outer allowance completed normally. No private process was stopped and no
     release test was skipped.
+
+213. **A private two-boss part now rebuilds normally (B-026).** The part reused one sketch for
+    different contour sets. Blind direction trials could not produce a valid candidate. Saved
+    `FACE_ID_2001` surfaces identify the contours belonging to each boss; saved circular edges resolve
+    an existing point as a misread circle's centre and settle arc senses, including two arcs that
+    share an existing endpoint. Each shared-sketch use is filtered independently and the clone is
+    emitted before its boss. Two-way boolean differences found only residual slivers within tolerance,
+    rather than relying on volume alone. The normal Python rebuild now matches in
+    about eight seconds. Full Python suite: **123 tests OK (5 skipped)**. Rust parity and full
+    regressions are still required. No private model name,
+    path, dimensions or per-file report is committed. B-027 remains open for stronger general shape
+    acceptance beyond volume/area/box checks.
+
+214. **B-027: final acceptance needs geometric difference, not just totals.** The private sample's
+    metric match was not treated as sufficient verification, and its remaining retry was stopped.
+    `verify.same_shape` now performs candidate-minus-reference and reference-minus-candidate through
+    SolidCraft, requiring one target/tool body each and rejecting failed operations. Both differences
+    must fit the existing relative volume tolerance; volume/area/box remain the first filter. Tests
+    show identical solids pass, a shifted solid with identical volume and area fails, and a rebuild
+    whose shape check fails cannot be accepted. The selected private part passes this stricter Python
+    path. The same check is being ported to native Rust and the plugin's staged host commands. Full
+    Python suite with B-026, B-027 and local image output: **127 tests OK (5 skipped)**. No
+    private identifiers or measurements are recorded here. B-026 is not a release claim until that
+    combined verification passes.
+
+215. **B-026/B-027 verified through the real plugin host.** Local comparison images now require
+    an accepted design with solid-making features: an imported-solid fallback cannot be passed as
+    the rebuilt side, and a failed rebuild removes its stale comparison. The selected private
+    two-boss case passes native Rust on its first try and the real host in about four seconds. Its
+    saved host output contains two sketches, two boss extrudes and two editable depths, with no
+    import feature. The previous six matching private parts all pass the stronger Python gate;
+    all six comparison images come from their structures, with zero errors. Python: **130 tests
+    OK (5 skipped)**. Rust: **all 32 tests OK**. The stopped full private scan was not restarted.
+
+    The host investigation found two distinct implementation errors. `component.insert_design`
+    expects the in-memory document as JSON text, not a JSON object; after correcting that call,
+    SolidCraft still denied it because private evaluation is deliberately read-only. That denial
+    was not bypassed and the acceptance threshold was not relaxed. Native checks retain two-way
+    boolean differences. The host now uses exact face surface/area/centre evidence instead, rejecting
+    missing, inexact or mismatched face data. An edge-based prototype was not used because circular
+    seams can reverse equivalent edge endpoints and midpoints. The remaining bug was `Timed` not
+    forwarding the host's `shape_matches` override; a direct regression test now covers that dispatch.
+    No public or NIST success-rate change is claimed from this focused private verification. No
+    private model names, paths, dimensions, geometry or per-file results are included.

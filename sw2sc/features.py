@@ -190,6 +190,7 @@ class Feature:
     sketch: Sketch | None = None
     depth_mm: float | None = None
     profile: str | None = None   # name of the sketch an extrude uses
+    selected_loops: list | None = None  # contours this feature uses, confirmed by its saved faces
     reason: str = ""
     frame: tuple | None = None   # a plane feature's placement
     through_all: bool = False    # an extrude with no distance in the file
@@ -1021,6 +1022,39 @@ def _alternative_centres(sk: Sketch) -> None:
         mx, my = 2 * fx - cx, 2 * fy - cy
         if math.hypot(mx - cx, my - cy) > TOL:
             sk.alt_centres[n] = (mx, my)
+
+
+def select_sketch_loops(sk: Sketch, loops: list | None) -> Sketch:
+    """A sketch carrying only one feature's confirmed contours, with unrelated relations left out."""
+    if loops is None:
+        return sk
+    import copy
+    keep = {c for loop in loops for c in loop}
+    out = copy.deepcopy(sk)
+    new_lines = {}
+    out.lines = []
+    for old, (a, c) in enumerate(sk.lines):
+        if f"l{old + 1}" in keep:
+            new_lines[old] = len(out.lines)
+            out.lines.append((a, c))
+    out.construction = {new_lines[old] for old in sk.construction if old in new_lines}
+    out.arcs = [(a, c, ctr) for n, (a, c, ctr) in enumerate(sk.arcs) if f"a{n + 1}" in keep]
+    out.circles = [(ctr, r) for n, (ctr, r) in enumerate(sk.circles) if f"c{n + 1}" in keep]
+    out.curve_of = {key: value for key, value in sk.curve_of.items() if value in keep}
+    allowed = set(out.curve_of)
+
+    def relevant(groups):
+        return all(kind == "point" or (kind, hid) in allowed for group in groups for kind, hid in group)
+
+    out.relations = [(kind, groups) for kind, groups in sk.relations if relevant(groups)]
+    out.dims = []
+    for name, cls, value, handles in sk.dims:
+        raw = [("point" if kind == "sgPointHandle" else "line" if kind == "sgLineHandle" else "arc" if kind == "sgArcHandle" else kind, hid)
+               for kind, hid in handles]
+        if handles and relevant([raw]):
+            out.dims.append((name, cls, value, handles))
+    out.offsets = []
+    return out
 
 
 def with_centres(sk: Sketch, flips) -> Sketch:
@@ -2047,6 +2081,7 @@ def read(sw) -> list[Feature] | None:
                                                  first=old_file)
         f.fid = _fid(b, r)
         out.append(f)
+    _correct_repeated_sketches(sw, out)
     _shared_sketches(out)
     # the first sketch with no plane reference at all: the three standard planes, for the
     # rebuild check to choose between (a part's first sketch is nearly always on one)
@@ -2237,12 +2272,171 @@ def _hole_planes(sw, feats) -> None:
             sk.add_plane((fr, t), "the hole's own axis in the solid (after cadkit-kernel's hole.rs)", first=True)
 
 
+def _saved_circular_edges(sw) -> list:
+    """Circular edges in the part's own saved solid, with their loop orientation."""
+    from . import geometry, parasolid, xtgeom
+    out = []
+    for _name, data in geometry.parasolid_sources(sw):
+        try:
+            bodies = xtgeom.Converter(parasolid.read(data)).bodies()
+        except Exception:  # noqa: BLE001
+            continue
+        for body in bodies:
+            for shell in body.outer + body.voids:
+                for face in shell.faces:
+                    for loop in face.loops:
+                        for edge, orientation in loop.edges:
+                            if edge.curve[0] == "circle" and edge.start and edge.end:
+                                out.append(edge)
+    return out
+
+
+def _correct_sketch_from_saved(sk: Sketch, edges: list) -> None:
+    """Resolve a repeated sketch's ambiguous centres and arc senses from its saved circular edges."""
+    if not sk.planes:
+        return
+    (x, y, normal), origin = sk.planes[0][0], sk.planes[0][1]
+    dot = lambda a, b: sum(u * v for u, v in zip(a, b))  # noqa: E731
+
+    def world(p):
+        return tuple(origin[i] + p[0] * x[i] + p[1] * y[i] for i in range(3))
+
+    def point_id(p):
+        q = [p[i] - origin[i] for i in range(3)]
+        uv = (dot(q, x), dot(q, y))
+        pid = min(sk.points, key=lambda k: math.dist(sk.points[k], uv))
+        return pid if math.dist(sk.points[pid], uv) <= 5e-5 else None
+
+    for n, (a, b, ctr) in enumerate(list(sk.arcs)):
+        centre = world(sk.points[ctr])
+        radius = math.dist(sk.points[a], sk.points[ctr])
+        choices = set()
+        for edge in edges:
+            _kind, c, normal2, _axis, r = edge.curve[:5]
+            if math.dist(centre, c) > 1e-6 or abs(radius - r) > 1e-6 or abs(dot(c, normal) - dot(origin, normal)) > 5e-5:
+                continue
+            ends = [world(sk.points[p]) for p in (a, b)]
+            saved = [edge.start.point, edge.end.point]
+            if math.dist(saved[0], saved[1]) < TOL or not any(min(math.dist(p, q) for q in saved) <= 5e-5 for p in ends):
+                continue
+            forward = edge.same_sense == (dot(normal2, normal) > 0)
+            start, end = saved if forward else saved[::-1]
+            first, last = point_id(start), point_id(end)
+            if first is not None and last is not None and first != last:
+                choices.add((first, last))
+        if len(choices) == 1:
+            a2, b2 = next(iter(choices))
+            sk.arcs[n] = (a2, b2, ctr)
+
+    full = []
+    for edge in edges:
+        if math.dist(edge.start.point, edge.end.point) >= TOL:
+            continue
+        centre = edge.curve[1]
+        radius = edge.curve[4]
+        pid = point_id(centre)
+        if pid is None:
+            continue
+        if any(p != pid and abs(math.dist(sk.points[p], sk.points[pid]) - radius) <= 1e-6 for p in sk.points):
+            full.append((centre, pid, radius))
+    for n, (ctr, radius) in enumerate(list(sk.circles)):
+        centre = world(sk.points[ctr])
+        if any(math.dist(centre, c) <= 1e-6 and abs(radius - r) <= 1e-6 for c, _p, r in full):
+            continue
+        best = {}
+        for c, pid, r in full:
+            best[(pid, r)] = min(best.get((pid, r), float("inf")), math.dist(centre, c))
+        if not best:
+            continue
+        (pid, r), distance = min(best.items(), key=lambda item: item[1])
+        if sum(abs(d - distance) <= 1e-9 for d in best.values()) == 1:
+            sk.circles[n] = (pid, r)
+
+
+def _select_boss_loops(sw, feats: list, targets: set[str]) -> None:
+    """Select contours whose geometry belongs to each repeated feature's own saved side faces."""
+    tagged = _tagged_faces(sw)
+    if not tagged:
+        return
+    sketches = {f.name: f.sketch for f in feats if f.kind == "sketch" and f.sketch}
+    for f in feats:
+        if f.kind not in ("boss", "cut") or f.profile not in targets:
+            continue
+        sk = sketches.get(f.profile)
+        if not sk or not sk.planes:
+            continue
+        loops = [ids for ids, _poly in _loops(sk)]
+        if len(loops) < 2:
+            continue
+        (x, y, _normal), origin = sk.planes[0][0], sk.planes[0][1]
+        world = lambda p: tuple(origin[i] + p[0] * x[i] + p[1] * y[i] for i in range(3))  # noqa: E731
+        own = [(key, kind, surface) for key, surfaces in tagged.items() if key[1] == f.fid and key[0] in (74, 83)
+               for kind, surface in surfaces]
+        selected = []
+        for ids in loops:
+            evidence = False
+            if len(ids) == 1 and ids[0].startswith("c"):
+                n = int(ids[0][1:]) - 1
+                if n < len(sk.circles):
+                    ctr, radius = sk.circles[n]
+                    centre = world(sk.points[ctr])
+                    for _key, kind, surface in own:
+                        if kind != "CYLINDER" or abs(surface.get("radius", 0) - radius) > 1e-6:
+                            continue
+                        axis = surface.get("axis")
+                        if not axis:
+                            continue
+                        delta = [surface["pvec"][i] - centre[i] for i in range(3)]
+                        along = sum(delta[i] * axis[i] for i in range(3))
+                        off = math.sqrt(max(0.0, sum(v * v for v in delta) - along * along))
+                        if off <= 1e-6:
+                            evidence = True
+                            break
+            else:
+                points = set()
+                for curve in ids:
+                    n = int(curve[1:]) - 1
+                    if curve.startswith("l") and n < len(sk.lines):
+                        points.update(sk.lines[n])
+                    elif curve.startswith("a") and n < len(sk.arcs):
+                        points.update(sk.arcs[n][:2])
+                for _key, _kind, surface in own:
+                    for p in surface.get("face_points", []):
+                        if any(math.dist(world(sk.points[q]), p) <= 5e-5 for q in points if q in sk.points):
+                            evidence = True
+                            break
+                    if evidence:
+                        break
+            if evidence:
+                selected.append(ids)
+        if selected and len(selected) < len(loops):
+            f.selected_loops = selected
+
+
+def _correct_repeated_sketches(sw, feats: list) -> None:
+    uses = {}
+    for f in feats:
+        if f.kind in ("boss", "cut") and f.profile:
+            uses[f.profile] = uses.get(f.profile, 0) + 1
+    targets = {name for name, count in uses.items() if count > 1}
+    if not targets:
+        return
+    edges = _saved_circular_edges(sw)
+    if not edges:
+        return
+    for f in feats:
+        if f.kind == "sketch" and f.name in targets and f.sketch:
+            _correct_sketch_from_saved(f.sketch, edges)
+    _select_boss_loops(sw, feats, targets)
+
+
 def _shared_sketches(out: list) -> None:
     """A sketch used by a second feature is written again as `SketchN<k>`: no points and no plane
     reference of its own, only which of SketchN's contours it takes (moContourChooser_c, not
     read). It is given SketchN's geometry and planes; the rebuild check says if that holds."""
     import copy
     base = {f.name: f.sketch for f in out if f.sketch and f.sketch.points}
+    moves = []
     for f in out:
         s = f.sketch
         m = re.match(r"^(.*)<\d+>$", f.name)
@@ -2253,6 +2447,15 @@ def _shared_sketches(out: list) -> None:
         new.name, new.offset, new.end, new.used = s.name, s.offset, s.end, False
         new.planes = [(x, t, f"shared sketch: {src.name}'s {how}") for x, t, how in src.planes]
         f.sketch = new
+        index = out.index(f)
+        for previous in reversed(out[:index]):
+            if previous.kind in ("boss", "cut") and previous.profile == m.group(1):
+                previous.profile = f.name
+                moves.append((f, previous))
+                break
+    for sketch, feature in moves:
+        out.remove(sketch)
+        out.insert(out.index(feature), sketch)
 
 
 def _tagged_faces(sw) -> dict:
@@ -3106,12 +3309,15 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
     out, ids, sk_of = [], {}, {}
     nid = 1
     first = True
+    selected = {f.profile: f.selected_loops for f in feats if f.profile and f.selected_loops is not None}
     # the face each extrude of model edges is of (chosen in the rebuild), by its sketch
     face_of = {f.profile: (fillets or {}).get("face:" + f.name) for f in feats if f.from_face and f.kind in ("boss", "cut")}
     for f in feats:
         if f.kind == "sketch":
             f.sketch.choice = (planes or {}).get(f.name, 0)
             sk = with_centres(f.sketch, choices.get("arcs:" + f.name))
+            if f.name in selected:
+                sk = select_sketch_loops(sk, selected[f.name])
             at = face_of.get(f.name)
             body = next((g["body_names"][0] for g in out if g.get("body_names")), None)
             out.append(face_sketch(f.name, nid, at, body) if at and body else sketch_feature(sk, nid, constraints))

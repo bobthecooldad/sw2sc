@@ -11,7 +11,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use indexmap::IndexMap;
 use serde_json::{json, Map, Value};
 
-use crate::features::sketch::with_centres;
+use crate::features::sketch::{select_sketch_loops, with_centres};
 use crate::features::{Feature, Sketch};
 use crate::pyfmt::{g, repr, round};
 
@@ -700,6 +700,14 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
     let mut sk_of: HashMap<String, Sketch> = HashMap::new();
     let mut nid: i64 = 1;
     let mut first = true;
+    let mut selected: HashMap<String, Vec<Vec<String>>> = HashMap::new();
+    for f in feats.iter() {
+        if let (Some(profile), Some(loops)) = (f.profile.as_ref(), f.selected_loops.as_ref()) {
+            if !profile.is_empty() {
+                selected.insert(profile.clone(), loops.clone());
+            }
+        }
+    }
     let pick = |k: &str| picks.get(k).filter(|v| !v.is_null());
     // the face each extrude of model edges is of (chosen in the rebuild), by its sketch
     let three = |v: &Value| -> Option<[f64; 3]> {
@@ -727,6 +735,9 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 let skm = fm.sketch.as_mut().unwrap();
                 skm.choice = choice;
                 let mut sk = with_centres(skm, &flips);
+                if let Some(loops) = selected.get(&fm.name) {
+                    sk = select_sketch_loops(&sk, loops);
+                }
                 let body = out.iter().find_map(|g| g.get("body_names").and_then(|b| b.get(0)).and_then(Value::as_str).map(String::from));
                 match (face_of.get(&fm.name), body) {
                     (Some((p, n)), Some(body)) => {
@@ -1198,5 +1209,33 @@ mod tests {
         let g = extrude_feature(&f, 2, 1, "positive", "new_body", &[], None);
         assert_eq!(g["extent"]["direction"], "symmetric");
         assert_eq!(g["extent"]["distance"], "55.0");
+    }
+
+    #[test]
+    fn design_writes_only_the_features_selected_contours() {
+        let mut sk = Sketch::new("Sketch1", 0);
+        sk.points.extend([
+            (1, (0.0, 0.0)),
+            (2, (0.01, 0.0)),
+            (3, (0.01, 0.01)),
+            (4, (0.0, 0.01)),
+            (5, (0.005, 0.005)),
+        ]);
+        sk.lines = vec![(1, 2), (2, 3), (3, 4), (4, 1)];
+        sk.circles = vec![(5, 0.002)];
+        sk.add_plane(&(crate::features::FRONT, [0.0; 3]), "test", false);
+        let mut sketch = Feature::new("sketch", "Sketch1", 0, crate::features::SKETCH);
+        sketch.sketch = Some(sk);
+        let mut boss = Feature::new("boss", "Boss1", 1, crate::features::BOSS);
+        boss.profile = Some("Sketch1".into());
+        boss.depth_mm = Some(5.0);
+        boss.selected_loops = Some(vec![vec!["l1".into(), "l2".into(), "l3".into(), "l4".into()]]);
+        let mut feats = vec![sketch, boss];
+        let d = design("Part", &mut feats, &Choices::new(), &HashMap::new(), true, &Picks::new(), None);
+        let written = &d["features"][0]["sketch"];
+        assert_eq!(written["counters"]["l"], 4);
+        assert_eq!(written["counters"]["c"], 0);
+        assert_eq!(written["curves"].as_array().unwrap().len(), 4);
+        assert_eq!(d["features"][1]["profiles"]["loops"], json!([["l1", "l2", "l3", "l4"]]));
     }
 }

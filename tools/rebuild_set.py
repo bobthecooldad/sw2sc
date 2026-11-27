@@ -1,7 +1,7 @@
 """Rebuild every part in a folder (or list) from its feature tree, in parallel, and say which
 match the part's own solid; with a baseline, which matched before and don't now.
 
-    python tools/rebuild_set.py PARTS... [--jobs 20] [--out results.json] [--baseline old.json]
+    python tools/rebuild_set.py PARTS... [--jobs 20] [--out results.json] [--baseline old.json] [--images [DIR]]
 
 PARTS are files, folders (searched for .sldprt) or text files listing one path per line. Exit
 code 1 when a part that matched in the baseline doesn't match now.
@@ -31,7 +31,7 @@ def parts_of(items: list[str]) -> list[str]:
     return sorted(set(out))
 
 
-def one(path: str) -> dict:
+def one(path: str, images=None) -> dict:
     sys.path.insert(0, ROOT)
     from sw2sc import features, solidcraft, verify
     from sw2sc.swfile import SwFile
@@ -41,8 +41,17 @@ def one(path: str) -> dict:
         ref, _ = solidcraft.convert(path, feature_tree=False)
         d = verify.rebuild(feats, ref, "t") if feats else None
         res = {"match": bool(d)}
+        if d and images:
+            from render_compare import render_part
+            res["image"] = render_part(path, images, built=d, reference=ref)
+        elif images:
+            from render_compare import discard_stale
+            discard_stale(path, images)
     except Exception as e:  # noqa: BLE001
         res = {"match": False, "error": f"{type(e).__name__}: {e}"[:300]}
+        if images:
+            from render_compare import discard_stale
+            discard_stale(path, images)
     res.update(file=path, seconds=round(time.time() - t, 1))
     return res
 
@@ -53,10 +62,11 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=20)
     ap.add_argument("--out")
     ap.add_argument("--baseline")
+    ap.add_argument("--images", nargs="?", const=os.path.join("out", "check-images"))
     a = ap.parse_args(argv)
     paths = parts_of(a.parts)
     with ProcessPoolExecutor(max(1, min(a.jobs, len(paths)))) as ex:
-        results = list(ex.map(one, paths))
+        results = list(ex.map(one, paths, [a.images] * len(paths)))
     for r in results:
         print(f"{r['seconds']:6.0f}s {'MATCH' if r['match'] else 'no   '} {os.path.basename(r['file'])}"
               + (f"  ({r['error']})" if r.get("error") else ""))

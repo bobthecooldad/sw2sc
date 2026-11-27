@@ -148,3 +148,13 @@ Record each new finding here.
   give the model-space direction; forward and reverse are both candidates. These straight paths are
   equivalent to a linear rectangular pattern, not a general curve-driven pattern. Two other public
   cases have a count but no spacing and remain TBD. Found from the public records; no external code.
+- **Saved arc sense and repeated-sketch contours (B-026):** cadkit-kernel's
+  `crates/ck-sldprt/src/sketch.rs` explicitly says arc direction is not stored in the checked raw
+  records; its `sense` field is not that direction. I resolve direction only from the part's own
+  Parasolid circular edges: `same_sense` and the circle normal against the sketch normal determine
+  counter-clockwise storage. Saved endpoints must resolve to existing sketch points; no point is
+  invented. A full saved circle can similarly select an existing sketch point as a misread circle's
+  centre when another existing point lies at its saved radius. `FACE_ID_2001` side faces identify
+  which raw sketch loops belong to each repeated boss/cut. The shared-sketch clone is copied only
+  after these corrections and each use filters its own curves and related constraints. Confirmed on
+  a private sample; no private name, path, dimensions or geometry are recorded.

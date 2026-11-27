@@ -264,6 +264,8 @@ pub struct Feature {
     pub depth_mm: Option<f64>,
     /// Name of the sketch an extrude uses.
     pub profile: Option<String>,
+    /// Contours this feature uses, confirmed by its saved faces.
+    pub selected_loops: Option<Vec<Vec<String>>>,
     pub reason: String,
     /// A plane feature's placement.
     pub frame: Option<Frame>,

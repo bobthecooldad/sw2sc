@@ -5,6 +5,16 @@ Each release has a survey log in `logs/survey-<version>.md`.
 
 ## [Unreleased]
 
+### Fixed
+- Repeated sketches can now use different contours for different bosses/cuts. Saved circular edges
+  resolve ambiguous centres and arc senses, `FACE_ID_2001` identifies each feature's contours, and
+  shared-sketch clones are filtered and ordered independently (B-026). Python and Rust.
+- A metric-matching rebuild now needs geometric proof, not just volume/area/box agreement. Native
+  conversion checks candidate-minus-reference and reference-minus-candidate volumes. SolidCraft's
+  read-only plugin host instead matches every face's exact surface, area and centre, rejecting
+  missing or unsupported face data; its timed evaluator now forwards that host-specific check.
+  Failed checks cannot accept a match. Identical/shifted-solid tests and real-host verification (B-027).
+
 ## [0.18.0] - 2026-11-27
 
 This release expands editable feature-tree conversion and fixes a serious rebuild-memory failure.
