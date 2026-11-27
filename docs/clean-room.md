@@ -121,3 +121,14 @@ Record each new finding here.
   group: its supposed first reference begins inside the 8-byte header itself. Reading four sequential
   references with gaps of at most 72 bytes yields 46 distinct edges for CTC 02 Fillet3 and 18 for
   FTC 06 Fillet2. Found from the public sample files; no external implementation was used.
+- **Linear-pattern `FIX_n` dimensions:** some patterns have no `D1` count or `D3` spacing in
+  `swXmlContents/KeyWords`; they have exactly two dimensions named `FIX_n` instead. In ten linear
+  patterns across two public saves of the same design family, the lower consecutive number is the
+  spacing and the next number is the instance count: 20 mm and 2 throughout. The reader accepts only
+  one consecutive numeric pair with a positive spacing and a positive integer count, so unrelated or
+  ambiguous `FIX_n` records stay unread. Found from the public sample files; no external code used.
+- **Split-tool profile references:** a split can contain a `moCompProfile_c` whose feature reference
+  names its sketch (at +106 bytes from the object record in the checked public sample). This confirms
+  the sketch association directly rather than inferring it from proximity. Only one of the 15 unread
+  split features in the full public batch has this layout, so it is recorded as evidence but not yet
+  made a production shortcut. The others need their face/surface tool references decoded instead.

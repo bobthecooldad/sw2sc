@@ -1531,3 +1531,31 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     unnumbered streams, 12 crashes and 1 error. The crashes were the previous-feature underflow,
     fixed as B-025. The completed JSONL is now the regression baseline. Success is counted only
     from exact structural rebuilds, not from files that opened as imported solids.
+
+
+197. **Triage before choosing the next small fixes.** The first whole-folder blocker census timed out
+    at 15 minutes with its output still buffered, producing an empty report; it was rerun unbuffered
+    with a longer budget. The completed 356-part JSONL already ranks the feature-class blockers without
+    repeating conversions: 11 parts with general 3D sketches, 7 with unread fillet selections, and 4
+    with unread split tools. CTC 01 (2018) completes all ten solid features in triage but still does
+    not match, so no single missing feature was patched. Four public parts' 15 unread splits were
+    inspected in the raw records. One has a `moCompProfile_c` feature reference to its preceding
+    sketch; the other 14 do not, so that one-record layout was documented but not promoted into a
+    one-part production shortcut. The batch's single `no bodies converted` error is also not a reader
+    crash: its 976-byte Parasolid partition contains 21 metadata/schema nodes and no `BODY` node.
+    No geometry was invented for it. Full parity after the lazy-product and previous-feature fixes:
+    54 files / 43 designs, zero differences.
+
+198. **Linear patterns with `FIX_n` spacing/count dimensions.** Ten unread linear patterns in two
+    public parts had no `D1`/`D3`; each had exactly two `FIX_n` dimensions. Across all ten, the
+    lower consecutive suffix holds 20 mm spacing and the next holds 2 instances. New helper tests
+    failed before implementation and now guard the consecutive-pair, extra-dimension and fractional-
+    count cases. Python and Rust accept only that narrow layout and preserve ordinary dimensions.
+    Both parts become fully decoded, with all five patterns reading count 2 / spacing 20 mm. Their
+    updated release-binary rebuilds finish in about 96 seconds each: both now attempt a rebuild but
+    report no build to compare, so exact structural success has **not** improved. This moves those
+    two parts from TBD to the ordinary no-build queue rather than claiming a match. Python: 110
+    tests OK (5 skipped). Rust: all tests OK. The first quick rebuild invocation used the old example
+    binary while it was still compiling, reproduced the old TBD result, and was discarded before the
+    verified rerun above. Targeted Python/Rust parity on both parts: 2 / 2 feature trees and
+    2 / 2 default designs identical.

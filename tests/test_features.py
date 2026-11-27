@@ -170,6 +170,17 @@ class ScaleTests(unittest.TestCase):
         self.assertEqual((g["factor"], [round(c, 6) for c in g["origin"]]), ("1.06", [round(c, 6) for c in com]))
 
 
+class PatternDimensionTests(unittest.TestCase):
+    def test_fixed_dimensions_supply_spacing_then_count(self):
+        dims = {"FIX_27": "2", "FIX_26": "20"}
+        self.assertEqual(features._fixed_pattern_dims(dims), {"D1": "2", "D3": "20"})
+
+    def test_fixed_dimensions_require_one_consecutive_pair(self):
+        self.assertEqual(features._fixed_pattern_dims({"FIX_26": "20", "FIX_28": "2"}), {})
+        self.assertEqual(features._fixed_pattern_dims({"FIX_26": "20", "FIX_27": "2", "FIX_28": "3"}), {})
+        self.assertEqual(features._fixed_pattern_dims({"FIX_26": "20", "FIX_27": "2.5"}), {})
+
+
 class RealPartTests(unittest.TestCase):
     def read(self, path):
         if not os.path.isfile(path):

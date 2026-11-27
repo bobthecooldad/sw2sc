@@ -22,7 +22,7 @@ project success; an imported-solid fallback does not count.**
 | Still blocked by unread features/sketches | 15 / 19 | 7 / 19 | **-8 blockers** |
 | Public 35-part feature check (separate baseline) | 10 / 35 match | Not rerun | Must not regress |
 | Rebuild regression set | 21 / 22 match | 20 / 22 on 0.50.0 at 300 seconds | One recovered; PartT8 remains 0.1265% off (B-023) |
-| Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 35 designs | No new difference |
+| Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 43 designs | No new difference; both pattern parts also match separately |
 | Full 356-part GrabCAD structural batch | No baseline | 26 / 356 exact rebuilds (7.3%) | First full baseline; zero memory-limit terminations |
 
 The current dev batch contains the SolidWorks 2012 parameter reader, missing standard sketch
@@ -60,18 +60,19 @@ NIST run took about eight minutes with eight jobs.
 - [x] Recover the SolidWorks 2012 parameter layout (holes, fillets and chamfers).
 - [x] Read standard planes when no plane object is numbered (NIST FTC 08).
 - [x] Add eight-job `feature_check.py` and `rebuild_triage.py`, with ordered-report regression tests.
-- [ ] Finish verifying revolve/revolved-cut rebuild ordering (F-033).
-- [ ] Finish verifying Parasolid body/face colours (F-014).
+- [x] Finish verifying revolve/revolved-cut rebuild ordering (F-033).
+- [x] Finish verifying Parasolid body/face colours (F-014).
 - [x] Complete the wider-spaced NIST fillet/chamfer reference reading (F-032).
+- [x] Read linear patterns with a consecutive `FIX_n` spacing/count pair (ten features, two parts).
 - [x] Run the full NIST set and update `logs/feature-check-nist.md` and `docs/dev-build.md`.
 - [x] Measure a rotating private external batch: 6 exact rebuilds, 8 built without a match,
   10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error out of 40.
 - [ ] Pass the unattended queue, then apply only sanitized diffs to public `dev`.
 
-Revolve, colour and the wider fillet groups pass their Python/Rust tests and have zero
-feature/design differences on 54 public-sample parts (43 designs for the fillet branch). On
-SolidCraft 0.50.0 the unmodified base also loses the same two rebuilds at 240 seconds, so those
-losses are not attributed to revolve or colour. A base-only 300-second retry is checking the budget.
+Revolve, colour and the wider fillet groups pass their Python/Rust tests. Full parity after the
+lazy-product and previous-feature fixes is zero feature/design differences on 54 public-sample
+parts (43 designs). On SolidCraft 0.50.0 the 300-second regression is 20 of 22; PartT8 remains the
+separate area-only B-023 failure and is not being reopened in this batch.
 
 ## Ordered work queue
 

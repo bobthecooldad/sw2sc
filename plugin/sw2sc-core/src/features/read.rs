@@ -92,6 +92,28 @@ pub fn kw_dims(inner: &str) -> Vec<(String, String)> {
     re.captures_iter(inner).map(|c| (c[1].to_string(), c[2].to_string())).collect()
 }
 
+fn kw_pattern_dims(inner: &str) -> Vec<(String, String)> {
+    static R: OnceLock<Regex> = OnceLock::new();
+    let re = R.get_or_init(|| Regex::new(r#"<Dimension Name="(D\d+|FIX_\d+)">([^<]*)</Dimension>"#).unwrap());
+    re.captures_iter(inner).map(|c| (c[1].to_string(), c[2].to_string())).collect()
+}
+
+fn fixed_pattern_dims(dims: &[(String, String)]) -> Option<(String, String)> {
+    if dims.len() != 2 {
+        return None;
+    }
+    let mut fixed = dims.iter().map(|(name, value)| {
+        let number = name.strip_prefix("FIX_")?.parse::<u32>().ok()?;
+        let value_number = value.parse::<f64>().ok()?;
+        Some((number, value, value_number))
+    }).collect::<Option<Vec<_>>>()?;
+    fixed.sort_by_key(|x| x.0);
+    if fixed[1].0 != fixed[0].0 + 1 || fixed[0].2 <= 0.0 || fixed[1].2 < 1.0 || fixed[1].2.fract() != 0.0 {
+        return None;
+    }
+    Some((fixed[1].1.clone(), fixed[0].1.clone()))
+}
+
 /// The first number in `s` (`\d+(?:\.\d+)?`, or with a sign when `signed`).
 pub fn first_number(s: &str, signed: bool) -> Option<f64> {
     static U: OnceLock<Regex> = OnceLock::new();
@@ -816,8 +838,14 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
             // counts and spacings are KeyWords' dimensions: D1 count, D3 spacing / angle, D2 the
             // second count, D4 the second spacing
             f = Feature::new("pattern", nm, r.offset, cls);
-            let dims: Vec<(String, String)> = kw_feature(&kw, nm).map(|i| kw_dims(&i)).unwrap_or_default();
-            let dmap: HashMap<String, String> = dims.iter().cloned().collect();
+            let dims: Vec<(String, String)> = kw_feature(&kw, nm).map(|i| kw_pattern_dims(&i)).unwrap_or_default();
+            let mut dmap: HashMap<String, String> = dims.iter().cloned().collect();
+            if kind == "linear" {
+                if let Some((count, spacing)) = fixed_pattern_dims(&dims) {
+                    dmap.entry("D1".into()).or_insert(count);
+                    dmap.entry("D3".into()).or_insert(spacing);
+                }
+            }
             let val = |k: &str| dmap.get(k).and_then(|v| first_number(&unescape(v), true));
             let angle = dims.iter().find(|(_, v)| unescape(v).contains('°')).and_then(|(k, _)| val(k));
             f.pattern.insert("kind".into(), json!(kind));
@@ -1786,6 +1814,22 @@ fn body_move(b: &[u8], s: usize, e: usize) -> Option<([f64; 9], [f64; 3])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixed_dimensions_supply_spacing_then_count() {
+        let dims = vec![("FIX_27".into(), "2".into()), ("FIX_26".into(), "20".into())];
+        assert_eq!(fixed_pattern_dims(&dims), Some(("2".into(), "20".into())));
+    }
+
+    #[test]
+    fn fixed_dimensions_require_one_consecutive_pair() {
+        let nonconsecutive = vec![("FIX_26".into(), "20".into()), ("FIX_28".into(), "2".into())];
+        assert_eq!(fixed_pattern_dims(&nonconsecutive), None);
+        let three = vec![("FIX_26".into(), "20".into()), ("FIX_27".into(), "2".into()), ("FIX_28".into(), "3".into())];
+        assert_eq!(fixed_pattern_dims(&three), None);
+        let fractional = vec![("FIX_26".into(), "20".into()), ("FIX_27".into(), "2.5".into())];
+        assert_eq!(fixed_pattern_dims(&fractional), None);
+    }
 
     #[test]
     fn edge_group_allows_wide_reference_spacing() {

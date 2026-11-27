@@ -31,6 +31,27 @@ HOLE = "moHoleWzd_c"
 MIRRORS = {"moMirrorPattern_c", "moMirrorSolid_c"}
 THREAD = "moSweepThread_c"
 PATTERNS = {"moLPattern_c": "linear", "moCirPattern_c": "circular"}
+
+
+def _fixed_pattern_dims(dims: dict) -> dict:
+    """A linear pattern's FIX_n pair: spacing first, then instance count."""
+    if len(dims) != 2:
+        return {}
+    fixed = []
+    for name, value in dims.items():
+        m = re.fullmatch(r"FIX_(\d+)", name)
+        if not m or not re.fullmatch(r"\d+(?:\.\d+)?", value):
+            return {}
+        fixed.append((int(m.group(1)), value))
+    fixed.sort(key=lambda x: x[0])
+    if fixed[1][0] != fixed[0][0] + 1:
+        return {}
+    spacing, count = float(fixed[0][1]), float(fixed[1][1])
+    if spacing <= 0 or count < 1 or not count.is_integer():
+        return {}
+    return {"D1": fixed[1][1], "D3": fixed[0][1]}
+
+
 # a Hole Wizard hole's named parameters (SolidWorks' own names) -> what they are
 _HOLE_PARAMS = {"Hole Dia.": "diameter", "Thru Hole Dia.": "diameter", "Tap Drill Dia.": "diameter",
                 "Hole Depth": "depth", "Thru Hole Depth": "depth", "Tap Drill Depth": "depth",
@@ -1864,9 +1885,11 @@ def read(sw) -> list[Feature] | None:
             # spacing / angle, D2 the second count, D4 the second spacing
             f = Feature("pattern", nm, r.offset, r.cls)
             m = re.search(r'<Feature [^>]*Name="%s"[^>]*>(.*?)</Feature>' % re.escape(html.escape(nm)), kw, re.S)
-            dims = dict(re.findall(r'<Dimension Name="(D\d+)">([^<]*)</Dimension>', m.group(1))) if m else {}
-            val = lambda k: (lambda x: float(x.group()) if x else None)(re.search(r"-?\d+(?:\.\d+)?", html.unescape(dims.get(k, ""))))  # noqa: E731
+            dims = dict(re.findall(r'<Dimension Name="(D\d+|FIX_\d+)">([^<]*)</Dimension>', m.group(1))) if m else {}
             kind = PATTERNS[r.cls]
+            if kind == "linear":
+                dims = {**_fixed_pattern_dims(dims), **dims}
+            val = lambda k: (lambda x: float(x.group()) if x else None)(re.search(r"-?\d+(?:\.\d+)?", html.unescape(dims.get(k, ""))))  # noqa: E731
             angle = next((val(k) for k, v in dims.items() if "°" in html.unescape(v)), None)
             f.pattern = {"kind": kind, "count1": val("D1")}
             if kind == "circular":

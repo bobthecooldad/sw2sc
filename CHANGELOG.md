@@ -5,9 +5,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
 
 ## [Unreleased]
 
-NIST status after the 2012 parameter and standard-plane fixes: **0 of 19 exact feature-tree
-matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-blocked (was 0, 4 and
-15). Per-part results are in `logs/feature-check-nist.md` and working log 180.
+Current NIST status: **0 of 19 exact feature-tree matches**, 12 of 19 fully decoded and
+attempting a rebuild, 7 still reader-blocked (was 0, 4 and 15 before this batch). Per-part results
+are in `logs/feature-check-nist.md` and working log 184.
 
 ### Added
 - `tools/process_limit.py` adds a watchdog that checks working-set memory and terminates a
@@ -35,6 +35,9 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- Linear patterns whose KeyWords contain one consecutive `FIX_n` spacing/count pair now read those
+  values instead of becoming TBD. Two public parts, with five such patterns each, are now fully
+  decoded. Ordinary `D1`/`D3` dimensions remain unchanged. Python and Rust.
 - Through-all bosses no longer index a nonexistent previous feature when an imported body precedes
   them; the search checks `i > 0` before using it. Twelve GrabCAD crashes now return normal results.
 - The Rust rebuild search no longer allocates every sketch-plane combination before starting:
