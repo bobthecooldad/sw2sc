@@ -17,6 +17,17 @@ class BlockerSummaryTests(unittest.TestCase):
         self.assertEqual(anyc["feature A"], 2)
         self.assertEqual(anyc["sketch plane"], 1)
 
+    def test_dimension_mode_separates_unread_and_unwritten_dimensions(self):
+        from sw2sc import features
+        sk = features.Sketch("Sketch1", 0)
+        sk.add_plane((features.FRONT, (0.0, 0.0, 0.0)), "test")
+        sk.dims = [("D1", "sgAnglDim", 0.1, [])]
+        feats = [features.Feature("sketch", "Sketch1", 0, features.SKETCH, sketch=sk)]
+        sw = mock.Mock()
+        sw.xml.return_value = '<Sketch id="1" Name="Sketch1"><Dimension Name="D1">10</Dimension><Dimension Name="D2">20</Dimension></Sketch>'
+        kinds = feature_blockers.dimension_kinds(sw, feats)
+        self.assertEqual(kinds, {"dimension sgAnglDim", "dimension record unread"})
+
     def test_each_part_has_a_timeout_and_memory_limit(self):
         result = mock.Mock(stdout='["feature A"]', stderr="", returncode=0)
         with mock.patch.object(feature_blockers.process_limit, "run", return_value=result) as run:

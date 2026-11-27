@@ -11,6 +11,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
   baseline does not learn new losses. The native converter can write the final design, and each
   result counts expected versus delivered sketch dimensions without including private names in
   the aggregate console summary.
+- `tools/feature_blockers.py --dimensions-only` separately censuses saved-but-unread dimensions,
+  dimensions rejected by the writer and losses during shared-sketch contour selection, using the
+  existing per-part timeout and memory limits.
 
 ### Fixed
 - Named `edgeRadiusObject_c` records become fillets only when the file's own feature list confirms

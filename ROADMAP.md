@@ -21,7 +21,7 @@ different row without editing the same feature region.
 
 | Issues | Exact scope | Owner / branch | Status |
 |---|---|---|---|
-| — | No active implementation tasks listed | — | Available rows below are **TBD** |
+| B-028, F-038 | Population-wide dimension recovery: current records, references, correct meanings and delivered constraints | `kimi/public-dev` | In progress |
 
 - **TBD** means available to claim. **In progress** requires an owner/branch and a current scope.
 - Do not start work in another row's active scope. Split broad issues by record layout or operation.
@@ -41,7 +41,6 @@ These tasks normally change `sw2sc/features.py`, the corresponding modules under
 | F-035 | Remaining extrude end conditions: through-all, up-to-next/face and offset references by version. Mid-plane type 6 is done. | TBD |
 | F-039, B-019, B-020 | Older record numbering for construction centrelines, arc centres and drifted class tags. Keep this separate from rebuild ordering. | TBD |
 | F-036, F-047 | External/derived sketch planes, sketch blocks, missing arc endpoints and centre selection. Re-rank blockers after each reader improvement. | TBD |
-| B-028, F-038 | Remaining point-handle layouts, offset associations and line-to-line dimensions. Current repeated parameters, strict point-distance meanings, validated circle dimensions, reference renumbering and unused-point removal are done; do not force unresolved references. | TBD |
 | F-034 | Curve patterns with genuinely curved paths or no saved spacing. Straight, uniformly spaced one-line paths are done; do not map other cases to linear patterns by guessing. | TBD |
 | F-034 | Split tools stored as face/surface references. The single checked `moCompProfile_c` layout is documented; most unread splits do not use it. | TBD |
 | F-034 and related classes | Other mirrors/patterns, sweeps, helical threads, combine/cavity, surfaces and sheet metal, in blocker-count order. Sheet metal is a large separate effort, not a quick reader fix. | TBD |
@@ -88,6 +87,9 @@ Core part conversion comes first.
 | F-017, F-018, F-024 and related issues | Upstream contributions, vault/release workflow and Windows packaging. Follow upstream PDM decisions rather than creating a competing server model. | TBD |
 
 ## Choosing between tasks
+
+**B-028 / F-038 dimension retention is the current priority over new TBD feature classes.** Use the
+full dimension census to choose shared record/reference fixes; do not substitute geometry-only success.
 
 1. Prefer shared, evidence-backed reader fixes over rare one-off geometry cases.
 2. Use `tools/feature_blockers.py` after a batch to re-rank the queue; counts change as readers improve.

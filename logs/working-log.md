@@ -1829,3 +1829,15 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     standard Cargo test command passed in an isolated target without stopping the cycles. The
     roadmap now states that reader decoding, geometric rebuilding and delivered dimensions are
     separate acceptance gates. No private identifiers or measurements are included.
+
+
+221. **Dimension recovery takes priority over new TBD feature support.** Continuous cycling showed
+    that dimension loss is widespread across unrelated models, so B-028/F-038 is the active shared
+    priority before further feature-class expansion. Thirteen 12-part continuous cycles had completed
+    when checked, with the next still running. `feature_blockers.py --dimensions-only` now performs a
+    separate full census of saved-but-unread dimensions and dimensions not delivered after actual
+    contour selection/writing, with the same per-part timeout and memory limits. It does no geometric
+    evaluation and leaves the original structural census behavior unchanged. The dimension census is
+    running across all private models; no frequencies are claimed until it completes. Focused tooling
+    tests cover unread-versus-unwritten classification and the existing parallel defaults. No private
+    filenames, paths or per-model results are included.
