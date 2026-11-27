@@ -24,8 +24,9 @@ are in `logs/feature-check-nist.md` and working log 184.
   (default 8), preserving report order and per-part errors. Process-based regression tests cover
   the new runners; the default matches the eight-way full checks used for recent surveys. Triage's
   default per-part budget is now 300 seconds (was 90), with a CLI regression test for the default.
-  `tools/feature_blockers.py` also reads parts in parallel with `--jobs` (default 8), so full-folder
-  blocker censuses do not depend on a single serial pass.
+  `tools/feature_blockers.py` also reads parts in parallel with `--jobs` (default 8), with per-part
+  timeouts, memory caps and optional incremental JSONL output, so one difficult file cannot hold up
+  or erase the rest of a full-folder census.
 - Body and face colours from Parasolid `SDL/TYSA_COLOUR` / `SDL/TYSA_COLOUR_2` attributes are
   written as AP214 presentation styles in STEP, with identical RGB styles shared. Python and Rust.
 - Body moves (`moMoveCopyBody_c`) convert to SolidCraft's move: translation and rotation are
@@ -45,7 +46,9 @@ are in `logs/feature-check-nist.md` and working log 184.
   values instead of becoming TBD. Two public parts, with five such patterns each, are now fully
   decoded. Ordinary `D1`/`D3` dimensions remain unchanged. Python and Rust.
 - Through-all bosses no longer index a nonexistent previous feature when an imported body precedes
-  them; the search checks `i > 0` before using it. Twelve GrabCAD crashes now return normal results.
+  them; the search checks `i > 0` before using it. All 12 GrabCAD crashes now return normal results,
+  and three are exact rebuilds. The full 356-part result rises from 26 to **29 exact matches (8.1%)**,
+  with no previous match lost.
 - The Rust rebuild search no longer allocates every sketch-plane combination before starting:
   combinations are iterated lazily, like Python's `itertools.product`. One NIST part had
   293,932,800,000 combinations and previously exhausted memory in seconds.

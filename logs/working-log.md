@@ -1595,3 +1595,22 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     blocked only by general 3D sketches, 4 with sketch text and 1 with variable-radius fillets.
     Full Python suite: **113 tests OK (5 skipped)**. The whole-folder parallel census will run after
     the conversion batch, so its CPU use cannot distort that benchmark's per-part timeouts.
+
+202. **Complete combined 356-part benchmark: 29 exact rebuilds (8.1%).** The first pass used an
+    outer 300-second timeout, equal to the internal search budget: 98 parts were killed before they
+    could emit their normal result. Those 98 were rerun with a 600-second outer limit, producing 82
+    no-builds and 16 built mismatches. Merged final outcomes: **29 exact (8.1%, was 26 / 7.3%)**, 30
+    built mismatches, 111 no-builds, 60 TBD, 117 without feature history, 8 unnumbered streams, no
+    crashes and 1 empty-body error. All three new exact matches were formerly crash cases fixed by
+    B-025. Zero previous matches were lost, zero new crashes appeared, and no process hit the 2 GiB
+    memory cap. The two `FIX_n` parts account for the TBD reduction; they are no-builds, not matches.
+    The merged private JSONL is the next regression baseline.
+
+203. **Bounded, incremental blocker subprocesses.** The eight-job in-process census also hit its
+    overall timeout without a final aggregate, so worker count alone did not isolate a slow file.
+    Each part now has its own subprocess, a 300-second timeout and a 2 GiB memory cap; `--out` writes
+    one JSONL record per completed part. Timeouts and memory limits become explicit blocker categories
+    instead of suppressing the other results. New mocked tests verify the limits and timeout handling.
+    The first NIST comparison found identical counts but unstable tie ordering from completion-order
+    aggregation; tied report rows are now alphabetical. The rerun is byte-identical to the prior NIST
+    report. Full Python suite: **115 tests OK (5 skipped)**. The bounded full-folder census is running.

@@ -50,14 +50,15 @@ Sketch text can't match exactly, because SolidWorks keeps the words but not the 
 ## Full GrabCAD structural batch
 
 All 356 parts in the example folder were checked with 12 workers and a 2 GiB per-process watchdog.
-**26 exact feature-tree rebuilds (7.3%)**, 30 built without a match, 100 no-builds, 62 TBD,
-117 without feature history, 8 unnumbered streams, 12 crashes and 1 error. No process hit the
-memory limit. The previous-feature underflow behind the 12 crashes is fixed; they now return
-normal timeout/build results. The completed JSONL is the next regression baseline.
+**29 exact feature-tree rebuilds (8.1%)**, 30 built without a match, 111 no-builds, 60 TBD,
+117 without feature history, 8 unnumbered streams, no crashes and 1 error (a saved partition with no
+`BODY` node). No process hit the memory limit. This is up from 26 exact matches (7.3%): three former
+crash cases now rebuild exactly, no previous match was lost, and all 12 crashes are cleared.
 
-A targeted rerun of the two formerly TBD parts with `FIX_n` linear patterns now reaches the rebuild
-stage in both cases; both report no build to compare. Exact matches therefore remain 26 in the
-completed baseline, with no new exact match claimed from this targeted change.
+The first combined pass used an outer 300-second process timeout, equal to the internal search budget,
+so 98 parts could not return a final report. Retrying only those with a 600-second outer limit produced
+82 no-builds and 16 built mismatches; the merged 356-part counts above are complete. The completed
+JSONL is the next regression baseline.
 
 ## Additional private structural sample
 
