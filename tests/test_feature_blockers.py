@@ -30,6 +30,12 @@ class BlockerSummaryTests(unittest.TestCase):
         kinds = feature_blockers.dimension_kinds(sw, feats)
         self.assertEqual(kinds, {"dimension sgAnglDim", "dimension record unread"})
 
+    def test_sample_option_uses_the_shared_full_coverage_sampler(self):
+        with mock.patch.object(feature_blockers, "parts", return_value=[f"part-{n}" for n in range(8)]), \
+                mock.patch.object(feature_blockers, "scan", return_value=({}, {})) as scan:
+            feature_blockers.main(["folder", "--dimensions-only", "--sample", "3", "--seed", "7"])
+        self.assertEqual(len(scan.call_args.args[0]), 3)
+
     def test_each_part_has_a_timeout_and_memory_limit(self):
         result = mock.Mock(stdout='["feature A"]', stderr="", returncode=0)
         with mock.patch.object(feature_blockers.process_limit, "run", return_value=result) as run:

@@ -3129,6 +3129,24 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
                     con = next(iter(matches.values()))
                 if matches:
                     break
+        elif cls == "sgLLDist" and len(crv) == 2 and all(c in sk.curve_of for c in crv):
+            cids = [sk.curve_of[c] for c in crv]
+            if cids[0] != cids[1] and all(cid.startswith("l") and cid in cindex for cid in cids):
+                a, b = sk.lines[int(cids[0][1:]) - 1]
+                c, d = sk.lines[int(cids[1][1:]) - 1]
+                pa, pb, pc, pd = P[a], P[b], P[c], P[d]
+                u = (pb[0] - pa[0], pb[1] - pa[1])
+                v = (pd[0] - pc[0], pd[1] - pc[1])
+                lu, lv = math.hypot(*u), math.hypot(*v)
+                parallel = lu > 0 and lv > 0 and abs(u[0] * v[1] - u[1] * v[0]) <= 1e-9 * lu * lv
+                if parallel:
+                    for pid in (a, b):
+                        distance = abs((P[pid][0] - pc[0]) * v[1] - (P[pid][1] - pc[1]) * v[0]) / lv
+                        if abs(distance - abs(val)) < 1e-9:
+                            cons.append({"type": "parallel", "a": cindex[cids[0]], "b": cindex[cids[1]],
+                                         "id": f"k{len(cons) + 1}"})
+                            con = {"type": "point_line_distance", "p": pidx(pid), "l": cindex[cids[1]]}
+                            break
         elif cls == "sgSkOffsetDim":
             pname = param_name(sk.name, nm)
             off, loop, sources = _offset_constraints(sk, index, cindex, val, pname, offset_done)

@@ -14,7 +14,8 @@ Each release has a survey log in `logs/survey-<version>.md`.
   the aggregate console summary.
 - `tools/feature_blockers.py --dimensions-only` separately censuses saved-but-unread dimensions,
   dimensions rejected by the writer and losses during shared-sketch contour selection, using the
-  existing per-part timeout and memory limits.
+  existing per-part timeout and memory limits. `--sample N --seed S` gives a fast, reproducible
+  reader/writer check without running the geometric search.
 
 ### Fixed
 - Named `edgeRadiusObject_c` records become fillets only when the file's own feature list confirms
@@ -36,7 +37,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
   the saved value, without substituting horizontal, vertical and Euclidean meanings for one another.
   Point references use ordered ID+1, direct-ID and record-position readings only when each has a
   unique geometric match, rather than mixing interpretations and rejecting the dimension. Arc-only
-  unresolved references, line-to-line dimensions and offsets remain tracked in B-028.
+  unresolved references, other line-to-line layouts and offsets remain tracked in B-028. Two distinct
+  parallel lines with an exactly matching saved separation now become parallel and point-line-distance
+  constraints; single-line, non-parallel and mismatched cases remain rejected.
 
 ## [0.18.0] - 2026-11-27
 

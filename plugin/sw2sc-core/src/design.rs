@@ -269,6 +269,28 @@ fn sketch_constraints(sk: &mut Sketch, index: &IndexMap<u32, usize>, curves: &[V
                     break;
                 }
             }
+        } else if cls == "sgLLDist" && crv.len() == 2 && crv.iter().all(|c| sk.curve_of.contains_key(c)) {
+            let cids = [sk.curve_of[&crv[0]].clone(), sk.curve_of[&crv[1]].clone()];
+            if cids[0] != cids[1] && cids.iter().all(|cid| cid.starts_with('l') && cindex.contains_key(cid)) {
+                let lines = cids.clone().map(|cid| cid[1..].parse::<usize>().ok().and_then(|n| sk.lines.get(n.saturating_sub(1)).copied()));
+                if let [Some((a, b)), Some((c, d))] = lines {
+                    let (pa, pb, pc, pd) = (p[&a], p[&b], p[&c], p[&d]);
+                    let (u, v) = ((pb.0 - pa.0, pb.1 - pa.1), (pd.0 - pc.0, pd.1 - pc.1));
+                    let (lu, lv) = (u.0.hypot(u.1), v.0.hypot(v.1));
+                    if lu > 0.0 && lv > 0.0 && (u.0 * v.1 - u.1 * v.0).abs() <= 1e-9 * lu * lv {
+                        for pid in [a, b] {
+                            let distance = ((p[&pid].0 - pc.0) * v.1 - (p[&pid].1 - pc.1) * v.0).abs() / lv;
+                            if (distance - val.abs()).abs() < 1e-9 {
+                                if let Some(pi) = pidx(pid) {
+                                    cons.push(json!({"type": "parallel", "a": cindex[&cids[0]], "b": cindex[&cids[1]], "id": format!("k{}", cons.len() + 1)}));
+                                    con = Some(obj(json!({"type": "point_line_distance", "p": pi, "l": cindex[&cids[1]]})));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         } else if cls == "sgSkOffsetDim" {
             let pname = param_name(&sk.name, &d.name);
             let (off, lp, sources) = offset_constraints(sk, index, &cindex, val, &pname, &mut offset_done);
@@ -1392,5 +1414,27 @@ mod tests {
             handles: vec![Handle { cls: "sgPointHandle".into(), id: 4 }, Handle { cls: "sgPointHandle".into(), id: 0 }] }];
         let _d = sketch_feature(&mut positioned, 1, true);
         assert_eq!(positioned.params[0]["name"], "S_D2");
+    }
+
+    #[test]
+    fn line_distance_needs_two_parallel_lines_and_the_matching_separation() {
+        let mut sk = Sketch::new("S", 0);
+        sk.points.extend([(1, (0.0, 0.0)), (2, (0.010, 0.0)), (3, (0.0, 0.003)), (4, (0.010, 0.003))]);
+        sk.lines = vec![(1, 2), (3, 4)];
+        sk.curve_of.extend([(("line".into(), 2), "l1".into()), (("line".into(), 1), "l2".into())]);
+        sk.add_plane(&(crate::features::FRONT, [0.0; 3]), "test", false);
+        sk.dims = vec![crate::features::Dim { name: "D1".into(), cls: "sgLLDist".into(), value: 0.003,
+            handles: vec![Handle { cls: "sgLineHandle".into(), id: 2 }, Handle { cls: "sgLineHandle".into(), id: 1 }] }];
+        let d = sketch_feature(&mut sk, 1, true);
+        assert_eq!(sk.params[0]["name"], "S_D1");
+        let types: Vec<&str> = d["sketch"]["constraints"].as_array().unwrap().iter().filter_map(|c| c["type"].as_str()).collect();
+        assert_eq!(types, ["parallel", "point_line_distance"]);
+        sk.dims[0].value = 0.004;
+        let _d = sketch_feature(&mut sk, 1, true);
+        assert!(sk.params.is_empty());
+        sk.dims[0].value = 0.003;
+        sk.dims[0].handles.truncate(1);
+        let _d = sketch_feature(&mut sk, 1, true);
+        assert!(sk.params.is_empty());
     }
 }

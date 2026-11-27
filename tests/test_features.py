@@ -311,6 +311,20 @@ class SavedSketchGeometryTests(unittest.TestCase):
             features.sketch_feature(diagonal, 1)
             self.assertEqual(diagonal.params, [])
 
+    def test_line_distance_requires_two_parallel_lines_with_matching_separation(self):
+        sk = sketch({1: (0, 0), 2: (10, 0), 3: (0, 3), 4: (10, 3)}, lines=[(1, 2), (3, 4)])
+        sk.curve_of = {("line", 2): "l1", ("line", 1): "l2"}
+        sk.dims = [("D1", "sgLLDist", 0.003, [("sgLineHandle", 2), ("sgLineHandle", 1)])]
+        written = features.sketch_feature(sk, 1)
+        self.assertEqual([p["name"] for p in sk.params], ["S_D1"])
+        self.assertEqual([c["type"] for c in written["sketch"]["constraints"]], ["parallel", "point_line_distance"])
+        sk.dims[0] = ("D1", "sgLLDist", 0.004, sk.dims[0][3])
+        features.sketch_feature(sk, 1)
+        self.assertEqual(sk.params, [])
+        sk.dims[0] = ("D1", "sgLLDist", 0.003, [("sgLineHandle", 2)])
+        features.sketch_feature(sk, 1)
+        self.assertEqual(sk.params, [])
+
     def test_radius_recovery_requires_raw_value_and_curve_agreement(self):
         raw = parameter_record("D5", 0.024) + parameter_record("D5", 0.008) + handle(0x80C9, 8)
         sk = features.Sketch("S", 0)

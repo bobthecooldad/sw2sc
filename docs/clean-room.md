@@ -180,3 +180,10 @@ Record each new finding here.
   files. The reader maps this class to fillet only when the named feature's saved type confirms it;
   unnamed records and other feature types are not reclassified. No radius is inferred from nearby
   geometry. No private names, values or geometry are published.
+
+
+- **Parallel-line distance (`sgLLDist`, B-028):** a checked private model stores two distinct line
+  handles whose lines are parallel; the saved value equals their perpendicular separation. Write
+  `parallel` plus one endpoint-to-line distance only when that exact geometry holds. A different case
+  has only one resolvable line and is not converted. No separation is inferred from line length or
+  guessed from the model's appearance. No private dimensions or geometry are published.

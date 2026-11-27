@@ -1887,3 +1887,28 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     and then needed to handle absent dimension records; both local reporting errors were corrected
     before the above counts were read, with no effect on converter results. No private names or paths
     are included.
+
+
+225. **B-028 adds a narrow parallel-line-distance writer.** Tracing the random sample's geometrically
+    accepted models found 11 missing dimensions: eight rejected by writer value/reference validation
+    and three saved but unread; none was lost by contour filtering. Raw records showed unsupported
+    `sgLLDist`, unresolved handles and unread parameter records. One line-line case has two distinct
+    parallel lines and a saved value equal to their perpendicular separation. It now writes parallel
+    plus endpoint-to-line distance, rejecting single-line, non-parallel or mismatched cases. That model
+    rebuilds on the first native try and passes the real host, with four of six dimensions delivered;
+    its other two saved dimensions remain unresolved. Tests: **142 Python OK (5 skipped), all 36
+    release Rust OK**. The same 40-model sample is being rerun with the new binary to measure any
+    population-level gain; none is assumed from the single verified model. Continuous conversion and
+    the matched run retain their memory/time limits. No private model details are published.
+
+
+226. **Three-file immediate dimension check: no improvement in that sample.** A matched reader/writer
+    check of three newly randomized private models completed in under a second, without a native
+    geometric search. Both versions have two models with no detected dimension loss and one
+    `sgPntLineDist` loss. The failing record contains only one arc handle, no point or line. Its circle
+    radius/diameter and other saved metadata do not establish the point-line meaning, so no origin or
+    circle constraint is invented. This remains B-028 evidence, not a fix. `feature_blockers.py` now
+    accepts `--sample N --seed S` using the shared full-coverage sampler; the test verifies the option.
+    The failed wrapper attempts (unsupported option in the old checkout, shell setup race) produced no
+    model evidence and are not counted; the final result above came only after both versions returned
+    three records. No private names, paths or per-file details are published.

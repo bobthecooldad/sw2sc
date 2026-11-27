@@ -1,5 +1,6 @@
 """Which single fix would unlock the most parts (F-006): for every part read, the kinds of
-thing still blocking a full rebuild; prints how many parts are blocked by one kind only."""
+thing still blocking a full rebuild; prints how many parts are blocked by one kind only.
+`--dimensions-only --sample N --seed S` checks dimension reading/writing without geometric rebuilds."""
 import argparse
 import collections
 import copy
@@ -14,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw2sc import features  # noqa: E402
 from sw2sc.swfile import SwFile  # noqa: E402
 from feature_survey import parts  # noqa: E402
+from convert_sample import sample_paths  # noqa: E402
 import process_limit  # noqa: E402
 
 
@@ -130,6 +132,8 @@ def main(argv=None):
     parser.add_argument("folders", nargs="+")
     parser.add_argument("--one", action="store_true")
     parser.add_argument("--dimensions-only", action="store_true")
+    parser.add_argument("--sample", type=int, help="randomized chunk size, using full-coverage cycle ordering")
+    parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--jobs", type=int, default=20)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--memory-mb", type=int, default=2048)
@@ -139,7 +143,12 @@ def main(argv=None):
         kinds = blocker_kinds(args.folders[0], args.dimensions_only)
         print(json.dumps(None if kinds is None else sorted(kinds)))
         return
-    only, anyc = scan(parts(args.folders), args.jobs, args.timeout, args.memory_mb, args.out, args.dimensions_only)
+    selected = parts(args.folders)
+    if args.sample is not None:
+        if args.sample < 1:
+            parser.error("--sample must be positive")
+        selected = sample_paths(selected, args.sample, args.seed)
+    only, anyc = scan(selected, args.jobs, args.timeout, args.memory_mb, args.out, args.dimensions_only)
     print("parts with one dimension blocker only:" if args.dimensions_only else "parts blocked by one kind only:")
     for kind, count in sorted(only.items(), key=lambda item: (-item[1], item[0]))[:20]:
         print(f"  {count:4d}  {kind}")
