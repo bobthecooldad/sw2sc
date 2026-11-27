@@ -659,6 +659,10 @@ fn num_or_null(x: Option<f64>) -> Value {
     x.map_or(Value::Null, |v| json!(v))
 }
 
+fn is_fillet_class(cls: &str, saved_type: Option<&str>) -> bool {
+    cls == FILLET || (cls == "edgeRadiusObject_c" && saved_type == Some("Fillet"))
+}
+
 /// The part's features in order, or None when the stream can't be numbered.
 pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
     let b: &[u8] = sw.streams.get(STREAM)?;
@@ -677,6 +681,7 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
     }
     let recs = archive::records(b, start, outside.as_ref(), true);
     let kw = sw.xml("swXmlContents/KeyWords").unwrap_or_default();
+    let kw_feature_types: HashMap<String, String> = kw_features(&kw).into_iter().filter_map(|(_e, name, kind)| kind.map(|k| (name, k))).collect();
     // each sketch's current dimensions by name, from KeyWords (a stale record isn't listed)
     let sk_re = Regex::new(r#"(?s)<Sketch id="\d+" Name="([^"]*)"[^>/]*>(.*?)</Sketch>"#).unwrap();
     let mut kw_sk_dims: HashMap<String, HashSet<String>> = HashMap::new();
@@ -821,8 +826,8 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 Some(a) if a != 0.0 && 1e-6 < a.abs() && a.abs() <= 2.0 * std::f64::consts::PI + 1e-9 => a.to_degrees(),
                 _ => 360.0,
             };
-        } else if cls == FILLET || cls == CHAMFER {
-            f = Feature::new(if cls == FILLET { "fillet" } else { "chamfer" }, nm, r.offset, cls);
+        } else if cls == CHAMFER || is_fillet_class(cls, kw_feature_types.get(nm).map(String::as_str)) {
+            f = Feature::new(if cls == CHAMFER { "chamfer" } else { "fillet" }, nm, r.offset, cls);
             let mut rad = None;
             if let Some(k) = k {
                 for x in &recs[k + 1..] {

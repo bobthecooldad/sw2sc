@@ -27,6 +27,11 @@ REVOLVE = "moRevolution_c"
 REVCUT = "moRevCut_c"
 FILLET = "Fillet_c"
 CHAMFER = "Chamfer_c"
+
+
+def _is_fillet_class(cls: str, saved_type: str | None) -> bool:
+    """edgeRadiusObject_c is a fillet only where KeyWords identifies the named feature as one."""
+    return cls == FILLET or (cls == "edgeRadiusObject_c" and saved_type == "Fillet")
 HOLE = "moHoleWzd_c"
 MIRRORS = {"moMirrorPattern_c", "moMirrorSolid_c"}
 THREAD = "moSweepThread_c"
@@ -1888,6 +1893,7 @@ def read(sw) -> list[Feature] | None:
     # each sketch's current dimension names and shown values, from KeyWords (stale records aren't listed)
     kw = sw.xml("swXmlContents/KeyWords") or ""
     kw_shown = _kw_sketch_dimensions(kw)
+    kw_feature_types = {name: kind for _element, name, kind in _kw_features(kw) if kind}
     kw_dims = {name: {nm for nm, _text in dims} for name, dims in kw_shown.items()}
     kw_sketches = {html.unescape(m.group(1)) for m in re.finditer(r'<Sketch id="\d+" Name="([^"]*)"', kw)}
     tags = _class_tags(recs)
@@ -1998,8 +2004,8 @@ def read(sw) -> list[Feature] | None:
                     ang = _param_value(b, _data_start(b, x))
                     break
             f.angle_deg = math.degrees(ang) if ang and 1e-6 < abs(ang) <= 2 * math.pi + 1e-9 else 360.0
-        elif r.cls in (FILLET, CHAMFER):
-            f = Feature("fillet" if r.cls == FILLET else "chamfer", nm, r.offset, r.cls)
+        elif r.cls == CHAMFER or _is_fillet_class(r.cls, kw_feature_types.get(nm)):
+            f = Feature("chamfer" if r.cls == CHAMFER else "fillet", nm, r.offset, r.cls)
             rad = None
             for x in (recs[k + 1:] if k is not None else []):
                 if x.offset >= end:

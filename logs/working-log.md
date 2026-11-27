@@ -1804,3 +1804,28 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     No private names, paths, model inventory or per-file results enter this log. Tooling tests cover
     full-cycle coverage, pinned cases, missing saved dimensions and preservation of a regression.
     Full checks: **138 Python tests OK (5 skipped), all 35 Rust tests OK**; privacy check clean.
+
+
+219. **Full private structural census completed.** All 3,998 selected private parts returned a
+    structural record: **3,442 fully decoded at reader level**, seven unread and one read timeout.
+    These are not geometric matches or dimension-complete models. Common blockers any-part: 51
+    general-3D-sketch, 50 sketch-plane, 49 Fillet_c, 40 extrusion, 36 external-feature and 32
+    sketch-text records. Single-blocker groups include 101 pre-2015 numbering, 19 Fillet_c, 16
+    edgeRadiusObject_c, 13 emboss and 13 sketch-text cases. The narrow radius/fillet group is the
+    next investigation because several independent examples can be compared. No private filenames,
+    paths, geometry or per-file outcomes are recorded. The continuous conversion/dimension cycles
+    remain active while this reader work proceeds.
+
+
+220. **B-029 reader fix, with rebuild result explicitly unresolved.** Three independent private
+    models with `edgeRadiusObject_c` as their only reader blocker have valid named Fillet records,
+    feature IDs and the same parameter/face-reference layout as `Fillet_c`. A guarded mapping now
+    reads their radii and edge groups in Python and Rust. All three are fully decoded at reader level;
+    **none produces an accepted rebuild**, and each reaches the 300-second budget with no complete
+    candidate. This does not yet implicate the fillet kernel: earlier features may stop the sequential
+    search. The timeout moves to F-006 for prefix profiling, not a larger budget. The six previous
+    private matches remain six of six with zero errors. Full tests: **139 Python OK (5 skipped), all
+    35 Rust OK**. The ordinary Rust target was locked by the continuous converter; the unchanged
+    standard Cargo test command passed in an isolated target without stopping the cycles. The
+    roadmap now states that reader decoding, geometric rebuilding and delivered dimensions are
+    separate acceptance gates. No private identifiers or measurements are included.

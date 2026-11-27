@@ -3,7 +3,9 @@
 sw2sc reads SolidWorks files without SolidWorks and rebuilds their **editable feature structure**
 in SolidCraft. Success is a feature-tree rebuild whose volume, surface area and bounding box match
 the saved solid within 0.1%, followed by geometric evidence (two-way differences natively, or exact
-face geometry in the read-only host). An imported STEP solid is only a fallback and does **not** count.
+face geometry in the read-only host). Expected sketch dimensions must also survive into the delivered
+model. An imported STEP solid is only a fallback and does **not** count; a geometric match with missing
+dimensions is not a complete conversion. Report geometry and dimension retention separately.
 
 This file is for choosing and allocating work. `ISSUES.md` holds diagnoses, `docs/clean-room.md`
 holds format evidence, and `logs/working-log.md` holds attempted fixes and measurements. Current
@@ -58,7 +60,7 @@ code and `tools/rebuild_triage.py`. Preserve every previously matching regressio
 | F-006, B-021 | NIST CTC 01 (2018): the latest closest result has 0.6% extra material. Identify the island or cut that does not take using loop and feature-by-feature evidence. | TBD |
 | F-006 | NIST FTC 08: fully decoded but times out. Profile the search and prune impossible prefixes; do not call a larger timeout a fix. | TBD |
 | F-006, F-035 | NIST CTC 04: all 105 evaluated builds miss. Recheck after end-condition work, then compare holes and cuts against the saved solid. | TBD |
-| F-006 | General no-build cases: use `FACE_ID_2001`, mismatch signatures and prefix pruning for reproducible diagnoses instead of longer blind searches. | TBD |
+| F-006 | General no-build cases: use `FACE_ID_2001`, mismatch signatures and prefix pruning for reproducible diagnoses instead of longer blind searches. Three newly decoded private fillet cases time out before a complete candidate and need prefix profiling, not a larger timeout. | TBD |
 
 ## Priority 3: operations and kernel-bound geometry
 

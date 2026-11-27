@@ -171,3 +171,11 @@ Record each new finding here.
   unresolved. Evidence came from raw records of a private part, with no private identifiers or
   measurements published. Contour filtering must renumber curve references, retain required
   reference lines as construction geometry and remove unused points.
+
+
+- **`edgeRadiusObject_c` named fillets (B-029):** three independent private models contain named
+  records of this class whose feature IDs and KeyWords type identify them as Fillet features. Their
+  radius parameter and face-reference layout agree with the working `Fillet_c` records in the same
+  files. The reader maps this class to fillet only when the named feature's saved type confirms it;
+  unnamed records and other feature types are not reclassified. No radius is inferred from nearby
+  geometry. No private names, values or geometry are published.

@@ -20,7 +20,9 @@ Full detail: `CHANGELOG.md` **0.18.0** and `logs/working-log.md` on the dev bran
 A part counts as **converted** only when its editable feature tree rebuilds in SolidCraft and
 matches the part's own solid (volume, area and bounding box within 0.1%, followed by geometric
 evidence). Native checks use two-way boolean differences; the read-only host compares exact face
-surfaces, areas and centres. An imported-solid fallback is not counted as conversion success.
+surfaces, areas and centres. Expected sketch dimensions must also reach the delivered model; report
+geometric matches and dimension retention separately. An imported-solid fallback is not counted as
+conversion success.
 
 Latest full eight-job run: **0 of 19 converted; 12 of 19 fully decoded and attempted a rebuild;
 7 of 19 still blocked by unread features or sketches.** Before this batch those figures were 0,

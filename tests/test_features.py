@@ -322,6 +322,14 @@ class SavedSketchGeometryTests(unittest.TestCase):
         self.assertEqual(len(sk.dims), 1)
 
 
+class FeatureClassTests(unittest.TestCase):
+    def test_edge_radius_object_requires_the_saved_fillet_type(self):
+        self.assertTrue(features._is_fillet_class("edgeRadiusObject_c", "Fillet"))
+        self.assertFalse(features._is_fillet_class("edgeRadiusObject_c", None))
+        self.assertFalse(features._is_fillet_class("edgeRadiusObject_c", "Chamfer"))
+        self.assertTrue(features._is_fillet_class("Fillet_c", None))
+
+
 class RealPartTests(unittest.TestCase):
     def read(self, path):
         if not os.path.isfile(path):

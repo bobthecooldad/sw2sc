@@ -13,6 +13,10 @@ Each release has a survey log in `logs/survey-<version>.md`.
   the aggregate console summary.
 
 ### Fixed
+- Named `edgeRadiusObject_c` records become fillets only when the file's own feature list confirms
+  that type, sharing the existing radius and edge-reference reader rather than guessing from shape.
+  Checked against three independent private layouts. Their rebuild-search timeouts remain F-006;
+  no exact-match gain is claimed (B-029).
 - Repeated sketches can now use different contours for different bosses/cuts. Saved circular edges
   resolve ambiguous centres and arc senses, `FACE_ID_2001` identifies each feature's contours, and
   shared-sketch clones are filtered and ordered independently (B-026). Python and Rust.
