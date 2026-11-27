@@ -1586,3 +1586,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     directly as symmetric, but its general 3D sketch still blocks a rebuild. A new full 356-part
     GrabCAD run has started with 12 workers, a 300-second per-part budget and a 2 GiB watchdog;
     no updated full-batch percentage is claimed until it completes.
+
+201. **Parallel whole-folder blocker census.** The original serial `feature_blockers.py` timed out
+    at both 15 minutes and 60 minutes before printing its final aggregate. It now has the same
+    process-pool pattern as the other readers, with `--jobs` defaulting to 8 and no script execution
+    on import. A new aggregation test separates single blockers, shared blockers, fully decoded parts
+    and unread files. Serial and eight-job NIST reports are byte-identical: 12 fully decoded, 3 parts
+    blocked only by general 3D sketches, 4 with sketch text and 1 with variable-radius fillets.
+    Full Python suite: **113 tests OK (5 skipped)**. The whole-folder parallel census will run after
+    the conversion batch, so its CPU use cannot distort that benchmark's per-part timeouts.
