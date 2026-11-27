@@ -3180,6 +3180,7 @@ def design(name: str, feats: list[Feature], choices: dict, planes: dict | None =
             g = {"id": nid, "name": f.name, "type": f.kind, "suppressed": False,
                  "edges": [list(m) for m, _n in picked], "edge_names": [n for _m, n in picked]}
             if f.kind == "fillet":
+                g["tangent_chain"] = False
                 g["radius"] = param_name(f.name, "D1")
             else:
                 # which face the distance runs along: SolidCraft's `flip`, tried both ways

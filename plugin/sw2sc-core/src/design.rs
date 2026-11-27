@@ -831,6 +831,7 @@ pub fn design(name: &str, feats: &mut [Feature], choices: &Choices, planes: &Has
                 let mut g = json!({"id": nid, "name": f.name, "type": f.kind, "suppressed": false,
                                    "edges": once.values().cloned().collect::<Vec<_>>(), "edge_names": once.keys().cloned().collect::<Vec<_>>()});
                 if f.kind == "fillet" {
+                    g["tangent_chain"] = json!(false);
                     g["radius"] = json!(param_name(&f.name, "D1"));
                 } else {
                     g["distance"] = json!(param_name(&f.name, "D1"));
@@ -1178,6 +1179,16 @@ pub fn design_tail(name: &str, feats: &[Feature], mut out: Vec<Value>, nid: i64)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fillet_blends_only_the_file_selected_edges() {
+        let mut f = Feature::new("fillet", "Fillet1", 0, crate::features::FILLET);
+        f.radius_mm = Some(0.15);
+        let mut feats = vec![f];
+        let picks = Picks::new().with("Fillet1", json!([[[0, 0, 0], "edge"]]));
+        let d = design("Part", &mut feats, &Choices::new(), &HashMap::new(), true, &picks, None);
+        assert_eq!(d["features"].as_array().unwrap().last().unwrap()["tangent_chain"], json!(false));
+    }
 
     #[test]
     fn mid_plane_extrude_is_symmetric_even_with_a_one_sided_choice() {

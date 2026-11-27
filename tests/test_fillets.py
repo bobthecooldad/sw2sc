@@ -60,6 +60,14 @@ class SolverTests(unittest.TestCase):
         self.assertEqual(features._edge_groups(b, [(9, 9, 9, 9, 12)] + raw, 0, len(b)), raw)
 
 
+class FilletWriterTests(unittest.TestCase):
+    def test_only_the_file_selected_edges_are_blended(self):
+        feats = [features.Feature("fillet", "Fillet1", 0, features.FILLET, radius_mm=0.15)]
+        picked = {"Fillet1": [([0, 0, 0], "edge")]}
+        design = features.design("Part", feats, {}, None, True, picked)
+        self.assertIs(design["features"][-1]["tangent_chain"], False)
+
+
 class ReadTests(unittest.TestCase):
     def part(self, name):
         hits = [h for r in (r"C:\Solidworks to Solidcraft\samples", r"C:\Solidworks to Solidcraft\out\vault-grabcad")

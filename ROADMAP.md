@@ -21,7 +21,7 @@ project success; an imported-solid fallback does not count.**
 | Rebuilt, but did not match | 4 / 19 | 12 / 19 | +8 |
 | Still blocked by unread features/sketches | 15 / 19 | 7 / 19 | **-8 blockers** |
 | Public 35-part feature check (separate baseline) | 10 / 35 match | Not rerun | Must not regress |
-| Rebuild regression set | 21 / 22 match | 20 / 22 on 0.50.0 at 300 seconds | One recovered; PartT8 remains 0.1265% off (B-023) |
+| Rebuild regression set | 21 / 22 match | **21 / 22 on 0.50.0 at 300 seconds** | **Baseline restored; zero losses; PartT8 fixed (B-023)** |
 | Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 43 designs | No new difference; both pattern parts also match separately |
 | Full 356-part GrabCAD structural batch | 26 / 356 exact rebuilds (7.3%) | **29 / 356 exact rebuilds (8.1%)** | **+3 exact; all 12 crashes cleared; zero lost matches and zero memory-limit terminations** |
 
@@ -73,8 +73,9 @@ NIST run took about eight minutes with eight jobs.
 
 Revolve, colour and the wider fillet groups pass their Python/Rust tests. Full parity after the
 lazy-product and previous-feature fixes is zero feature/design differences on 54 public-sample
-parts (43 designs). On SolidCraft 0.50.0 the 300-second regression is 20 of 22; PartT8 remains the
-separate area-only B-023 failure and is not being reopened in this batch.
+parts (43 designs). On SolidCraft 0.50.0 the 300-second regression is **21 of 22 with zero losses**;
+PartT8 is fixed by using only file-selected fillet edges (B-023). The remaining PartT_7 mismatch was
+not a previously matching baseline part.
 
 ## Ordered work queue
 
@@ -109,7 +110,7 @@ resolved or explicitly excluded from the benchmark.
 These tasks primarily involve `sw2sc/verify.py`, `plugin/sw2sc-core/src/search.rs`, fillet
 selection code and `tools/rebuild_triage.py`.
 
-1. **NIST CTC 01 (2018): 1.8% extra material.** Use loop nesting and cut evaluation to identify
+1. **NIST CTC 01 (2018): 0.6% extra material in the latest run.** Use loop nesting and cut evaluation to identify
    the island or cut that does not take. This is the closest current feature-tree mismatch.
 2. **NIST FTC 08: fully decoded but times out.** Profile the search, prune impossible prefixes and
    give plane choices bounded time slices. Do not increase the global timeout and call it a fix.

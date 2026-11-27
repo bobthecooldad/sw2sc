@@ -38,6 +38,10 @@ are in `logs/feature-check-nist.md` and working log 184.
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- Fillets use only the edge set selected in the SolidWorks file (`tangent_chain: false`), rather than
+  adding SolidCraft's tangent-propagated edges. PartT8 matches again through Python and Rust within
+  the normal 300-second budget, restoring the 21-of-22 regression baseline (B-023). The match
+  threshold and search timeout are unchanged.
 - Straight, uniformly spaced `moCurvePattern_c` features now convert as linear patterns when the
   record uniquely references an unused one-line path sketch. The line and sketch plane supply the
   direction; count and spacing are required. Two public parts become fully decoded; unspaced and
@@ -57,7 +61,7 @@ are in `logs/feature-check-nist.md` and working log 184.
   combinations are iterated lazily, like Python's `itertools.product`. One NIST part had
   293,932,800,000 combinations and previously exhausted memory in seconds.
 - The main rebuild search budget is now 300 seconds in Python and Rust (was 240), matching the
-  triage default. One previously timed-out regression part matches again; PartT8 remains B-023.
+  triage default. One previously timed-out regression part matches again.
 - Revolves and revolved cuts are included at their own place in the sequential rebuild, and the
   material bounds account for later revolves. Previously the design writer emitted them but the
   rebuild skipped them. Python and Rust, with rebuild tests; older unread centrelines remain F-039.

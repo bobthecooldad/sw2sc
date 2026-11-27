@@ -1638,3 +1638,18 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     work on these two is left bounded, not allowed to consume the next batch. Full public parity:
     54 files / 43 designs, zero differences. The 22-part regression remains 20 / 22 with zero new
     losses; only the known B-023 PartT8 mismatch differs from its older baseline.
+
+206. **B-023 fixed by respecting the selected fillet edges.** The earlier per-fillet tangent search
+    multiplied candidates and missed within 300 seconds, but forcing picked edges only had matched.
+    The production writers now set `tangent_chain: false` on fillets directly: the file already
+    supplies the selected edge set, so SolidCraft must not add implicit tangent-propagated edges.
+    There are no new search branches, no timeout increase and no threshold relaxation. Python and
+    Rust writer tests failed before the field was added and pass after it. PartT8 matches through
+    Python in 269 seconds and through the Rust release converter in 267 seconds (11 candidates, no
+    timeout). The complete regression is **21 of 22, with 0 gained and 0 lost**; the baseline is
+    restored. PartT8 was already one of the 29 exact matches in the full public batch, so this fix
+    changes its reliability, not that batch's count. Full tests and parity: **118 Python tests OK
+    (5 skipped), all 19 Rust tests OK**, and 54 files / 43 designs with zero Python/Rust differences.
+    NIST after the fix: **0 / 19 exact**, 12 rebuild attempts and 7 reader-blocked, unchanged in
+    outcome. CTC 01's closest extra-material mismatch is +0.6% this run (was +1.8%), still a mismatch
+    rather than a success. A fresh full-model regression is being checked before any dev push.
