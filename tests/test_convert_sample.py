@@ -56,6 +56,40 @@ class ConvertSampleTests(unittest.TestCase):
                     convert_sample.run_batch(normal_paths, 2, 900, fh, [])
             self.assertEqual(workers, [1, 2])
 
+    def test_cycles_cover_every_path_and_keep_pinned_regressions(self):
+        paths = [f"part-{n}.sldprt" for n in range(10)]
+        seen = set()
+        for cycle in range(5):
+            sample = convert_sample.sample_paths(paths, 3, seed=7, cycle=cycle, include=["part-0.sldprt"])
+            self.assertLessEqual(len(sample), 3)
+            self.assertIn("part-0.sldprt", sample)
+            seen.update(sample)
+        self.assertEqual(seen, set(paths))
+
+    def test_dimension_coverage_includes_saved_dimensions_missed_by_the_reader(self):
+        from sw2sc import features
+        sk = features.Sketch("Sketch1", 0)
+        sk.dims = [("D1", "sgPntPntDist", 0.010, [])]
+        feats = [features.Feature("sketch", "Sketch1", 0, features.SKETCH, sketch=sk)]
+        shown = {"Sketch1": [("D1", "10"), ("D2", "20"), ("D3", "<MOD-DIAM>30")]}
+        result = convert_sample.dimension_coverage(feats, shown, {"params": [{"name": "Sketch1_D1"}]})
+        self.assertEqual(result, {"expected": 2, "written": 1, "missing": ["Sketch1_D2"]})
+
+    def test_cycle_baseline_does_not_learn_a_regression(self):
+        import json
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline = os.path.join(tmp, "baseline.jsonl")
+            results = os.path.join(tmp, "results.jsonl")
+            good = {"file": "A", "summary": "A: rebuilt from its 2 features", "error": None, "items": [], "rebuild": {}}
+            bad = {"file": "A", "summary": "A: its solid (the tree's rebuild didn't match)", "error": None, "items": [], "rebuild": {"closest": "no build"}}
+            with open(baseline, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(good) + "\n")
+            with open(results, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(bad) + "\n")
+            convert_sample.merge_baseline(results, baseline)
+            with open(baseline, encoding="utf-8") as fh:
+                self.assertEqual(json.loads(fh.read()), good)
+
     def test_run_uses_requested_timeout(self):
         result = subprocess_result = mock.Mock()
         result.stdout = "{}"

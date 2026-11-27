@@ -1791,3 +1791,16 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     dimensions, and the six previous private matches remain six of six with structure-only images and
     zero errors. Private model names, paths and measurements remain local. Remaining reference layouts,
     `sgLLDist` and offsets stay in B-028 as TBD.
+
+
+218. **Private checking now cycles and reads structure across the model set.** The existing Rust
+    sample runner now writes the final design when asked, reports expected versus delivered sketch
+    dimensions, supports pinned cases and rotates shuffled chunks so every path is covered before
+    reshuffling. Cycle results merge into a private baseline without converting a new loss into the
+    accepted baseline. The bounded first cycle completed with **2 editable rebuilds and 4 of 22
+    expected dimensions retained**; its conversion error and geometry-warning case stay in the local
+    diagnostics. Continuous cycling was then started with per-process memory and time limits. A
+    separate full private structural blocker census is running with lower parallelism alongside it.
+    No private names, paths, model inventory or per-file results enter this log. Tooling tests cover
+    full-cycle coverage, pinned cases, missing saved dimensions and preservation of a regression.
+    Full checks: **138 Python tests OK (5 skipped), all 35 Rust tests OK**; privacy check clean.
