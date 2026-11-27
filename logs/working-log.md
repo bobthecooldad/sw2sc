@@ -1745,3 +1745,31 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     forwarding the host's `shape_matches` override; a direct regression test now covers that dispatch.
     No public or NIST success-rate change is claimed from this focused private verification. No
     private model names, paths, dimensions, geometry or per-file results are included.
+
+
+216. **B-028: shared-sketch dimensions and excess points, fixed only where proven.** Raw inspection
+    showed that the first parameter of a dimension could be stale, and that scanning from it through
+    later parameters mixed in unrelated handles. The reader now chooses the later same-name parameter
+    within the dimension and bounds its handles correctly. Radius/diameter recovery requires agreement
+    among KeyWords, a raw parameter and an existing curve. Point/point and point/line constraints are
+    written only for a unique geometry-backed reading; handle zero can address the origin directly.
+    Contour filtering now deduplicates handles, renumbers curve references after removal, retains a
+    required reference line as construction, and removes unrelated points and point-only relations.
+
+    The selected private two-boss case now retains three driving dimensions on its outer sketch and
+    two on its circle-only shared use; the latter has four points including the fixed origin, instead
+    of the former unrelated point set. Both sketches and both boss extrudes survive the real plugin
+    host, with no import feature. Native conversion matches on its first try under the 2 GiB watchdog.
+    The six previous private matches still pass with structure-only images and zero errors. Python:
+    **135 tests OK (5 skipped)**; Rust: **all 35 tests OK**. Private parity: one file and one design,
+    zero differences. No private names, paths, values or geometry are included.
+
+    A remaining point-distance handle layout and an offset association are deliberately unconverted
+    (B-028), so this is not a claim that the sketch is fully dimensioned. The approved clean-room
+    reference's record-position interpretation did not resolve the sparse handles. Some restored
+    constraints also triggered SolidCraft SMLib boolean failures despite the candidate evaluating
+    correctly. Native/Python acceptance now uses exact face surface/area/centre evidence only when a
+    boolean is unavailable; a measured difference beyond tolerance still rejects, and missing/inexact
+    face evidence still rejects. Tests cover both the face-backed acceptance and the prohibition on
+    overriding a measured mismatch. The stopped full private scan and public-model investigations
+    were not restarted; no NIST improvement is claimed.

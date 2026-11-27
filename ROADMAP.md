@@ -39,6 +39,7 @@ These tasks normally change `sw2sc/features.py`, the corresponding modules under
 | F-035 | Remaining extrude end conditions: through-all, up-to-next/face and offset references by version. Mid-plane type 6 is done. | TBD |
 | F-039, B-019, B-020 | Older record numbering for construction centrelines, arc centres and drifted class tags. Keep this separate from rebuild ordering. | TBD |
 | F-036, F-047 | External/derived sketch planes, sketch blocks, missing arc endpoints and centre selection. Re-rank blockers after each reader improvement. | TBD |
+| B-028, F-038 | Remaining shared-sketch point-handle layouts and offset associations. Current repeated parameters, validated circle dimensions, reference renumbering and unused-point removal are done; do not force unresolved references. | TBD |
 | F-034 | Curve patterns with genuinely curved paths or no saved spacing. Straight, uniformly spaced one-line paths are done; do not map other cases to linear patterns by guessing. | TBD |
 | F-034 | Split tools stored as face/surface references. The single checked `moCompProfile_c` layout is documented; most unread splits do not use it. | TBD |
 | F-034 and related classes | Other mirrors/patterns, sweeps, helical threads, combine/cavity, surfaces and sheet metal, in blocker-count order. Sheet metal is a large separate effort, not a quick reader fix. | TBD |

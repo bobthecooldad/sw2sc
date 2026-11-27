@@ -10,7 +10,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 
 use super::planes::{self, data_start, plane_frames, plane_from_ref, plane_inside, plane_refs, sketch_plane, Got};
-use super::sketch::{class_tags, param_value, read_sketch, Tags};
+use super::sketch::{class_tags, dimension_handles, param_value, parameter_records, read_sketch, Tags};
 use super::*;
 use crate::archive::{self, Record};
 use crate::swfile::SwFile;
@@ -196,6 +196,70 @@ fn sketch_unit(kw: &str, sk: &Sketch) -> Option<f64> {
         }
     }
     None
+}
+
+/// Recover a missing R/Ø/MOD-DIAM only when its shown value, raw parameter and one existing
+/// curve all agree. Repeated entity parameters with other values or targets are not evidence.
+fn recover_radius_dimensions(b: &[u8], tags: &Tags, sk: &mut Sketch, kw: &str, shown: &[(String, String)]) {
+    let Some(unit) = sketch_unit(kw, sk) else { return };
+    let parameters = parameter_records(b, sk.offset, sk.end);
+    let existing: HashSet<String> = sk.dims.iter().map(|d| d.name.clone()).collect();
+    for (nm, text) in shown {
+        let trimmed = text.trim_start();
+        let upper = trimmed.to_uppercase();
+        let kind = if upper.starts_with('R') {
+            "radius"
+        } else if trimmed.starts_with('Ø') || upper.starts_with("DIA") || upper.contains("MOD-DIAM") {
+            "diameter"
+        } else {
+            continue;
+        };
+        let Some((shown, dec)) = shown_number(trimmed) else { continue };
+        if existing.contains(nm.as_str()) {
+            continue;
+        }
+        let target = shown * unit / 1000.0;
+        let tolerance = 0.5 * 10f64.powi(-dec) * unit / 1000.0 + 1e-12;
+        let mut accepted = Vec::new();
+        for (j, name) in &parameters {
+            if name != nm {
+                continue;
+            }
+            let Some(value) = param_value(b, j.saturating_sub(2)) else { continue };
+            if (value.abs() - target).abs() > tolerance {
+                continue;
+            }
+            let mut seen = HashSet::new();
+            let handles: Vec<Handle> = dimension_handles(b, tags, *j, sk.end, &parameters).into_iter().filter(|h| seen.insert(h.clone())).collect();
+            let mut curve_seen = HashSet::new();
+            let curves: Vec<(String, u16)> = handles.iter().filter(|h| h.cls == "sgArcHandle")
+                .filter_map(|h| u16::try_from(h.id).ok().map(|id| ("arc".to_string(), id)))
+                .filter(|key| sk.curve_of.contains_key(key) && curve_seen.insert(key.clone())).collect();
+            for curve in curves {
+                let cid = &sk.curve_of[&curve];
+                let radius = if cid.starts_with('c') {
+                    cid[1..].parse::<usize>().ok().and_then(|n| sk.circles.get(n.saturating_sub(1)).map(|c| c.1))
+                } else {
+                    cid[1..].parse::<usize>().ok().and_then(|n| sk.arcs.get(n.saturating_sub(1))).and_then(|&(a, _b, centre)| {
+                        let pa = sk.points.get(&a)?;
+                        let pc = sk.points.get(&centre)?;
+                        Some((pa.0 - pc.0).hypot(pa.1 - pc.1))
+                    })
+                };
+                if radius.is_some_and(|r| {
+                    let measured = if kind == "radius" { r } else { 2.0 * r };
+                    (measured - target).abs() <= tolerance
+                }) {
+                    accepted.push((curve, value, handles.clone()));
+                }
+            }
+        }
+        let distinct: HashSet<((String, u16), u64)> = accepted.iter().map(|(curve, value, _)| (curve.clone(), value.to_bits())).collect();
+        if distinct.len() == 1 {
+            let (_curve, value, handles) = accepted.remove(0);
+            sk.dims.push(Dim { name: nm.clone(), cls: "sgCircleDim".into(), value, handles });
+        }
+    }
 }
 
 const KW_TYPES: [(&str, &str); 16] = [
@@ -599,10 +663,13 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
     let kw = sw.xml("swXmlContents/KeyWords").unwrap_or_default();
     // each sketch's current dimensions by name, from KeyWords (a stale record isn't listed)
     let sk_re = Regex::new(r#"(?s)<Sketch id="\d+" Name="([^"]*)"[^>/]*>(.*?)</Sketch>"#).unwrap();
-    let dim_re = Regex::new(r#"<Dimension Name="([^"]+)""#).unwrap();
     let mut kw_sk_dims: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut kw_sk_shown: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for c in sk_re.captures_iter(&kw) {
-        kw_sk_dims.insert(unescape(&c[1]), dim_re.captures_iter(&c[2]).map(|d| d[1].to_string()).collect());
+        let name = unescape(&c[1]);
+        let shown: Vec<(String, String)> = kw_dims(&c[2]).into_iter().map(|(n, v)| (n, unescape(&v))).collect();
+        kw_sk_dims.insert(name.clone(), shown.iter().map(|(n, _)| n.clone()).collect());
+        kw_sk_shown.insert(name, shown);
     }
     let kw_sketches: HashSet<String> = Regex::new(r#"<Sketch id="\d+" Name="([^"]*)""#).unwrap().captures_iter(&kw).map(|c| unescape(&c[1])).collect();
     let tags: Tags = class_tags(&recs);
@@ -652,6 +719,7 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
                 let keep = kw_sk_dims.get(nm).cloned().unwrap_or_default();
                 sk.dims.retain(|d| keep.contains(&d.name));
             }
+            recover_radius_dimensions(b, &tags, &mut sk, &kw, &kw_sk_shown.get(nm).cloned().unwrap_or_default());
             let (pl, how) = sketch_plane(b, &recs, k, &by_id, &by_off);
             if pl.is_some() {
                 add_got(&mut sk, pl, &how, false);

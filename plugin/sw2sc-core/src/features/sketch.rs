@@ -609,32 +609,123 @@ pub fn alternative_centres(sk: &mut Sketch) {
     }
 }
 
-/// A sketch carrying only one feature's confirmed contours, with unrelated relations left out.
+/// Keep confirmed contours and their dimensions, with reference lines as construction and no
+/// unrelated points. Repeated handles on a dimension are one reference.
 pub fn select_sketch_loops(sk: &Sketch, loops: &[Vec<String>]) -> Sketch {
-    let keep: HashSet<&str> = loops.iter().flatten().map(String::as_str).collect();
+    let mut keep: HashSet<String> = loops.iter().flatten().cloned().collect();
+    let mut p = sk.points.clone();
+    p.entry(0).or_insert((0.0, 0.0));
+    let mut contour_points = HashSet::new();
+    for cid in &keep {
+        if cid.starts_with('l') {
+            if let Some(line) = cid[1..].parse::<usize>().ok().and_then(|n| sk.lines.get(n.saturating_sub(1))) {
+                contour_points.extend([line.0, line.1]);
+            }
+        } else if cid.starts_with('a') {
+            if let Some(arc) = cid[1..].parse::<usize>().ok().and_then(|n| sk.arcs.get(n.saturating_sub(1))) {
+                contour_points.extend([arc.0, arc.1, arc.2]);
+            }
+        } else if cid.starts_with('c') {
+            if let Some(circle) = cid[1..].parse::<usize>().ok().and_then(|n| sk.circles.get(n.saturating_sub(1))) {
+                contour_points.insert(circle.0);
+            }
+        }
+    }
+    let mut reference_lines = HashSet::new();
+    for d in &sk.dims {
+        if d.cls != "sgPntLineDist" {
+            continue;
+        }
+        let mut seen = HashSet::new();
+        let mut points: Vec<Vec<u32>> = Vec::new();
+        for h in &d.handles {
+            if h.cls != "sgPointHandle" || !seen.insert((h.cls.clone(), h.id)) {
+                continue;
+            }
+            let mut options = Vec::new();
+            if h.id == 0 {
+                options.push(0);
+            }
+            for pid in [Some(h.id), h.id.checked_add(1)].into_iter().flatten() {
+                if p.contains_key(&pid) && !options.contains(&pid) {
+                    options.push(pid);
+                }
+            }
+            points.push(options);
+        }
+        let mut curves = Vec::new();
+        for h in &d.handles {
+            let key = ("line".to_string(), h.id as u16);
+            if h.cls == "sgLineHandle" && sk.curve_of.contains_key(&key) && !curves.contains(&key) {
+                curves.push(key);
+            }
+        }
+        for options in points {
+            for pid in options {
+                for curve in &curves {
+                    let Some(cid) = sk.curve_of.get(curve) else { continue };
+                    let Some(&(a, b)) = cid[1..].parse::<usize>().ok().and_then(|n| sk.lines.get(n.saturating_sub(1))) else { continue };
+                    let (pa, pb) = (p[&a], p[&b]);
+                    let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
+                    let length = dx.hypot(dy);
+                    let distance = if length > 0.0 { ((p[&pid].0 - pa.0) * dy - (p[&pid].1 - pa.1) * dx).abs() / length } else { -1.0 };
+                    if (distance - d.value).abs() < 1e-9 {
+                        let normal = (-dy / length, dx / length);
+                        let projections: Vec<f64> = contour_points.iter().map(|pid| p[pid].0 * normal.0 + p[pid].1 * normal.1).collect();
+                        let span = projections.iter().copied().reduce(f64::max).unwrap_or(0.0) - projections.iter().copied().reduce(f64::min).unwrap_or(0.0);
+                        if keep.contains(cid) || (span - d.value.abs()).abs() < 1e-9 {
+                            reference_lines.insert(cid.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    keep.extend(reference_lines.iter().cloned());
     let mut out = sk.clone();
     let mut new_lines = HashMap::new();
     out.lines.clear();
     for (old, &(a, c)) in sk.lines.iter().enumerate() {
-        if keep.contains(format!("l{}", old + 1).as_str()) {
+        if keep.contains(&format!("l{}", old + 1)) {
             new_lines.insert(old, out.lines.len());
             out.lines.push((a, c));
         }
     }
     out.construction = sk.construction.iter().filter_map(|old| new_lines.get(old).copied()).collect();
-    out.arcs = sk.arcs.iter().enumerate().filter(|(n, _)| keep.contains(format!("a{}", n + 1).as_str())).map(|(_, &(a, c, ctr))| (a, c, ctr)).collect();
-    out.circles = sk.circles.iter().enumerate().filter(|(n, _)| keep.contains(format!("c{}", n + 1).as_str())).map(|(_, &(ctr, r))| (ctr, r)).collect();
-    out.curve_of.retain(|_, value| keep.contains(value.as_str()));
-    let allowed: HashSet<(String, u16)> = out.curve_of.keys().map(|(kind, id)| (kind.clone(), *id)).collect();
-    let relevant = |groups: &[Vec<Handle>]| {
-        groups.iter().flatten().all(|h| h.cls == "point" || allowed.contains(&(h.cls.clone(), h.id as u16)))
-    };
-    out.relations = sk.relations.iter().filter(|r| relevant(&r.groups)).cloned().collect();
-    out.dims = sk.dims.iter().filter(|d| {
-        if d.handles.is_empty() {
-            return false;
+    for (old, new) in &new_lines {
+        if reference_lines.contains(&format!("l{}", old + 1)) {
+            out.construction.insert(*new);
         }
-        let raw = d.handles.iter().map(|h| Handle {
+    }
+    out.arcs = sk.arcs.iter().enumerate().filter(|(n, _)| keep.contains(&format!("a{}", n + 1))).map(|(_, &(a, c, ctr))| (a, c, ctr)).collect();
+    out.circles = sk.circles.iter().enumerate().filter(|(n, _)| keep.contains(&format!("c{}", n + 1))).map(|(_, &(ctr, r))| (ctr, r)).collect();
+    let mut renumbered = HashMap::new();
+    for (old, new) in &new_lines {
+        renumbered.insert(format!("l{}", old + 1), format!("l{}", new + 1));
+    }
+    let mut new = 0;
+    for old in 0..sk.arcs.len() {
+        if keep.contains(&format!("a{}", old + 1)) {
+            new += 1;
+            renumbered.insert(format!("a{}", old + 1), format!("a{new}"));
+        }
+    }
+    new = 0;
+    for old in 0..sk.circles.len() {
+        if keep.contains(&format!("c{}", old + 1)) {
+            new += 1;
+            renumbered.insert(format!("c{}", old + 1), format!("c{new}"));
+        }
+    }
+    out.curve_of = sk.curve_of.iter().filter_map(|(key, value)| renumbered.get(value).map(|v| (key.clone(), v.clone()))).collect();
+    let allowed: HashSet<(String, u16)> = out.curve_of.keys().cloned().collect();
+    let relevant = |groups: &[Vec<Handle>]| groups.iter().flatten().all(|h| h.cls == "point" || allowed.contains(&(h.cls.clone(), h.id as u16)));
+    let candidate_relations: Vec<Relation> = sk.relations.iter().filter(|r| relevant(&r.groups)).cloned().collect();
+    out.dims = Vec::new();
+    for d in &sk.dims {
+        let mut seen = HashSet::new();
+        let handles: Vec<Handle> = d.handles.iter().filter(|h| seen.insert((*h).clone())).cloned().collect();
+        let raw = handles.iter().map(|h| Handle {
             cls: match h.cls.as_str() {
                 "sgPointHandle" => "point",
                 "sgLineHandle" => "line",
@@ -643,8 +734,50 @@ pub fn select_sketch_loops(sk: &Sketch, loops: &[Vec<String>]) -> Sketch {
             }.into(),
             id: h.id,
         }).collect::<Vec<_>>();
-        relevant(&[raw])
-    }).cloned().collect();
+        if handles.is_empty() || relevant(&[raw]) {
+            let mut dim = d.clone();
+            dim.handles = handles;
+            out.dims.push(dim);
+        }
+    }
+    let mut used = HashSet::new();
+    for &(a, b) in &out.lines {
+        used.extend([a, b]);
+    }
+    for &(a, b, centre) in &out.arcs {
+        used.extend([a, b, centre]);
+    }
+    used.extend(out.circles.iter().map(|c| c.0));
+    for d in &out.dims {
+        for h in &d.handles {
+            if h.cls == "sgPointHandle" {
+                if h.id == 0 {
+                    used.insert(0);
+                } else {
+                    used.extend([Some(h.id), h.id.checked_add(1)].into_iter().flatten().filter(|pid| p.contains_key(pid)));
+                }
+            }
+        }
+    }
+    out.relations = Vec::new();
+    for relation in candidate_relations {
+        let mut kept = Vec::new();
+        for group in relation.groups {
+            let has_curve = group.iter().any(|h| h.cls != "point");
+            let points: Vec<u32> = group.iter().filter(|h| h.cls == "point").filter_map(|h| h.id.checked_add(1)).filter(|pid| p.contains_key(pid)).collect();
+            if has_curve || (!points.is_empty() && points.iter().all(|pid| used.contains(pid))) {
+                kept.push(group);
+                if has_curve {
+                    used.extend(points);
+                }
+            }
+        }
+        if !kept.is_empty() {
+            out.relations.push(Relation { kind: relation.kind, groups: kept });
+        }
+    }
+    used.remove(&0);
+    out.points.retain(|pid, _| used.contains(pid));
     out.offsets.clear();
     out
 }
@@ -778,8 +911,45 @@ fn handle_re() -> &'static Regex {
     R.get_or_init(|| Regex::new(r"(?s-u)([\x00-\xff][\x80-\xff])([\x00-\xff]{2})\xff\xff\xff\xff\x00\x00\x00\x00").unwrap())
 }
 
-/// The sketch's dimensions: each a record of a dimension class, its parameter (name, value) and
-/// handles naming the points or curves it measures. The last record of each name wins.
+pub(super) fn parameter_records(b: &[u8], s: usize, e: usize) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut from = s;
+    while let Some(j) = find_in(b, &[0xff, 0xfe, 0xff], from, e) {
+        from = j + 1;
+        let Some(&ln) = b.get(j + 3) else { continue };
+        if !(1..=32).contains(&ln) || j + 4 + 2 * ln as usize > b.len() {
+            continue;
+        }
+        let nm = utf16(&b[j + 4..j + 4 + 2 * ln as usize]);
+        if nm.starts_with('D') && nm.len() > 1 && nm[1..].bytes().all(|c| c.is_ascii_digit()) {
+            out.push((j, nm));
+        }
+    }
+    out
+}
+
+pub(super) fn dimension_handles(b: &[u8], tags: &Tags, j: usize, end: usize, parameters: &[(usize, String)]) -> Vec<Handle> {
+    let mut end = parameters.iter().filter(|(at, _)| *at > j).map(|(at, _)| *at).min().unwrap_or(end).min(end).min(b.len());
+    if j < end {
+        if let Some(m) = rel_head().find(&b[j..end]) {
+            end = j + m.start();
+        }
+    }
+    let mut handles = Vec::new();
+    let mut k = j;
+    while k + 12 <= end && k + 12 <= b.len() {
+        if b[k + 1] == 0x80 && b[k + 4..k + 8] == [0xff; 4] && b[k + 8..k + 12] == [0u8; 4] {
+            let cname = tags.get(&(u16_at(b, k) as u32)).cloned().unwrap_or_default();
+            handles.push(Handle { cls: cname, id: u16_at(b, k + 2) as u32 });
+            k += 12;
+        } else {
+            k += 1;
+        }
+    }
+    handles
+}
+
+/// Read each dimension class's current parameter and only the handles before the next parameter.
 fn read_dimensions(b: &[u8], tags: &Tags, sk: &mut Sketch, s: usize, e: usize) {
     let e = e.min(b.len());
     let mut starts: Vec<(usize, String, usize)> = Vec::new();
@@ -805,39 +975,25 @@ fn read_dimensions(b: &[u8], tags: &Tags, sk: &mut Sketch, s: usize, e: usize) {
         needle.extend_from_slice(&[0, 0, 0, 0]);
         let mut from = s;
         while let Some(i) = find_in(b, &needle, from, e) {
-            // (Python's finditer: matches don't overlap)
             from = i + needle.len();
             starts.push((i, cls.to_string(), i + 2));
         }
     }
     starts.sort();
+    let parameters = parameter_records(b, s, e);
     let mut found: IndexMap<String, (String, f64, Vec<Handle>)> = IndexMap::new();
     for n in 0..starts.len() {
         let (i, ref cls, data) = starts[n];
-        let mut end = if n + 1 < starts.len() { starts[n + 1].0 } else { e.min(i + 600) };
-        let Some(j) = find_in(b, &[0xff, 0xfe, 0xff], data, data + 40) else { continue };
-        let ln = *b.get(j + 3).unwrap_or(&0) as usize;
-        let nm = utf16(&b[(j + 4).min(b.len())..(j + 4 + 2 * ln).min(b.len())]);
+        let end = if n + 1 < starts.len() { starts[n + 1].0 } else { e.min(i + 600) };
+        let Some(first) = find_in(b, &[0xff, 0xfe, 0xff], data, data + 40) else { continue };
+        let ln = *b.get(first + 3).unwrap_or(&0) as usize;
+        let nm = utf16(&b[(first + 4).min(b.len())..(first + 4 + 2 * ln).min(b.len())]);
+        let Some(j) = parameters.iter().filter(|(at, name)| *at >= data && *at < end && name == &nm).map(|(at, _)| *at).last() else { continue };
         let Some(v) = param_value(b, j.saturating_sub(2)) else { continue };
         if nm.is_empty() {
             continue;
         }
-        let mut handles = Vec::new();
-        if j < end {
-            if let Some(m) = rel_head().find(&b[j..end.min(b.len())]) {
-                end = j + m.start();
-            }
-        }
-        let mut k = j;
-        while k + 12 < end && k + 12 <= b.len() {
-            if b[k + 1] == 0x80 && b[k + 4..k + 8] == [0xff; 4] && b[k + 8..k + 12] == [0u8; 4] {
-                let cname = tags.get(&(u16_at(b, k) as u32)).cloned().unwrap_or_default();
-                handles.push(Handle { cls: cname, id: u16_at(b, k + 2) as u32 });
-                k += 12;
-            } else {
-                k += 1;
-            }
-        }
+        let handles = dimension_handles(b, tags, j, end, &parameters);
         found.insert(nm, (cls.clone(), v, handles));
     }
     sk.dims = found.into_iter().map(|(nm, (cls, v, h))| Dim { name: nm, cls, value: v, handles: h }).collect();
@@ -1130,5 +1286,56 @@ mod tests {
         assert!(selected.circles.is_empty());
         assert_eq!(selected.relations, [Relation { kind: 1, groups: vec![vec![Handle { cls: "line".into(), id: 1 }]] }]);
         assert_eq!(selected.curve_of.into_iter().collect::<Vec<_>>(), [(("line".into(), 1), "l1".into())]);
+        assert_eq!(selected.points.keys().copied().collect::<std::collections::BTreeSet<_>>(), [1, 2, 3, 4].into());
+    }
+
+    fn parameter(name: &str, value: f64) -> Vec<u8> {
+        let mut out = vec![0xff, 0xfe, 0xff, name.len() as u8];
+        out.extend(name.encode_utf16().flat_map(u16::to_le_bytes));
+        out.extend([0; 8]);
+        out.extend([0xff; 4]);
+        out.extend([0; 4]);
+        out.extend([0xff, 0xfe, 0xff, 0, 0, 0]);
+        out.extend(value.to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn repeated_dimension_uses_its_current_parameter_and_own_handles() {
+        let class = b"sgPntPntDist";
+        let mut raw = vec![0xff, 0xff, 1, 0, class.len() as u8, 0];
+        raw.extend(class);
+        raw.extend(parameter("D3", 0.010));
+        raw.extend(parameter("D3", 0.038));
+        for id in [5u16, 4] {
+            raw.extend(0x80b4u16.to_le_bytes());
+            raw.extend(id.to_le_bytes());
+            raw.extend([0xff; 4]);
+            raw.extend([0; 4]);
+        }
+        let mut sk = Sketch::new("S", 0);
+        sk.end = raw.len();
+        let tags = [(0x80b4, "sgPointHandle".to_string())].into();
+        read_dimensions(&raw, &tags, &mut sk, 0, raw.len());
+        assert_eq!(sk.dims.len(), 1);
+        assert_eq!(sk.dims[0].name, "D3");
+        assert_eq!(sk.dims[0].value, 0.038);
+        assert_eq!(sk.dims[0].handles, [Handle { cls: "sgPointHandle".into(), id: 5 }, Handle { cls: "sgPointHandle".into(), id: 4 }]);
+    }
+
+    #[test]
+    fn contour_filter_keeps_a_valid_reference_and_renumbers_it() {
+        let mut sk = Sketch::new("S", 0);
+        sk.points.extend([(1, (0.0, 0.0)), (2, (0.0, 0.070)), (3, (0.123, 0.456)), (4, (0.009, 0.008)), (5, (-0.005, 0.070)), (6, (0.005, 0.070))]);
+        sk.lines = vec![(1, 2), (3, 4), (5, 6)];
+        sk.curve_of.extend([( (String::from("line"), 1), "l1".into()), (("line".into(), 2), "l2".into()), (("line".into(), 3), "l3".into())]);
+        sk.dims = vec![Dim { name: "D4".into(), cls: "sgPntLineDist".into(), value: 0.070,
+                             handles: vec![Handle { cls: "sgPointHandle".into(), id: 0 }, Handle { cls: "sgLineHandle".into(), id: 3 }] }];
+        sk.relations = vec![Relation { kind: 4, groups: vec![vec![Handle { cls: "point".into(), id: 2 }]] }];
+        let selected = select_sketch_loops(&sk, &[vec!["l1".into()]]);
+        assert_eq!(selected.curve_of.get(&("line".into(), 3)).map(String::as_str), Some("l2"));
+        assert!(selected.construction.contains(&1));
+        assert_eq!(selected.points.keys().copied().collect::<std::collections::BTreeSet<_>>(), [1, 2, 5, 6].into());
+        assert!(selected.relations.is_empty());
     }
 }

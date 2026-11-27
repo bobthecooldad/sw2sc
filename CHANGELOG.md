@@ -10,10 +10,15 @@ Each release has a survey log in `logs/survey-<version>.md`.
   resolve ambiguous centres and arc senses, `FACE_ID_2001` identifies each feature's contours, and
   shared-sketch clones are filtered and ordered independently (B-026). Python and Rust.
 - A metric-matching rebuild now needs geometric proof, not just volume/area/box agreement. Native
-  conversion checks candidate-minus-reference and reference-minus-candidate volumes. SolidCraft's
-  read-only plugin host instead matches every face's exact surface, area and centre, rejecting
-  missing or unsupported face data; its timed evaluator now forwards that host-specific check.
-  Failed checks cannot accept a match. Identical/shifted-solid tests and real-host verification (B-027).
+  conversion checks candidate-minus-reference and reference-minus-candidate volumes. If a boolean
+  is unavailable, exact face surface/area/centre evidence is required; it never overrides a measured
+  mismatch. SolidCraft's read-only host always uses that face check, and its timed evaluator now
+  forwards the host-specific policy. Identical/shifted-solid tests and real-host verification (B-027).
+- Shared-sketch dimensions survive contour selection: the current repeated parameter is read,
+  handles stop at the next parameter, validated radius/diameter records are recovered, references
+  are renumbered, required reference lines stay construction geometry, and unrelated points are
+  removed. Point/point and point/line dimensions are written only when their geometry agrees with
+  the saved value. Remaining unresolved references and offsets are tracked in B-028.
 
 ## [0.18.0] - 2026-11-27
 

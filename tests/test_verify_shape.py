@@ -52,6 +52,23 @@ class ShapeDifferenceTests(unittest.TestCase):
         with mock.patch.object(verify, "same_shape", return_value=False):
             self.assertIsNone(verify.rebuild(feats, box(), "Box", cli))
 
+    def test_unavailable_boolean_needs_face_evidence_and_cannot_override_a_mismatch(self):
+        cli = verify.find_cli()
+        if not cli:
+            self.skipTest("solidcraft-cli not found")
+        with tempfile.TemporaryDirectory() as tmp:
+            reference = os.path.join(tmp, "reference.solidcraft")
+            same = os.path.join(tmp, "same.solidcraft")
+            shifted = os.path.join(tmp, "shifted.solidcraft")
+            write(reference, box())
+            write(same, box())
+            write(shifted, box(20.0))
+            with mock.patch.object(verify, "_difference_volume", return_value=None):
+                self.assertTrue(verify.same_shape(cli, reference, same))
+                self.assertFalse(verify.same_shape(cli, reference, shifted))
+            with mock.patch.object(verify, "_difference_volume", side_effect=[2000.0, 0.0]):
+                self.assertFalse(verify.same_shape(cli, reference, same))
+
     def test_a_failed_difference_is_not_a_match(self):
         self.assertFalse(verify.shape_differences_within(None, None, 1.0))
         self.assertTrue(verify.shape_differences_within(0.5, 0.5, 1000.0))

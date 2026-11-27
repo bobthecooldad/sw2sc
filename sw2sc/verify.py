@@ -2,8 +2,9 @@
 
 The feature tree read by sw2sc.features is written as SolidCraft features and evaluated with
 solidcraft-cli; it is used only when its volume, surface area and bounding box match the part's
-own solid (converted as an import) within 0.1 %, and both geometric differences fit the same
-relative volume tolerance. What the file leaves open, an extrude's direction or which of two
+own solid (converted as an import) within 0.1 %. Two-way geometric differences must fit the same
+relative volume tolerance; if a boolean is unavailable, exact matching face geometry is required
+instead. A measured mismatch is never overridden. What the file leaves open, an extrude's direction or which of two
 plane references a sketch uses, is settled by trying the candidates the file gives and keeping
 the one that matches.
 """
@@ -320,15 +321,101 @@ def shape_differences_within(extra: float | None, missing: float | None, referen
     return abs(extra) <= REL * max(abs(reference_volume), 1.0) and abs(missing) <= REL * max(abs(reference_volume), 1.0)
 
 
+def _canonical_face(face: dict) -> dict | None:
+    import copy
+    if not isinstance(face, dict):
+        return None
+    out = copy.deepcopy(face)
+    for key in ("name", "index", "point"):
+        out.pop(key, None)
+
+    def axial(value):
+        if isinstance(value, list) and len(value) == 3 and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value):
+            nonzero = next((v for v in value if abs(v) > 1e-12), 0)
+            return [-v for v in value] if nonzero < 0 else value
+        return value
+
+    out["plane_normal"] = axial(out.get("plane_normal"))
+    if "plane_normal" not in face:
+        out.pop("plane_normal", None)
+    cylinder = out.get("cylinder")
+    if cylinder is not None:
+        if not isinstance(cylinder, dict):
+            return None
+        axis = axial(cylinder.get("axis"))
+        origin = cylinder.get("origin")
+        if not isinstance(axis, list) or not isinstance(origin, list) or len(axis) != 3 or len(origin) != 3:
+            return None
+        cylinder["axis"] = axis
+        along = sum(a * p for a, p in zip(axis, origin))
+        cylinder["origin"] = [p - along * a for p, a in zip(origin, axis)]
+    return out
+
+
+def _geometry_close(a, b, key: str, scale: float) -> bool:
+    if isinstance(a, (int, float)) and not isinstance(a, bool) and isinstance(b, (int, float)) and not isinstance(b, bool):
+        tolerance = REL * (max(abs(a), abs(b), 1.0) if key == "area" else scale)
+        return abs(a - b) <= tolerance
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, list):
+        return len(a) == len(b) and all(_geometry_close(x, y, key, scale) for x, y in zip(a, b))
+    if isinstance(a, dict):
+        return a.keys() == b.keys() and all(_geometry_close(a[k], b[k], k, scale) for k in a)
+    return a == b
+
+
+def same_shape_by_faces(cli: str, reference_path: str, candidate_path: str) -> bool:
+    """Position-sensitive face evidence when a boolean comparison is unavailable. This never
+    overrides a measured difference beyond tolerance."""
+    candidate = evaluate(cli, candidate_path)
+    reference = evaluate(cli, reference_path)
+    if not same(candidate, reference):
+        return False
+    scale = max(max(h - lo for lo, h in zip(reference["lo"], reference["hi"])), 1.0) if reference.get("lo") else 0.0
+    if not scale:
+        return False
+    from . import fillets
+    with open(reference_path, encoding="utf-8") as fh:
+        reference_design = json.load(fh)
+    with open(candidate_path, encoding="utf-8") as fh:
+        candidate_design = json.load(fh)
+    with tempfile.TemporaryDirectory(prefix="sw2sc-faces-") as tmp:
+        wanted = fillets.body_faces(reference_design, cli, tmp)
+        remaining = fillets.body_faces(candidate_design, cli, tmp)
+    if not wanted or not remaining or len(wanted) != len(remaining) or any(not f.get("exact") for f in wanted + remaining):
+        return False
+    try:
+        remaining = [_canonical_face(f) for f in remaining]
+    except (AttributeError, TypeError):
+        return False
+    if any(f is None for f in remaining):
+        return False
+    for face in wanted:
+        canonical = _canonical_face(face)
+        if canonical is None:
+            return False
+        index = next((i for i, other in enumerate(remaining) if _geometry_close(canonical, other, "", scale)), None)
+        if index is None:
+            return False
+        remaining.pop(index)
+    return True
+
+
 def same_shape(cli: str, reference_path: str, candidate_path: str) -> bool:
-    """Metric agreement followed by actual geometric difference in both directions."""
+    """Metric agreement, then two-way differences or exact face evidence if a boolean is unavailable."""
     reference = _raw_eval(cli, reference_path)
     volume = (reference or {}).get("total", {}).get("volume_mm3")
     if not volume:
         return False
     extra = _difference_volume(cli, candidate_path, reference_path)
     missing = _difference_volume(cli, reference_path, candidate_path)
-    return shape_differences_within(extra, missing, volume)
+    tolerance = REL * max(abs(volume), 1.0)
+    if extra is not None and abs(extra) > tolerance or missing is not None and abs(missing) > tolerance:
+        return False
+    if extra is not None and missing is not None:
+        return True
+    return same_shape_by_faces(cli, reference_path, candidate_path)
 
 
 LAST: dict = {}   # the closest rebuild attempt yet: its numbers, against the reference

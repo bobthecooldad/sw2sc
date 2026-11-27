@@ -4,7 +4,17 @@ use std::collections::HashMap;
 use sw2sc_core::cli::CliEvaluator;
 use sw2sc_core::design::{design, Choices, Picks};
 use sw2sc_core::features::{Feature, Sketch, FRONT};
-use sw2sc_core::verify::{same_shape, same_shape_by_faces};
+use sw2sc_core::verify::{same_shape, same_shape_by_faces, Eval, Evaluator};
+
+struct NoDifference(CliEvaluator);
+
+impl Evaluator for NoDifference {
+    fn evaluate(&mut self, design: &serde_json::Value) -> Option<Eval> { self.0.evaluate(design) }
+    fn edges(&mut self, design: &serde_json::Value) -> Option<serde_json::Value> { self.0.edges(design) }
+    fn faces(&mut self, design: &serde_json::Value) -> Option<serde_json::Value> { self.0.faces(design) }
+    fn difference_volume(&mut self, _target: &serde_json::Value, _tool: &serde_json::Value) -> Option<f64> { None }
+    fn now(&self) -> f64 { self.0.now() }
+}
 
 fn box_design(move_by: f64) -> serde_json::Value {
     let mut sk = Sketch::new("Sketch1", 0);
@@ -37,4 +47,7 @@ fn identical_solids_pass_and_a_shifted_solid_fails() {
     assert!(!same_shape(&mut ev, &reference, &shifted));
     assert!(same_shape_by_faces(&mut ev, &reference, &same));
     assert!(!same_shape_by_faces(&mut ev, &reference, &shifted));
+    let mut without_booleans = NoDifference(ev);
+    assert!(same_shape(&mut without_booleans, &reference, &same));
+    assert!(!same_shape(&mut without_booleans, &reference, &shifted));
 }

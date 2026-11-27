@@ -1025,11 +1025,47 @@ def _alternative_centres(sk: Sketch) -> None:
 
 
 def select_sketch_loops(sk: Sketch, loops: list | None) -> Sketch:
-    """A sketch carrying only one feature's confirmed contours, with unrelated relations left out."""
+    """Keep confirmed contours and their dimensions, with reference lines as construction and
+    no unrelated points. Repeated handles on a dimension are one reference, not more evidence."""
     if loops is None:
         return sk
     import copy
     keep = {c for loop in loops for c in loop}
+    reference_lines = set()
+    P = dict(sk.points)
+    P.setdefault(0, (0.0, 0.0))
+    contour_points = set()
+    for cid in keep:
+        if cid.startswith("l"):
+            contour_points.update(sk.lines[int(cid[1:]) - 1])
+        elif cid.startswith("a"):
+            contour_points.update(sk.arcs[int(cid[1:]) - 1])
+        elif cid.startswith("c"):
+            contour_points.add(sk.circles[int(cid[1:]) - 1][0])
+    for _name, cls, value, handles in sk.dims:
+        if cls != "sgPntLineDist":
+            continue
+        points = [([0] if h == 0 else []) + [p for p in (h, h + 1) if p in P]
+                  for c, h in dict.fromkeys(handles) if c == "sgPointHandle"]
+        curves = list(dict.fromkeys(("line", h) for c, h in handles if c == "sgLineHandle" and ("line", h) in sk.curve_of))
+        for options in points:
+            for pid in options:
+                for curve in curves:
+                    cid = sk.curve_of.get(curve, "")
+                    if not cid.startswith("l"):
+                        continue
+                    a, b = sk.lines[int(cid[1:]) - 1]
+                    pa, pb = P[a], P[b]
+                    dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+                    length = math.hypot(dx, dy)
+                    distance = abs((P[pid][0] - pa[0]) * dy - (P[pid][1] - pa[1]) * dx) / length if length else -1
+                    if abs(distance - value) < 1e-9:
+                        normal = (-dy / length, dx / length)
+                        projections = [P[p][0] * normal[0] + P[p][1] * normal[1] for p in contour_points]
+                        span = max(projections) - min(projections) if projections else 0.0
+                        if cid in keep or abs(span - abs(value)) < 1e-9:
+                            reference_lines.add(cid)
+    keep |= reference_lines
     out = copy.deepcopy(sk)
     new_lines = {}
     out.lines = []
@@ -1038,21 +1074,52 @@ def select_sketch_loops(sk: Sketch, loops: list | None) -> Sketch:
             new_lines[old] = len(out.lines)
             out.lines.append((a, c))
     out.construction = {new_lines[old] for old in sk.construction if old in new_lines}
+    out.construction |= {new_lines[old] for old in new_lines if f"l{old + 1}" in reference_lines}
     out.arcs = [(a, c, ctr) for n, (a, c, ctr) in enumerate(sk.arcs) if f"a{n + 1}" in keep]
     out.circles = [(ctr, r) for n, (ctr, r) in enumerate(sk.circles) if f"c{n + 1}" in keep]
-    out.curve_of = {key: value for key, value in sk.curve_of.items() if value in keep}
+    renumbered = {f"l{old + 1}": f"l{new + 1}" for old, new in new_lines.items()}
+    renumbered.update({f"a{old + 1}": f"a{new + 1}" for old, new in
+                       enumerate(n for n in range(len(sk.arcs)) if f"a{n + 1}" in keep)})
+    renumbered.update({f"c{old + 1}": f"c{new + 1}" for old, new in
+                       enumerate(n for n in range(len(sk.circles)) if f"c{n + 1}" in keep)})
+    out.curve_of = {key: renumbered[value] for key, value in sk.curve_of.items() if value in keep}
     allowed = set(out.curve_of)
 
     def relevant(groups):
         return all(kind == "point" or (kind, hid) in allowed for group in groups for kind, hid in group)
 
-    out.relations = [(kind, groups) for kind, groups in sk.relations if relevant(groups)]
+    candidate_relations = [(kind, groups) for kind, groups in sk.relations if relevant(groups)]
     out.dims = []
     for name, cls, value, handles in sk.dims:
+        handles = list(dict.fromkeys(handles))
         raw = [("point" if kind == "sgPointHandle" else "line" if kind == "sgLineHandle" else "arc" if kind == "sgArcHandle" else kind, hid)
                for kind, hid in handles]
-        if handles and relevant([raw]):
+        if not handles or relevant([raw]):
             out.dims.append((name, cls, value, handles))
+    used = set()
+    for a, b in out.lines:
+        used.update((a, b))
+    for a, b, centre in out.arcs:
+        used.update((a, b, centre))
+    used.update(centre for centre, _r in out.circles)
+    for _name, _cls, _value, handles in out.dims:
+        for kind, hid in handles:
+            if kind == "sgPointHandle":
+                used.update([0] if hid == 0 else [p for p in (hid, hid + 1) if p in P])
+    out.relations = []
+    for kind, groups in candidate_relations:
+        kept = []
+        for group in groups:
+            has_curve = any(kind != "point" for kind, _hid in group)
+            points = [hid + 1 for kind, hid in group if kind == "point" and hid + 1 in P]
+            if has_curve or (points and all(pid in used for pid in points)):
+                kept.append(group)
+                if has_curve:
+                    used.update(points)
+        if kept:
+            out.relations.append((kind, kept))
+    used.discard(0)
+    out.points = {pid: point for pid, point in sk.points.items() if pid in used}
     out.offsets = []
     return out
 
@@ -1275,10 +1342,40 @@ _DIM_CLASSES = ("sgPntPntDist", "sgPntPntHorDist", "sgPntPntVertDist", "sgCircle
                 "sgLLDist", "sgAnglDim", "sgSkOffsetDim")
 
 
+def _parameter_records(b: bytes, s: int, e: int) -> list:
+    """Named D… parameter records in a sketch, including repetitions after a dimension's first."""
+    out = []
+    for m in re.finditer(rb"\xff\xfe\xff([\x01-\x20])", b[s:e]):
+        j = s + m.start()
+        nm = b[j + 4:j + 4 + 2 * b[j + 3]].decode("utf-16le", "replace")
+        if re.fullmatch(r"D\d+", nm):
+            out.append((j, nm))
+    return out
+
+
+def _dimension_handles(b: bytes, tags: dict, j: int, end: int, parameters: list) -> list:
+    later = [at for at, _nm in parameters if at > j]
+    if later:
+        end = min(end, min(later))
+    rel = _REL_HEAD.search(b, j, end)   # the relation list after the last dimension isn't its
+    if rel:
+        end = rel.start()
+    handles = []
+    k = j
+    while k <= end - 12:
+        if b[k + 1] == 0x80 and b[k + 4:k + 8] == b"\xff\xff\xff\xff" and b[k + 8:k + 12] == bytes(4):
+            cname = tags.get(struct.unpack_from("<H", b, k)[0], "")
+            handles.append((cname, struct.unpack_from("<H", b, k + 2)[0]))
+            k += 12
+        else:
+            k += 1
+    return handles
+
+
 def _read_dimensions(b: bytes, tags: dict, sk: Sketch, s: int, e: int) -> None:
-    """The sketch's dimensions: each a record of a dimension class, its parameter (name, value)
-    and handles naming the points or curves it measures. A dimension can be written twice (an
-    earlier state, then the current one); the last record of each name wins."""
+    """Read each dimension class's parameter and handles. Where its D… parameter is repeated,
+    the last one within that dimension is current; later parameters of other entities are not
+    handles of this dimension."""
     starts = []
     for m in re.finditer(rb"\xff\xff\x01\x00(.)\x00", b[s:e], re.S):
         i = s + m.start()
@@ -1295,29 +1392,22 @@ def _read_dimensions(b: bytes, tags: dict, sk: Sketch, s: int, e: int) -> None:
             i = s + m.start()
             starts.append((i, cls, i + 2))
     starts.sort()
+    parameters = _parameter_records(b, s, e)
     found = {}
     for n, (i, cls, data) in enumerate(starts):
         end = starts[n + 1][0] if n + 1 < len(starts) else min(e, i + 600)
-        j = b.find(b"\xff\xfe\xff", data, data + 40)
-        if j < 0:
+        first = b.find(b"\xff\xfe\xff", data, data + 40)
+        if first < 0:
             continue
-        nm = b[j + 4:j + 4 + 2 * b[j + 3]].decode("utf-16le", "replace")
-        v = _param_value(b, j - 2)
+        nm = b[first + 4:first + 4 + 2 * b[first + 3]].decode("utf-16le", "replace")
+        same = [j for j, name in parameters if data <= j < end and name == nm]
+        if not same:
+            continue
+        j = same[-1]
+        v = _param_value(b, max(0, j - 2))
         if v is None or not nm:
             continue
-        handles = []
-        k = j
-        rel = _REL_HEAD.search(b, j, end)   # the relation list after the last dimension isn't its
-        if rel:
-            end = rel.start()
-        while k < end - 12:
-            if b[k + 1] == 0x80 and b[k + 4:k + 8] == b"\xff\xff\xff\xff" and b[k + 8:k + 12] == bytes(4):
-                cname = tags.get(struct.unpack_from("<H", b, k)[0], "")
-                handles.append((cname, struct.unpack_from("<H", b, k + 2)[0]))
-                k += 12
-            else:
-                k += 1
-        found[nm] = (cls, v, handles)
+        found[nm] = (cls, v, _dimension_handles(b, tags, j, end, parameters))
     sk.dims = [(nm, cls, v, h) for nm, (cls, v, h) in found.items()]
 
 
@@ -1711,6 +1801,53 @@ def _handle_tags_file(b: bytes, tags: dict, recs: list) -> dict:
     return dict(zip(sorted(seen), order)) if len(seen) == len(order) else {}
 
 
+def _kw_sketch_dimensions(kw: str) -> dict:
+    """Current sketch dimension names and shown values; MOD-DIAM entries need circle validation."""
+    out = {}
+    for m in re.finditer(r'<Sketch id="\d+" Name="([^"]*)"[^>/]*>(.*?)</Sketch>', kw, re.S):
+        out[html.unescape(m.group(1))] = [(nm, html.unescape(text)) for nm, text in
+                                          re.findall(r'<Dimension Name="(D\d+)">([^<]*)</Dimension>', m.group(2))]
+    return out
+
+
+def _recover_radius_dimensions(b: bytes, tags: dict, sk: Sketch, kw: str, shown: list) -> None:
+    """Recover a missing R/Ø dimension only where its shown value, one raw parameter and one
+    existing curve all agree. Other repeated entity parameters are not dimension evidence."""
+    unit = _sketch_unit(kw, sk)
+    if unit is None:
+        return
+    parameters = _parameter_records(b, sk.offset, sk.end)
+    existing = {d[0] for d in sk.dims}
+    for nm, text in shown:
+        kind = "radius" if text.lstrip().upper().startswith("R") else "diameter" if text.lstrip().startswith("Ø") else None
+        x = re.search(r"\d+(?:\.(\d+))?", text)
+        if kind is None and (text.lstrip().upper().startswith("DIA") or "MOD-DIAM" in text.upper()):
+            kind = "diameter"
+        if kind is None or not x or nm in existing:
+            continue
+        target = float(x.group()) * unit / 1000
+        tolerance = (0.5 * 10 ** -len(x.group(1) or "")) * unit / 1000 + 1e-12
+        accepted = []
+        for j, name in parameters:
+            value = _param_value(b, max(0, j - 2)) if name == nm else None
+            if value is None or abs(abs(value) - target) > tolerance:
+                continue
+            handles = list(dict.fromkeys(_dimension_handles(b, tags, j, sk.end, parameters)))
+            curves = list(dict.fromkeys(("arc", h) for c, h in handles if c == "sgArcHandle" and ("arc", h) in sk.curve_of))
+            for curve in curves:
+                cid = sk.curve_of[curve]
+                if cid.startswith("c"):
+                    radius = sk.circles[int(cid[1:]) - 1][1]
+                else:
+                    a, _b, centre = sk.arcs[int(cid[1:]) - 1]
+                    radius = math.dist(sk.points[a], sk.points[centre])
+                if abs((radius if kind == "radius" else 2 * radius) - target) <= tolerance:
+                    accepted.append((curve, value, handles))
+        distinct = {(curve, round(value, 15)) for curve, value, _handles in accepted}
+        if len(distinct) == 1:
+            sk.dims.append((nm, "sgCircleDim", accepted[0][1], accepted[0][2]))
+
+
 # --- the tree ---------------------------------------------------------------------------------
 def read(sw) -> list[Feature] | None:
     """The part's features in order, or None when the stream can't be numbered yet (files saved
@@ -1730,10 +1867,10 @@ def read(sw) -> list[Feature] | None:
         if start is None:
             return None
     recs = archive.records(b, start, outside, resync=True)
-    # each sketch's current dimensions by name, from KeyWords (a stale record isn't listed)
+    # each sketch's current dimension names and shown values, from KeyWords (stale records aren't listed)
     kw = sw.xml("swXmlContents/KeyWords") or ""
-    kw_dims = {html.unescape(m.group(1)): set(re.findall(r'<Dimension Name="([^"]+)"', m.group(2)))
-               for m in re.finditer(r'<Sketch id="\d+" Name="([^"]*)"[^>/]*>(.*?)</Sketch>', kw, re.S)}
+    kw_shown = _kw_sketch_dimensions(kw)
+    kw_dims = {name: {nm for nm, _text in dims} for name, dims in kw_shown.items()}
     kw_sketches = {html.unescape(m.group(1)) for m in re.finditer(r'<Sketch id="\d+" Name="([^"]*)"', kw)}
     tags = _class_tags(recs)
     by_id, by_off = _plane_frames(b, recs)
@@ -1770,6 +1907,7 @@ def read(sw) -> list[Feature] | None:
             if nm in kw_sketches:
                 keep = kw_dims.get(nm, set())
                 sk.dims = [d for d in sk.dims if d[0] in keep]
+            _recover_radius_dimensions(b, tags, sk, kw, kw_shown.get(nm, []))
             pl, how = _sketch_plane(b, recs, k, by_id, by_off)
             if pl:
                 sk.add_plane(pl, how)
@@ -2866,37 +3004,55 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
     """The sketch's dimensions as SolidCraft driving dimensions, each with a model parameter
     named after the SolidWorks one. A dimension whose stored value doesn't match a reading of its
     points or curve is left out (its meaning isn't decoded) and noted in sk.problems_soft."""
-    P = sk.points
+    P = dict(sk.points)
+    P.setdefault(0, (0.0, 0.0))   # point handle 0 can name the origin directly
     cindex = {c["id"]: n for n, c in enumerate(curves)}
     cons, params = [], []
     sk.dims_skipped = []
     sk.offsets = []
     offset_done: set = set()
-    origin = [pid for pid, (u, v) in P.items() if pid == 1 and abs(u) < 1e-12 and abs(v) < 1e-12]
+    origin = [0] + [pid for pid, (u, v) in P.items() if pid == 1 and abs(u) < 1e-12 and abs(v) < 1e-12]
 
     def pidx(pid):
         if pid in origin:
             return 0
         return index.get(pid)
 
+    def point_options(handles):
+        out = []
+        for c, h in dict.fromkeys((c, h) for c, h in handles if c == "sgPointHandle"):
+            out.append(list(dict.fromkeys(([0] if h == 0 else []) + [p for p in (h, h + 1) if p in P])))
+        return out
+
+    def point_distance(cls, a, b):
+        (ax, ay), (bx, by) = P[a], P[b]
+        pi, qi = pidx(a), pidx(b)
+        if pi is None or qi is None:
+            return None
+        if cls != "sgPntPntVertDist" and abs(abs(bx - ax) - val) < 1e-9 and (cls == "sgPntPntHorDist" or abs(by - ay) > 1e-9):
+            p, q = (pi, qi) if bx >= ax else (qi, pi)
+            return {"type": "distance_x", "p": p, "q": q}
+        if cls != "sgPntPntHorDist" and abs(abs(by - ay) - val) < 1e-9 and (cls == "sgPntPntVertDist" or abs(bx - ax) > 1e-9):
+            p, q = (pi, qi) if by >= ay else (qi, pi)
+            return {"type": "distance_y", "p": p, "q": q}
+        if abs(math.hypot(bx - ax, by - ay) - val) < 1e-9:
+            return {"type": "distance", "p": pi, "q": qi}
+        return None
+
     for nm, cls, val, handles in sk.dims:
-        pts = [h + 1 for c, h in handles if c == "sgPointHandle"]  # a point handle's id is the point's id - 1
-        crv = [(("line" if c == "sgLineHandle" else "arc"), h) for c, h in handles if c in ("sgLineHandle", "sgArcHandle")]
+        pts = point_options(handles)
+        crv = list(dict.fromkeys((("line" if c == "sgLineHandle" else "arc"), h)
+                                 for c, h in handles if c in ("sgLineHandle", "sgArcHandle")))
         mm = val * 1000
         con = None
-        if cls in ("sgPntPntDist", "sgPntPntHorDist", "sgPntPntVertDist") and len(pts) == 2 and all(p in P for p in pts):
-            (ax, ay), (bx, by) = P[pts[0]], P[pts[1]]
-            pi, qi = pidx(pts[0]), pidx(pts[1])
-            if pi is None or qi is None:
-                pass
-            elif cls != "sgPntPntVertDist" and abs(abs(bx - ax) - val) < 1e-9 and (cls == "sgPntPntHorDist" or abs(by - ay) > 1e-9):
-                p, q = (pi, qi) if bx >= ax else (qi, pi)
-                con = {"type": "distance_x", "p": p, "q": q}
-            elif cls != "sgPntPntHorDist" and abs(abs(by - ay) - val) < 1e-9 and (cls == "sgPntPntVertDist" or abs(bx - ax) > 1e-9):
-                p, q = (pi, qi) if by >= ay else (qi, pi)
-                con = {"type": "distance_y", "p": p, "q": q}
-            elif abs(math.hypot(bx - ax, by - ay) - val) < 1e-9:
-                con = {"type": "distance", "p": pi, "q": qi}
+        if cls in ("sgPntPntDist", "sgPntPntHorDist", "sgPntPntVertDist") and len(pts) == 2 and all(pts):
+            matches = {}
+            for a, b in ((a, b) for a in pts[0] for b in pts[1]):
+                candidate = point_distance(cls, a, b)
+                if candidate is not None:
+                    matches[json.dumps(candidate, sort_keys=True)] = candidate
+            if len(matches) == 1:
+                con = next(iter(matches.values()))
         elif cls == "sgCircleDim" and len(crv) == 1 and crv[0] in sk.curve_of:
             cid = sk.curve_of[crv[0]]
             c = curves[cindex[cid]]
@@ -2909,6 +3065,27 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
                 con = {"type": "radius", "c": cindex[cid]}
             elif r is not None and abs(2 * r - mm) < 1e-6:
                 con = {"type": "diameter", "c": cindex[cid]}
+        elif cls == "sgPntLineDist" and pts:
+            matches = {}
+            for options in pts:
+                for pid in options:
+                    for kind, hid in crv:
+                        if kind != "line" or (kind, hid) not in sk.curve_of:
+                            continue
+                        cid = sk.curve_of[(kind, hid)]
+                        if cid not in cindex:
+                            continue
+                        a, b = sk.lines[int(cid[1:]) - 1]
+                        pa, pb = P[a], P[b]
+                        dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+                        length = math.hypot(dx, dy)
+                        distance = abs((P[pid][0] - pa[0]) * dy - (P[pid][1] - pa[1]) * dx) / length if length else -1
+                        pi = pidx(pid)
+                        if pi is not None and abs(distance - val) < 1e-9:
+                            candidate = {"type": "point_line_distance", "p": pi, "l": cindex[cid]}
+                            matches[json.dumps(candidate, sort_keys=True)] = candidate
+            if len(matches) == 1:
+                con = next(iter(matches.values()))
         elif cls == "sgSkOffsetDim":
             pname = param_name(sk.name, nm)
             off, loop, sources = _offset_constraints(sk, index, cindex, val, pname, offset_done)

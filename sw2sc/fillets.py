@@ -72,7 +72,8 @@ def body_faces(design: dict, cli: str, tmp: str) -> list | None:
         os.remove(out)
     try:
         subprocess.run([cli, "run", script, "--in", src, "--results", "--json-out", out], capture_output=True, timeout=300)
-        res = json.load(open(out, encoding="utf-8"))
+        with open(out, encoding="utf-8") as fh:
+            res = json.load(fh)
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
     return [face for r in (res if isinstance(res, list) else []) for face in r.get("faces", [])]
@@ -100,7 +101,8 @@ def body_edges(design: dict, cli: str, tmp: str, raw: list | None = None) -> lis
         os.remove(out)
     try:
         subprocess.run([cli, "run", script, "--in", src, "--results", "--json-out", out], capture_output=True, timeout=300)
-        res = json.load(open(out, encoding="utf-8"))
+        with open(out, encoding="utf-8") as fh:
+            res = json.load(fh)
     except (OSError, ValueError, subprocess.TimeoutExpired):
         return None
     edges = []

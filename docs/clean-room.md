@@ -158,3 +158,16 @@ Record each new finding here.
   which raw sketch loops belong to each repeated boss/cut. The shared-sketch clone is copied only
   after these corrections and each use filters its own curves and related constraints. Confirmed on
   a private sample; no private name, path, dimensions or geometry are recorded.
+
+
+- **Repeated sketch dimension parameters (B-028):** a dimension's first parameter can be stale;
+  the later parameter of the same name within that dimension carries the current value. Handles
+  belong only to the interval before the next D… parameter or the relation list. Repeated handles
+  are duplicates. R/Ø and MOD-DIAM metadata are usable only when the shown value, one raw parameter
+  and an existing circle/arc all agree. A zero point handle may name the sketch origin directly;
+  other direct/offset point IDs are accepted only when exactly one geometric reading agrees with
+  the stored value. The approved cadkit-kernel `ck-sldprt/src/sketch.rs` describes relation point
+  handles as record positions; sparse handles that fit neither the ID nor position reading remain
+  unresolved. Evidence came from raw records of a private part, with no private identifiers or
+  measurements published. Contour filtering must renumber curve references, retain required
+  reference lines as construction geometry and remove unused points.

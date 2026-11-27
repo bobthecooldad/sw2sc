@@ -19,6 +19,18 @@ def sketch(points, lines=(), arcs=(), circles=()):
     return s
 
 
+def parameter_record(name, value):
+    import struct
+    encoded = name.encode("utf-16le")
+    return (b"\xff\xfe\xff" + bytes([len(name)]) + encoded + bytes(8) + b"\xff" * 4 + bytes(4) +
+            b"\xff\xfe\xff\x00" + bytes(2) + struct.pack("<d", value))
+
+
+def handle(tag, hid):
+    import struct
+    return struct.pack("<HH", tag, hid) + b"\xff" * 4 + bytes(4)
+
+
 class RegionTests(unittest.TestCase):
     TAGS = {100: "sgLineHandle", 102: "sgArcHandle"}
 
@@ -249,6 +261,57 @@ class SavedSketchGeometryTests(unittest.TestCase):
         self.assertEqual(selected.circles, [])
         self.assertEqual(selected.relations, [(1, [[("line", 1)]])])
         self.assertEqual(selected.curve_of, {("line", 1): "l1"})
+        self.assertEqual(set(selected.points), {1, 2, 3, 4})
+
+    def test_repeated_dimension_uses_its_current_parameter_and_own_handles(self):
+        cls = b"sgPntPntDist"
+        raw = (b"\xff\xff\x01\x00" + bytes([len(cls), 0]) + cls + parameter_record("D3", 0.010) +
+               parameter_record("D3", 0.038) + handle(0x80B4, 5) + handle(0x80B4, 4))
+        sk = features.Sketch("S", 0)
+        sk.end = len(raw)
+        features._read_dimensions(raw, {0x80B4: "sgPointHandle"}, sk, 0, len(raw))
+        self.assertEqual(sk.dims, [("D3", "sgPntPntDist", 0.038, [("sgPointHandle", 5), ("sgPointHandle", 4)])])
+
+    def test_contour_filter_keeps_valid_reference_and_renumbers_it(self):
+        sk = sketch({1: (0, 0), 2: (0, 70), 3: (123, 456), 4: (9, 8), 5: (-5, 70), 6: (5, 70)},
+                    lines=[(1, 2), (3, 4), (5, 6)])
+        sk.curve_of = {("line", 1): "l1", ("line", 2): "l2", ("line", 3): "l3"}
+        sk.dims = [("D4", "sgPntLineDist", 0.070, [("sgPointHandle", 0), ("sgLineHandle", 3)])]
+        sk.relations = [(4, [[("point", 2)]])]
+        selected = features.select_sketch_loops(sk, [["l1"]])
+        self.assertEqual(selected.curve_of, {("line", 1): "l1", ("line", 3): "l2"})
+        self.assertEqual(selected.construction, {1})
+        self.assertEqual(set(selected.points), {1, 2, 5, 6})
+        self.assertEqual(selected.relations, [])
+        features.sketch_feature(selected, 1)
+        self.assertEqual([p["name"] for p in selected.params], ["S_D4"])
+        self.assertEqual(selected.dims_skipped, [])
+
+    def test_point_distance_uses_only_the_unique_matching_reference(self):
+        sk = sketch({4: (-19, 0), 5: (19, 0), 6: (0, 0)}, circles=[(4, 0.002), (5, 0.002)])
+        sk.dims = [("D3", "sgPntPntDist", 0.038, [("sgPointHandle", 5), ("sgPointHandle", 4)])]
+        features.sketch_feature(sk, 1)
+        self.assertEqual([p["name"] for p in sk.params], ["S_D3"])
+        sk.dims[0] = ("D3", "sgPntPntDist", 0.039, sk.dims[0][3])
+        features.sketch_feature(sk, 1)
+        self.assertEqual(sk.params, [])
+        self.assertEqual(sk.dims_skipped, ["D3 (sgPntPntDist)"])
+
+    def test_radius_recovery_requires_raw_value_and_curve_agreement(self):
+        raw = parameter_record("D5", 0.024) + parameter_record("D5", 0.008) + handle(0x80C9, 8)
+        sk = features.Sketch("S", 0)
+        sk.end = len(raw)
+        sk.points = {1: (0.0, 0.0), 2: (0.008, 0.0)}
+        sk.arcs = [(2, 2, 1)]
+        sk.curve_of = {("arc", 8): "a1"}
+        sk.dims = [("D8", "sgSkOffsetDim", 0.010, [])]
+        kw = '<Sketch id="1" Name="S"><Dimension Name="D5">R8</Dimension><Dimension Name="D8">10</Dimension></Sketch>'
+        features._recover_radius_dimensions(raw, {0x80C9: "sgArcHandle"}, sk, kw, [("D5", "R8"), ("D8", "10")])
+        self.assertEqual(sk.dims[-1], ("D5", "sgCircleDim", 0.008, [("sgArcHandle", 8)]))
+        sk.arcs = [(2, 2, 2)]
+        sk.dims = sk.dims[:1]
+        features._recover_radius_dimensions(raw, {0x80C9: "sgArcHandle"}, sk, kw, [("D5", "R8"), ("D8", "10")])
+        self.assertEqual(len(sk.dims), 1)
 
 
 class RealPartTests(unittest.TestCase):

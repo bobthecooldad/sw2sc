@@ -3,8 +3,9 @@
 //!
 //! The feature tree read by `features` is written as SolidCraft features and evaluated; it is
 //! used only when its volume, surface area and bounding box match the part's own solid within
-//! 0.1 %, followed by geometric evidence. Native checks require both boolean differences within
-//! the same relative volume tolerance. The read-only plugin host instead compares every face's
+//! 0.1 %, followed by geometric evidence. Native checks use two-way boolean differences within
+//! the same relative volume tolerance; an unavailable boolean needs exact matching face geometry,
+//! which never overrides a measured mismatch. The read-only host always compares every face's
 //! exact surface, area and centre. What the file leaves open (an extrude's direction, which plane
 //! a sketch uses, a fillet's edges …) is settled by trying candidates and keeping one that matches.
 //! SolidCraft is reached through [`Evaluator`]: `solidcraft-cli` natively, or the plugin host's
@@ -116,7 +117,14 @@ pub fn same_shape<E: Evaluator + ?Sized>(ev: &mut E, reference: &Value, candidat
     let Some(volume) = ev.evaluate(reference).and_then(|r| r.volume).filter(|v| *v != 0.0) else { return false };
     let extra = ev.difference_volume(candidate, reference);
     let missing = ev.difference_volume(reference, candidate);
-    shape_differences_within(extra, missing, volume)
+    let tolerance = REL * volume.abs().max(1.0);
+    if extra.is_some_and(|v| v.abs() > tolerance) || missing.is_some_and(|v| v.abs() > tolerance) {
+        return false;   // a measured mismatch is never overridden by the inspection fallback
+    }
+    if extra.is_some() && missing.is_some() {
+        return true;
+    }
+    same_shape_by_faces(ev, reference, candidate)
 }
 
 fn axial_sign(value: &mut Value) {
