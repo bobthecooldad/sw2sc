@@ -787,7 +787,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             // a boss through all reaches as far as the body does: the distance from its sketch
             // plane to the body's box
             let mut spans: HashMap<&str, f64> = HashMap::new();
-            if f.through_all && !first && f.kind == "boss" {
+            if i > 0 && f.through_all && !first && f.kind == "boss" {
                 let prev = sh.order[i - 1].name.clone();
                 let (_d0, r0) = ctx.prefix(choices, picks, &prev);
                 let sk_f = ctx.by_fname(f.profile.as_deref().unwrap_or("")).cloned();
@@ -816,7 +816,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             // a sketch whose plane reads through the origin may be on a face of the body so far
             // whose plane wasn't stored: it is tried from each side of the body's box along its normal
             let mut starts: Vec<f64> = Vec::new();
-            if !first && !f.through_all && f.depth_mm.is_some_and(|d| d != 0.0) {
+            if i > 0 && !first && !f.through_all && f.depth_mm.is_some_and(|d| d != 0.0) {
                 let sk_f = ctx.by_fname(f.profile.as_deref().unwrap_or("")).cloned();
                 let pl = sk_f.as_ref().and_then(|x| {
                     let sk = x.sketch.as_ref()?;
@@ -1357,6 +1357,32 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::Sketch;
+
+    struct EvalAll;
+    impl crate::verify::Evaluator for EvalAll {
+        fn evaluate(&mut self, _design: &Value) -> Option<crate::verify::Eval> {
+            Some(crate::verify::Eval { volume: Some(100.0), area: Some(100.0), ..Default::default() })
+        }
+        fn edges(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
+        fn faces(&mut self, _design: &Value) -> Option<Value> { Some(json!([])) }
+        fn now(&self) -> f64 { 0.0 }
+    }
+
+    #[test]
+    fn through_all_after_import_does_not_use_previous_feature() {
+        let mut imported = Feature::new("import", "Imported Body", 0, "moBaseBody_c");
+        imported.import_body = Some(vec![]);
+        let mut sketch = Sketch::new("Sketch1", 1);
+        sketch.add_plane(&(crate::features::FRONT, [0.0; 3]), "test", false);
+        let mut sk = Feature::new("sketch", "Sketch1", 1, "moProfileFeature_c");
+        sk.sketch = Some(sketch);
+        let mut boss = Feature::new("boss", "Boss-Extrude1", 2, "moExtrusion_c");
+        boss.profile = Some("Sketch1".into());
+        boss.through_all = true;
+        let mut feats = vec![imported, sk, boss];
+        let _ = rebuild(&mut feats, &json!({"features": []}), "t", &mut EvalAll);
+    }
 
     #[test]
     fn product_is_lazy_and_ordered() {

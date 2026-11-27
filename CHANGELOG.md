@@ -35,6 +35,8 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- Through-all bosses no longer index a nonexistent previous feature when an imported body precedes
+  them; the search checks `i > 0` before using it. Twelve GrabCAD crashes now return normal results.
 - The Rust rebuild search no longer allocates every sketch-plane combination before starting:
   combinations are iterated lazily, like Python's `itertools.product`. One NIST part had
   293,932,800,000 combinations and previously exhausted memory in seconds.

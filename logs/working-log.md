@@ -1515,3 +1515,11 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     passes a real 512 MiB allocation test and drains stdout/stderr without deadlocking large reports.
     The full 356-part GrabCAD batch is running with two ordinary workers, large files serial, and a
     2048 MiB cap. It has not completed, so no final success rate is claimed yet.
+
+
+195. **Through-all bosses indexed a previous feature that did not exist (B-025).** Twelve of the
+    356 full-batch parts panicked with index `18446744073709551615` in `search.rs`. An imported
+    body before the first through-all boss made `first` false even though `sh.order` had no earlier
+    feature, so `sh.order[i - 1]` underflowed. Both previous-feature paths now require `i > 0`.
+    A regression test reproduces the exact panic and passes. The first affected file now returns a
+    normal timeout instead of a crash.
