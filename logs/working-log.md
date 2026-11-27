@@ -1668,3 +1668,19 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     not leave a claim. Detailed measurements, completed batches and local runner quantities move out
     of the roadmap: current results belong in `docs/dev-build.md`, and experiments in this working log.
     The clean-room, parity, privacy and release gates remain, with no private identifiers published.
+
+209. **Full public regression after the selected-edge fillet fix.** All 356 parts completed with
+    12 workers and a 600-second outer timeout: **29 exact matches (8.1%)**, 30 built mismatches, 113
+    no-builds, 58 TBD, 117 without feature history, 8 unnumbered streams and 1 empty-body error.
+    Against the previous final baseline: zero matches lost, zero new crashes and zero memory-limit
+    events. The two straight curve-pattern parts moved from TBD to no-build; exact count is unchanged.
+    The private tree is split deterministically into 40 release models and 3,958 remaining models so
+    the full scan does no duplicate conversion. The release sample is running with 20 workers, 600-
+    second outer timeouts and 2 GiB caps. Only aggregate outcomes will be recorded publicly.
+
+210. **Private release sample passes.** The 40-model batch completed with 20 workers: **6 exact
+    feature-tree rebuilds (15%)**, 5 built mismatches, 10 no-builds, 6 TBD, 12 without feature
+    history and 1 missing-geometry error. No previous match was lost; there were no crashes or memory-
+    limit events. These aggregate counts are all that enter public documentation. The private baseline
+    stays in the local check directory. The remaining 3,958-model scan is now running locally with 20
+    workers, incremental JSONL and the same limits; no partial success rate is claimed for it.

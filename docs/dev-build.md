@@ -52,7 +52,7 @@ Sketch text can't match exactly, because SolidWorks keeps the words but not the 
 ## Full GrabCAD structural batch
 
 All 356 parts in the example folder were checked with 12 workers and a 2 GiB per-process watchdog.
-**29 exact feature-tree rebuilds (8.1%)**, 30 built without a match, 111 no-builds, 60 TBD,
+**29 exact feature-tree rebuilds (8.1%)**, 30 built without a match, 113 no-builds, 58 TBD,
 117 without feature history, 8 unnumbered streams, no crashes and 1 error (a saved partition with no
 `BODY` node). No process hit the memory limit. This is up from 26 exact matches (7.3%): three former
 crash cases now rebuild exactly, no previous match was lost, and all 12 crashes are cleared.
@@ -65,6 +65,8 @@ JSONL is the next regression baseline.
 ## Additional private structural sample
 
 A separate rotating 40-part batch from a private model folder was run locally on SolidCraft 0.50.0.
-Only aggregate results are published: **6 exact feature-tree rebuilds (15%)**, 8 built without a
-match, 10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error. The
-per-part report, filenames, paths and geometry remain private.
+Only aggregate results are published: **6 exact feature-tree rebuilds (15%)**, 5 built without a
+match, 10 no-builds, 6 TBD, 12 without feature history and 1 missing-geometry error. No match was
+lost; there were no crashes or memory-limit events. The per-part report, filenames, paths and
+geometry remain private. The remaining private models continue scanning locally without blocking
+this measured release sample.
