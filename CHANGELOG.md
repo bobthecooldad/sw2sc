@@ -18,6 +18,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
   reader/writer check without running the geometric search.
 
 ### Fixed
+- Dimension handles whose class tag's high byte exceeds `0x80` are no longer discarded. The raw
+  handle reader now accepts the full high-bit tag range in Python and Rust, restoring previously
+  dropped circle, line and point references (B-028).
 - Named `edgeRadiusObject_c` records become fillets only when the file's own feature list confirms
   that type, sharing the existing radius and edge-reference reader rather than guessing from shape.
   Checked against three independent private layouts. Their rebuild-search timeouts remain F-006;

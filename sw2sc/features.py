@@ -1368,7 +1368,7 @@ def _dimension_handles(b: bytes, tags: dict, j: int, end: int, parameters: list)
     handles = []
     k = j
     while k <= end - 12:
-        if b[k + 1] == 0x80 and b[k + 4:k + 8] == b"\xff\xff\xff\xff" and b[k + 8:k + 12] == bytes(4):
+        if b[k + 1] & 0x80 and b[k + 4:k + 8] == b"\xff\xff\xff\xff" and b[k + 8:k + 12] == bytes(4):
             cname = tags.get(struct.unpack_from("<H", b, k)[0], "")
             handles.append((cname, struct.unpack_from("<H", b, k + 2)[0]))
             k += 12

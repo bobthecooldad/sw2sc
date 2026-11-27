@@ -1912,3 +1912,16 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     The failed wrapper attempts (unsupported option in the old checkout, shell setup race) produced no
     model evidence and are not counted; the final result above came only after both versions returned
     three records. No private names, paths or per-file details are published.
+
+
+227. **Root causes found by reading the failing model, not more cycling.** A byte-level inspection
+    showed that `_read_dimensions` accepted only handle tags whose high byte was exactly `0x80`.
+    Real dimensions use higher bytes such as `0x81`; their point, line and arc references were being
+    discarded before the writer saw them. Both Python and Rust now accept the full high-bit range,
+    with a synthetic high-byte regression. This restores several previously rejected dimensions in
+    accepted models. The same three-file sample still has one unresolved point-line dimension, so its
+    headline before/after count does not improve: that record's `LineHandle 0` has no corresponding
+    line in the sketch's raw entities. This is a separate external/reference-line read, left unresolved
+    rather than replaced by an invented axis. The quick three-file before/after measurement therefore
+    remains unchanged, despite the genuine high-byte reader correction. No private geometry or model
+    details are published.

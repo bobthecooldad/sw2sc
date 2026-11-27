@@ -187,3 +187,12 @@ Record each new finding here.
   `parallel` plus one endpoint-to-line distance only when that exact geometry holds. A different case
   has only one resolvable line and is not converted. No separation is inferred from line length or
   guessed from the model's appearance. No private dimensions or geometry are published.
+
+
+- **Dimension handle tag range (B-028):** raw handle tags use the full high-bit range, not only
+  `0x80` as their high byte. The dimension reader's byte-by-byte scanner incorrectly rejected tags
+  such as `0x81…`, while the relation reader's existing pattern already accepted them. Accepting
+  the full high-bit range restores circle, point and line references in several private models.
+  Synthetic tests include a `0x81…` line handle in both implementations. A separate point-line case
+  still names `LineHandle 0` without any corresponding line record in the sketch's raw entities;
+  no reference line or axis is invented for it.

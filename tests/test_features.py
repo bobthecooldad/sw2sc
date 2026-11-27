@@ -266,11 +266,11 @@ class SavedSketchGeometryTests(unittest.TestCase):
     def test_repeated_dimension_uses_its_current_parameter_and_own_handles(self):
         cls = b"sgPntPntDist"
         raw = (b"\xff\xff\x01\x00" + bytes([len(cls), 0]) + cls + parameter_record("D3", 0.010) +
-               parameter_record("D3", 0.038) + handle(0x80B4, 5) + handle(0x80B4, 4))
+               parameter_record("D3", 0.038) + handle(0x80B4, 5) + handle(0x80B4, 4) + handle(0x81CB, 0))
         sk = features.Sketch("S", 0)
         sk.end = len(raw)
-        features._read_dimensions(raw, {0x80B4: "sgPointHandle"}, sk, 0, len(raw))
-        self.assertEqual(sk.dims, [("D3", "sgPntPntDist", 0.038, [("sgPointHandle", 5), ("sgPointHandle", 4)])])
+        features._read_dimensions(raw, {0x80B4: "sgPointHandle", 0x81CB: "sgLineHandle"}, sk, 0, len(raw))
+        self.assertEqual(sk.dims, [("D3", "sgPntPntDist", 0.038, [("sgPointHandle", 5), ("sgPointHandle", 4), ("sgLineHandle", 0)])])
 
     def test_contour_filter_keeps_valid_reference_and_renumbers_it(self):
         sk = sketch({1: (0, 0), 2: (0, 70), 3: (123, 456), 4: (9, 8), 5: (-5, 70), 6: (5, 70)},

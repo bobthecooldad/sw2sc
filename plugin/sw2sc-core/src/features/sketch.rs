@@ -938,7 +938,7 @@ pub(super) fn dimension_handles(b: &[u8], tags: &Tags, j: usize, end: usize, par
     let mut handles = Vec::new();
     let mut k = j;
     while k + 12 <= end && k + 12 <= b.len() {
-        if b[k + 1] == 0x80 && b[k + 4..k + 8] == [0xff; 4] && b[k + 8..k + 12] == [0u8; 4] {
+        if b[k + 1] & 0x80 != 0 && b[k + 4..k + 8] == [0xff; 4] && b[k + 8..k + 12] == [0u8; 4] {
             let cname = tags.get(&(u16_at(b, k) as u32)).cloned().unwrap_or_default();
             handles.push(Handle { cls: cname, id: u16_at(b, k + 2) as u32 });
             k += 12;
@@ -1313,14 +1313,18 @@ mod tests {
             raw.extend([0xff; 4]);
             raw.extend([0; 4]);
         }
+        raw.extend(0x81cbu16.to_le_bytes());
+        raw.extend(0u16.to_le_bytes());
+        raw.extend([0xff; 4]);
+        raw.extend([0; 4]);
         let mut sk = Sketch::new("S", 0);
         sk.end = raw.len();
-        let tags = [(0x80b4, "sgPointHandle".to_string())].into();
+        let tags = [(0x80b4, "sgPointHandle".to_string()), (0x81cb, "sgLineHandle".to_string())].into();
         read_dimensions(&raw, &tags, &mut sk, 0, raw.len());
         assert_eq!(sk.dims.len(), 1);
         assert_eq!(sk.dims[0].name, "D3");
         assert_eq!(sk.dims[0].value, 0.038);
-        assert_eq!(sk.dims[0].handles, [Handle { cls: "sgPointHandle".into(), id: 5 }, Handle { cls: "sgPointHandle".into(), id: 4 }]);
+        assert_eq!(sk.dims[0].handles, [Handle { cls: "sgPointHandle".into(), id: 5 }, Handle { cls: "sgPointHandle".into(), id: 4 }, Handle { cls: "sgLineHandle".into(), id: 0 }]);
     }
 
     #[test]
