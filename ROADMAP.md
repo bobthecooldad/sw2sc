@@ -26,7 +26,7 @@ project success; an imported-solid fallback does not count.**
 | Full 356-part GrabCAD structural batch | 26 / 356 exact rebuilds (7.3%) | **29 / 356 exact rebuilds (8.1%)** | **+3 exact; all 12 crashes cleared; zero lost matches and zero memory-limit terminations** |
 
 The current dev batch contains the SolidWorks 2012 parameter reader, missing standard sketch
-planes, revolve rebuild ordering, body/face colours, and eight-job feature checks/triage. The full
+planes, revolve rebuild ordering, body/face colours, and 20-job feature checks/triage. The full
 NIST run took about eight minutes with eight jobs.
 
 ### NIST blocker movement
@@ -59,7 +59,7 @@ NIST run took about eight minutes with eight jobs.
 
 - [x] Recover the SolidWorks 2012 parameter layout (holes, fillets and chamfers).
 - [x] Read standard planes when no plane object is numbered (NIST FTC 08).
-- [x] Add eight-job `feature_check.py` and `rebuild_triage.py`, with ordered-report regression tests.
+- [x] Add parallel `feature_check.py` and `rebuild_triage.py`, with ordered-report regression tests and a 20-worker default.
 - [x] Finish verifying revolve/revolved-cut rebuild ordering (F-033).
 - [x] Finish verifying Parasolid body/face colours (F-014).
 - [x] Complete the wider-spaced NIST fillet/chamfer reference reading (F-032).

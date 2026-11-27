@@ -1,7 +1,7 @@
 """Rebuild each part's decoded feature tree in SolidCraft and compare it with the solid SolidWorks
 saved (F-006).
 
-    python tools/feature_check.py FOLDER [FOLDER...] [--out logs/feature-check.md] [--keep DIR] [--jobs 8]
+    python tools/feature_check.py FOLDER [FOLDER...] [--out logs/feature-check.md] [--keep DIR] [--jobs 20]
 
 For every part whose features are all decoded (sketches, extrudes): write the features as a
 SolidCraft design, try each extrude's direction (positive, negative, symmetric) and operation
@@ -110,7 +110,7 @@ def _check_one(args) -> dict:
     return row
 
 
-def run_checks(paths, cli, jobs=8) -> list[dict]:
+def run_checks(paths, cli, jobs=20) -> list[dict]:
     paths = list(paths)
     if not paths:
         return []
@@ -127,7 +127,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default=os.path.join("logs", "feature-check.md"))
     ap.add_argument("--keep", help="keep the rebuilt designs here")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--jobs", type=int, default=20)
     a = ap.parse_args(argv)
     status = verify.kernel_status(CLI)   # a rebuild on a stale kernel says nothing about the checkout
     kernel = verify.kernel_line(status)

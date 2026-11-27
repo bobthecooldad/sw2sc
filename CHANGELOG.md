@@ -21,10 +21,9 @@ are in `logs/feature-check-nist.md` and working log 184.
   long sample, with a commit-derived seed, eight jobs and a separate regression baseline. Private
   filenames and paths stay in the private check directory; only aggregate outcomes go in public logs.
 - `tools/feature_check.py` and `tools/rebuild_triage.py` rebuild parts in parallel with `--jobs`
-  (default 8), preserving report order and per-part errors. Process-based regression tests cover
-  the new runners; the default matches the eight-way full checks used for recent surveys. Triage's
-  default per-part budget is now 300 seconds (was 90), with a CLI regression test for the default.
-  `tools/feature_blockers.py` also reads parts in parallel with `--jobs` (default 8), with per-part
+  (default 20), preserving report order and per-part errors. Process-based regression tests cover
+  the new runners. Triage's default per-part budget is now 300 seconds (was 90), with a CLI
+  regression test for the default. `tools/feature_blockers.py` reads parts with `--jobs` (default 20), with per-part
   timeouts, memory caps and optional incremental JSONL output, so one difficult file cannot hold up
   or erase the rest of a full-folder census.
 - Body and face colours from Parasolid `SDL/TYSA_COLOUR` / `SDL/TYSA_COLOUR_2` attributes are

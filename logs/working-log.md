@@ -1653,3 +1653,12 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     NIST after the fix: **0 / 19 exact**, 12 rebuild attempts and 7 reader-blocked, unchanged in
     outcome. CTC 01's closest extra-material mismatch is +0.6% this run (was +1.8%), still a mismatch
     rather than a success. A fresh full-model regression is being checked before any dev push.
+
+207. **Twenty-worker checks and the full private model tree.** The user asked for more parallelism
+    without stopping the active full public batch. Its live 12-worker pool cannot be resized in place,
+    so it is left intact. Future feature checks, triage, blocker scans and external batches now default
+    to 20 workers; `convert_sample.py` and `rebuild_set.py` already defaulted to 20. The private folder
+    is accessible and **3,998 private parts** are indexed for a local full scan. Ordinary private
+    conversions will use 20 workers with 2 GiB caps (40 GiB total ceiling) and large files will run
+    singly. Only aggregate outcomes may enter public reports. New default tests failed at 8 and pass
+    at 20, including an explicit override test; the focused parallel/check suites are 9 tests OK.

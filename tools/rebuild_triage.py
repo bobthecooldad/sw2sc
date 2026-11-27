@@ -2,7 +2,7 @@
 but doesn't match), how far the in-order build gets, what stops it, and how close the closest
 complete design comes to the part's own solid.
 
-    python tools/rebuild_triage.py FOLDER [FOLDER...] [--names A,B] [--budget 300] [--out FILE] [--jobs 8]
+    python tools/rebuild_triage.py FOLDER [FOLDER...] [--names A,B] [--budget 300] [--out FILE] [--jobs 20]
 """
 import argparse
 import itertools
@@ -88,7 +88,7 @@ def _triage_one(args):
         return path, {"result": f"error {type(e).__name__}: {e}"}
 
 
-def run_triages(paths, cli, budget, jobs=8):
+def run_triages(paths, cli, budget, jobs=20):
     paths = list(paths)
     if not paths:
         return []
@@ -105,7 +105,7 @@ def main():
     ap.add_argument("--names", default="")
     ap.add_argument("--budget", type=float, default=300)
     ap.add_argument("--out", default="")
-    ap.add_argument("--jobs", type=int, default=8)
+    ap.add_argument("--jobs", type=int, default=20)
     a = ap.parse_args()
     want = {n.strip() for n in a.names.split(",") if n.strip()}
     cli = verify.find_cli()

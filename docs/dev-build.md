@@ -2,7 +2,7 @@
 
 - **More of the feature tree converts:** Draft, Move Face, Rib, Revolve, Body Move/Copy (translation) and Split (as Split Body).
 - **SolidWorks 2012 files:** their feature trees now read (all five NIST CTC 2012 saves), including the 2012 parameter layout for Hole Wizard holes, fillets and chamfers.
-- **Parallel checks:** `feature_check.py` and `rebuild_triage.py` now use `--jobs` (default 8), with regression tests for ordered, process-safe reports. Triage's default per-part budget is 300 seconds.
+- **Parallel checks:** `feature_check.py` and `rebuild_triage.py` now use `--jobs` (default 20), with regression tests for ordered, process-safe reports. Triage's default per-part budget is 300 seconds.
 - **Kernel check:** the full NIST set was rerun on SolidCraft CLI 0.50.0. The wider fillet/chamfer reader subsequently moved two more parts from reader-blocked to rebuild attempts: 12 mismatches and 7 reader blockers, still 0 exact matches.
 - **Sketches:** more sketch planes found (in our 4,000-part test set, 55 of 93 parts that had a sketch with no plane now have every plane, up from 8); curves and arc centres read from the sketch's curve records; sketches in pre-2010 files read.
 - **Holes and chamfers:** Hole Wizard placement sketches recovered; hole placement planes taken from the hole itself; chamfers on hole rims.

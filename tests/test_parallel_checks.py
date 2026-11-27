@@ -10,6 +10,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tools"))
 import feature_check  # noqa: E402
 import rebuild_triage  # noqa: E402
+import feature_blockers  # noqa: E402
 
 
 class ParallelCheckTests(unittest.TestCase):
@@ -20,6 +21,11 @@ class ParallelCheckTests(unittest.TestCase):
                                    capture_output=True, text=True)
                 self.assertEqual(r.returncode, 0)
                 self.assertIn("--jobs", r.stdout)
+
+    def test_parallel_tools_default_to_twenty_workers(self):
+        self.assertEqual(feature_check.run_checks.__defaults__, (20,))
+        self.assertEqual(rebuild_triage.run_triages.__defaults__[-1], 20)
+        self.assertEqual(feature_blockers.scan.__defaults__[0], 20)
 
     def test_feature_check_parallel_preserves_order_and_read_errors(self):
         self.assertTrue(hasattr(feature_check, "run_checks"), "parallel feature-check runner is missing")

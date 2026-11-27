@@ -23,6 +23,10 @@ class ExternalSampleTests(unittest.TestCase):
         self.assertEqual(cmd[cmd.index("--jobs") + 1], "8")
         self.assertEqual(cmd[cmd.index("--seed") + 1], str(int("12345678", 16)))
 
+    def test_external_sample_defaults_to_twenty_workers(self):
+        cmd, _out, _base = checks.external_sample({"external_sample_list": "private-list.txt"}, "12345678abcdef")
+        self.assertEqual(cmd[cmd.index("--jobs") + 1], "20")
+
     def test_external_sample_is_optional(self):
         self.assertTrue(hasattr(checks, "external_sample"), "external sample job is missing")
         self.assertIsNone(checks.external_sample({}, "12345678abcdef"))

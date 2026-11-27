@@ -71,7 +71,7 @@ def summarize(groups):
     return only, anyc
 
 
-def scan(paths, jobs=8, timeout=300, memory_mb=2048, out=""):
+def scan(paths, jobs=20, timeout=300, memory_mb=2048, out=""):
     paths = list(paths)
     groups = []
     with open(out, "w", encoding="utf-8") if out else nullcontext(None) as fh:
@@ -92,7 +92,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("folders", nargs="+")
     parser.add_argument("--one", action="store_true")
-    parser.add_argument("--jobs", type=int, default=8)
+    parser.add_argument("--jobs", type=int, default=20)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--memory-mb", type=int, default=2048)
     parser.add_argument("--out", default="")

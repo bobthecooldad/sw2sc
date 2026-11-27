@@ -17,7 +17,7 @@ or `~/.sw2sc-checks`, never in the repository: reports name parts. Which parts i
       "regression": ["folders or list files of parts that rebuild"],
       "sample_list": "a list file of parts for the long sample run", "sample_n": 200,
       "external_sample_list": "a private list for a rotating external batch",
-      "external_sample_n": 40, "external_sample_jobs": 8
+      "external_sample_n": 40, "external_sample_jobs": 20
     }
 
 A step that fails doesn't stop the others; the report says which passed. Regressions are judged
@@ -189,7 +189,7 @@ def external_sample(cfg: dict, rev: str):
     base = os.path.join(BASE, "external-sample.jsonl")
     cmd = [PY, "-X", "utf8", "tools/convert_sample.py", cfg["external_sample_list"], out,
            "--n", str(cfg.get("external_sample_n", 40)), "--seed", str(int(rev[:8], 16)),
-           "--jobs", str(cfg.get("external_sample_jobs", 8)), "--baseline", base]
+           "--jobs", str(cfg.get("external_sample_jobs", 20)), "--baseline", base]
     return cmd, out, base
 
 
