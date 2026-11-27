@@ -1,189 +1,113 @@
 # Roadmap
 
 sw2sc reads SolidWorks files without SolidWorks and rebuilds their **editable feature structure**
-in SolidCraft. The project's success measure is a feature-tree rebuild that matches the solid
-SolidWorks saved. An imported STEP solid is only a diagnostic fallback and does **not** count as
-project success. This is the execution order for the remaining work. Issue IDs and detailed
-diagnoses are in `ISSUES.md`; attempted fixes and evidence are in `logs/working-log.md`.
+in SolidCraft. Success is a feature-tree rebuild whose volume, surface area and bounding box match
+the saved solid within 0.1%. An imported STEP solid is only a fallback and does **not** count.
 
-Before starting, read `CONTRIBUTING.md`: the clean-room rule, privacy, and keeping the Python and
-Rust implementations the same.
+This file is for choosing and allocating work. `ISSUES.md` holds diagnoses, `docs/clean-room.md`
+holds format evidence, and `logs/working-log.md` holds attempted fixes and measurements. Current
+benchmark tables belong in `docs/dev-build.md`, not in this allocation queue.
 
-## Current measurements
+Read `CONTRIBUTING.md` before starting: clean-room sources, privacy, Python/Rust parity, and the
+required checks.
 
-Full 19-part NIST run on the current dev integration. **Only an exact feature-tree match is
-project success; an imported-solid fallback does not count.**
+## Allocate work without duplicating it
 
-| Measure | Before this batch | Current | Change |
-|---|---:|---:|---:|
-| **Exact feature-tree matches** | **0 / 19 (0%)** | **0 / 19 (0%)** | **No success yet** |
-| Fully decoded and attempted a rebuild | 4 / 19 (21.1%) | 12 / 19 (63.2%) | **+8 parts** |
-| Rebuilt, but did not match | 4 / 19 | 12 / 19 | +8 |
-| Still blocked by unread features/sketches | 15 / 19 | 7 / 19 | **-8 blockers** |
-| Public 35-part feature check (separate baseline) | 10 / 35 match | Not rerun | Must not regress |
-| Rebuild regression set | 21 / 22 match | **21 / 22 on 0.50.0 at 300 seconds** | **Baseline restored; zero losses; PartT8 fixed (B-023)** |
-| Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 43 designs | No new difference; both pattern parts also match separately |
-| Full 356-part GrabCAD structural batch | 26 / 356 exact rebuilds (7.3%) | **29 / 356 exact rebuilds (8.1%)** | **+3 exact; all 12 crashes cleared; zero lost matches and zero memory-limit terminations** |
+Add a row here before starting a task. Keep the scope narrow enough for someone else to work on a
+different row without editing the same feature region.
 
-The current dev batch contains the SolidWorks 2012 parameter reader, missing standard sketch
-planes, revolve rebuild ordering, body/face colours, and 20-job feature checks/triage. The full
-NIST run took about eight minutes with eight jobs.
+| Issues | Exact scope | Owner / branch | Status |
+|---|---|---|---|
+| — | No active implementation tasks listed | — | Available rows below are **TBD** |
 
-### NIST blocker movement
+- **TBD** means available to claim. **In progress** requires an owner/branch and a current scope.
+- Do not start work in another row's active scope. Split broad issues by record layout or operation.
+- Move a row out of the active table when its work is integrated. Leave the remaining work as TBD.
+- Record unsuccessful experiments in the working log so nobody repeats them. An interrupted or
+  crashed worker is not an active claim unless someone resumes it.
 
-| Area | Before | Now |
+## Priority 1: shared readers that unlock whole groups
+
+These tasks normally change `sw2sc/features.py`, the corresponding modules under
+`plugin/sw2sc-core/src/features/`, and existing tests. Read the records before adding search branches.
+
+| Issues | Work still to do | Status |
 |---|---|---|
-| SolidWorks 2012 CTC 01/03/04/05 | Hole sizes, and some fillet/chamfer sizes, not read | All four reach a rebuild; none matches yet |
-| SolidWorks 2012 CTC 02 | Hole sizes unread | Hole sizes and Fillet3 read; only a 3D sketch still blocks decoding |
-| FTC 08, both saves | Sketch9 plane not found | Both reach a rebuild; neither matches yet |
-| FTC 06, both saves | Fillet2 unread | Both reach a rebuild; neither matches yet |
-| FTC 07 | Variable-radius fillets and sketch text | Unchanged |
-| FTC 09 and FTC 11 | Sketch text | Unchanged known limitation |
-| FTC 10 | One 3D sketch | Unchanged: still a reader blocker |
+| F-032, F-044, F-045 | Remaining fillet/chamfer selections, merged faces and full-round fillets. The wider-spaced groups are already fixed. Distinguish unread selections from kernel-rejected fillet surfaces. | TBD |
+| F-006, F-036 | General 3D sketches (`mo3DProfileFeature_c`): read points, curves and references from records. This blocks NIST FTC 10 and part of CTC 02. A previous worker crashed without saving code or evidence. | TBD |
+| F-035 | Remaining extrude end conditions: through-all, up-to-next/face and offset references by version. Mid-plane type 6 is done. | TBD |
+| F-039, B-019, B-020 | Older record numbering for construction centrelines, arc centres and drifted class tags. Keep this separate from rebuild ordering. | TBD |
+| F-036, F-047 | External/derived sketch planes, sketch blocks, missing arc endpoints and centre selection. Re-rank blockers after each reader improvement. | TBD |
+| F-034 | Curve patterns with genuinely curved paths or no saved spacing. Straight, uniformly spaced one-line paths are done; do not map other cases to linear patterns by guessing. | TBD |
+| F-034 | Split tools stored as face/surface references. The single checked `moCompProfile_c` layout is documented; most unread splits do not use it. | TBD |
+| F-034 and related classes | Other mirrors/patterns, sweeps, helical threads, combine/cavity, surfaces and sheet metal, in blocker-count order. Sheet metal is a large separate effort, not a quick reader fix. | TBD |
 
-## Rules that decide the order
+Sketch text is a known limitation rather than a straightforward reader task: SolidWorks stores the
+words, size and placement but not the letter outlines. Do not promise an exact geometric match until
+that limitation is resolved or the benchmark explicitly excludes it.
 
-1. **Read the file before searching harder.** A missing feature, size, plane or axis is a reader
-   problem. Search changes are for genuinely ambiguous construction choices.
-2. **Fix shared blockers before one-off symptoms.** Use `tools/feature_blockers.py` over the
-   sample sets after each batch to re-rank the queue.
-3. **Keep imported geometry and feature rebuilds as separate benchmarks.** Improving one must not
-   hide a regression in the other.
-4. **Do not patch around a SolidCraft kernel rejection with invented geometry.** Make a small
-   public STEP reproduction and address it upstream where the evidence points to the kernel.
-5. **Small verified batches.** A few related fixes go to public `dev` after all gates pass. Do not
-   push every worker commit, and never force-push or publish local branches containing private
-   history.
+## Priority 2: rebuild search and deterministic diagnosis
 
-## Current batch: finish and publish the baseline improvement
+These tasks primarily involve `sw2sc/verify.py`, `plugin/sw2sc-core/src/search.rs`, fillet selection
+code and `tools/rebuild_triage.py`. Preserve every previously matching regression part.
 
-- [x] Recover the SolidWorks 2012 parameter layout (holes, fillets and chamfers).
-- [x] Read standard planes when no plane object is numbered (NIST FTC 08).
-- [x] Add parallel `feature_check.py` and `rebuild_triage.py`, with ordered-report regression tests and a 20-worker default.
-- [x] Finish verifying revolve/revolved-cut rebuild ordering (F-033).
-- [x] Finish verifying Parasolid body/face colours (F-014).
-- [x] Complete the wider-spaced NIST fillet/chamfer reference reading (F-032).
-- [x] Read linear patterns with a consecutive `FIX_n` spacing/count pair (ten features, two parts).
-- [x] Read mid-plane extrude end conditions (F-035); other end-condition layouts remain open.
-- [x] Convert straight uniformly spaced curve patterns with a unique one-line path (two parts).
-- [x] Run the full NIST set and update `logs/feature-check-nist.md` and `docs/dev-build.md`.
-- [x] Measure a rotating private external batch: 6 exact rebuilds, 8 built without a match,
-  10 no-builds, 3 TBD, 11 without feature history, 1 unnumbered stream and 1 error out of 40.
-- [ ] Pass the unattended queue, then apply only sanitized diffs to public `dev`.
+| Issues | Work still to do | Status |
+|---|---|---|
+| F-006, B-021 | NIST CTC 01 (2018): the latest closest result has 0.6% extra material. Identify the island or cut that does not take using loop and feature-by-feature evidence. | TBD |
+| F-006 | NIST FTC 08: fully decoded but times out. Profile the search and prune impossible prefixes; do not call a larger timeout a fix. | TBD |
+| F-006, F-035 | NIST CTC 04: all 105 evaluated builds miss. Recheck after end-condition work, then compare holes and cuts against the saved solid. | TBD |
+| F-006 | General no-build cases: use `FACE_ID_2001`, mismatch signatures and prefix pruning for reproducible diagnoses instead of longer blind searches. | TBD |
 
-Revolve, colour and the wider fillet groups pass their Python/Rust tests. Full parity after the
-lazy-product and previous-feature fixes is zero feature/design differences on 54 public-sample
-parts (43 designs). On SolidCraft 0.50.0 the 300-second regression is **21 of 22 with zero losses**;
-PartT8 is fixed by using only file-selected fillet edges (B-023). The remaining PartT_7 mismatch was
-not a previously matching baseline part.
+## Priority 3: operations and kernel-bound geometry
 
-## Ordered work queue
+| Issues | Work still to do | Status |
+|---|---|---|
+| F-046 | Draft and Move Face selections: NIST CTC 03 stops at `offset_face`; CTC 05 stops at Draft2. Determine whether the input or the SolidCraft operation is wrong. | TBD |
+| F-032 | Variable-radius fillets and remaining fillet surfaces, including NIST FTC 07. Do not substitute another radius guess for the required surface/trimming work. | TBD |
+| F-034 | Independent Body Move/Copy copies and curved-face draft. Rigid translations/rotations are already written. | TBD |
+| B-007, B-009, B-010, B-012, B-013 | Thread-like windings, self-intersecting tori, trimmed cones and unsupported blends: make small public reproductions and establish upstream evidence. | TBD |
 
-### 1. Shared feature readers: unlock whole groups first
+Do not patch around a SolidCraft kernel rejection with invented geometry. Use the open-source target
+as the checker and prepare an upstream reproduction where the evidence points to its kernel.
 
-These tasks change `sw2sc/features.py`, the corresponding modules under
-`plugin/sw2sc-core/src/features/`, and existing feature tests.
+## Later: assemblies, configurations and product completion
 
-1. **Fillet and chamfer selections (F-032, F-044, F-045).** The wider-spaced groups are fixed:
-   CTC 02 Fillet3 and FTC 06 Fillet2 now read in both saves. Continue with older files' selections,
-   merged faces and full-round fillets. Do not confuse unread edge selections with a fillet surface
-   the kernel cannot build.
-2. **3D sketches (`mo3DProfileFeature_c`, F-006/F-036).** Six parts in the scan; also the sole
-   feature blocker on NIST FTC 10 and part of CTC 02. Read points, curves and references from the
-   records before adding them to rebuilds.
-3. **Remaining extrude end conditions (F-035).** Type 6 (mid-plane) now reads as a symmetric
-   total-distance extrude. Continue with through all, up to next/face and offset references by
-   version. This removes search branches and addresses no-build cuts such as the NIST CTC 04
-   suspects. Hard, high value.
-4. **Older record numbering (F-039, B-019, B-020).** Needed for older construction centrelines,
-   arc centres and drifted class tags. Keep this separate from the revolve rebuild-order fix.
-5. **Remaining sketch planes and curves (F-036, F-047).** External/derived references, sketch
-   blocks, missing arc endpoints and centre selection. Re-run the blocker scan after each fix;
-   the counts change as earlier readers improve.
+Core part conversion comes first.
 
-Sketch text is a separate known limitation: SolidWorks stores words, size and placement but not
-the letter outlines. Do not count an exact geometric match as achievable until that limitation is
-resolved or explicitly excluded from the benchmark.
+| Issues | Work still to do | Status |
+|---|---|---|
+| F-005 | Assemblies in the Rust plugin, then mates as joints. The current part-only runner does not cover `.sldasm`. | TBD |
+| F-007, F-013 | Configurations and geometry beyond the first configuration. | TBD |
+| F-012 | Consistent SolidWorks Y-up to SolidCraft Z-up conversion across geometry and placements. | TBD |
+| F-010, F-022, B-016 | Virtual components, linked-subassembly visibility and component visibility. | TBD |
+| F-009 | Component appearances, distinct from Parasolid body/face colours (F-014). | TBD |
+| F-017, F-018, F-024 and related issues | Upstream contributions, vault/release workflow and Windows packaging. Follow upstream PDM decisions rather than creating a competing server model. | TBD |
 
-### 2. Rebuild search and deterministic diagnosis
+## Choosing between tasks
 
-These tasks primarily involve `sw2sc/verify.py`, `plugin/sw2sc-core/src/search.rs`, fillet
-selection code and `tools/rebuild_triage.py`.
-
-1. **NIST CTC 01 (2018): 0.6% extra material in the latest run.** Use loop nesting and cut evaluation to identify
-   the island or cut that does not take. This is the closest current feature-tree mismatch.
-2. **NIST FTC 08: fully decoded but times out.** Profile the search, prune impossible prefixes and
-   give plane choices bounded time slices. Do not increase the global timeout and call it a fix.
-3. **NIST CTC 04: all 105 builds evaluate but none matches.** Recheck after end-condition reading;
-   then compare holes and cuts feature by feature against the saved solid.
-4. **General no-build cases.** Improve face-by-face checks using `FACE_ID_2001`, mismatch
-   signatures and pruning. Preserve the 21-of-22 regression baseline throughout.
-
-Run independent reader and search tasks in parallel only when they touch different feature
-regions. Both implementations change together in every task.
-
-### 3. Feature operations and kernel-bound cases
-
-1. **Draft (F-046) and Move Face.** NIST CTC 03 stops at `offset_face`; CTC 05 stops at Draft2.
-   Determine whether the input selection is wrong or SolidCraft rejects a valid operation.
-   Body Move/Copy rotations now convert as rigid matrices; independent copies and curved-face draft
-   remain open.
-2. **Variable-radius fillets and remaining fillet surfaces.** NIST FTC 07 is the feature-tree
-   case. The equal-pipe mitre fillets in CTC 02/FTC 07 are also imported-geometry kernel cases:
-   the exact surface folds near the ellipse end and needs a bounded-surface or trimming solution,
-   not another radius guess.
-3. **Other unsupported features.** Complete mirrors/patterns, sweeps and helical threads,
-   combine/cavity, surfaces, and sheet metal in blocker-count order. Keep unsupported features as
-   named TBD nodes until read correctly.
-4. **STEP/kernel failures (B-007, B-009, B-010, B-012, B-013).** Thread-like windings,
-   self-intersecting tori, trimmed cones and unsupported blends need small public reproductions
-   and upstream evidence. Maintain the 14-of-19 NIST imported-volume result while working on them.
-
-### 4. Assemblies, configurations and product completion
-
-Core part conversion comes first; then:
-
-1. Assemblies in the Rust plugin, then mates as joints (F-005).
-2. Configurations and geometry beyond the first configuration (F-007, F-013).
-3. Consistent SolidWorks Y-up to SolidCraft Z-up conversion (F-012).
-4. Virtual components and linked-subassembly component visibility (F-010, F-022, B-016).
-5. Component appearances (F-009), distinct from Parasolid body/face colours (F-014).
-6. Vault/release workflow improvements, Windows packaging and upstream SolidCraft contributions
-   (F-017, F-018, F-024 and related issues). Follow upstream PDM decisions rather than building a
-   competing server model.
-
-## Parallel work lanes
-
-- **Lane A — readers:** one worker per feature class or record layout.
-- **Lane B — rebuild/search:** loop nesting, end-condition use, pruning and timeout diagnosis.
-- **Lane C — STEP/kernel:** geometry failures and minimal upstream reproductions.
-- **Lane D — automation:** regression tooling, NIST reports, blocker counts, memory-capped
-  full-folder conversion batches and rotating private external samples. Only aggregate outcomes
-  from private batches may enter public logs.
-
-A local model may summarize sanitized reports or review a bounded diff. It is not file-format
-evidence and never decides parity or acceptance. Deterministic tools and the main reviewer make
-those decisions.
+1. Prefer shared, evidence-backed reader fixes over rare one-off geometry cases.
+2. Use `tools/feature_blockers.py` after a batch to re-rank the queue; counts change as readers improve.
+3. Keep imported-geometry and feature-tree benchmarks separate.
+4. Work in small verified batches. Python and Rust change together.
+5. A local model may summarize sanitized reports or review a bounded diff, but it is not format
+   evidence and never decides parity or acceptance.
 
 ## Gate for every task
 
-1. Add a failing regression test first; watch it fail for the intended reason.
-2. Implement the reading/design/rebuild change in both Python and Rust.
+1. Add a failing regression test first and watch it fail for the intended reason.
+2. Implement the change in both Python and Rust.
 3. Pass `python -m unittest discover -s tests` and `cargo test --release -p sw2sc-core`.
-4. Build release examples and run `compare_features.py` and `compare_designs.py`: zero new
-   differences beyond the documented pre-existing STEP baseline.
-5. Run `tools/rebuild_set.py` with a before baseline: zero previously matching parts lost.
-6. Run the affected NIST parts, then all 19 before a dev push; report exact counts and rates.
-   Also run the rotating private external batch when available, but publish only aggregate counts.
-7. Update `logs/working-log.md`, `CHANGELOG.md`, `ISSUES.md`, this roadmap and
-   `docs/dev-build.md` as applicable, including failed attempts.
-8. Run `python tools/publish.py check`. Private filenames, paths and geometry stay out of every
-   committed file. Apply only sanitized change diffs to the public branch.
+4. Build release examples and run `compare_features.py` and `compare_designs.py`: zero new differences.
+5. Run the rebuild regression with a before baseline: zero previously matching parts lost.
+6. Run affected NIST parts, then all 19 before a dev push. Publish exact measured counts, never
+   estimates from partial runs. Private checks publish only aggregate outcomes.
+7. Update `logs/working-log.md`, `CHANGELOG.md`, `ISSUES.md` and `docs/dev-build.md` as applicable.
+   Update this file only when work becomes available, active, blocked or integrated.
+8. Run `python tools/publish.py check`. Private names, paths and geometry stay out of every commit.
 
 ## Dev release gate
 
-Push only when several related fixes are complete, the unattended queue passes with no new
-regressions, and the NIST/dev-build tables describe the measured result. Lead with the exact
-feature-tree success rate; also report fully decoded parts and remaining reader blockers.
-Imported-solid figures are diagnostics only, never the project's success rate. No percentage may
-be estimated from a partial run.
+Push only when a useful batch is complete and the regression gates pass with no new losses. The
+release report leads with exact feature-tree matches, then decoded/rebuild counts and remaining
+blockers. Imported-solid figures are diagnostics only. Use sanitized diffs and never force-push or
+publish branches containing private history.

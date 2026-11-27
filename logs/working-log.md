@@ -1662,3 +1662,9 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     conversions will use 20 workers with 2 GiB caps (40 GiB total ceiling) and large files will run
     singly. Only aggregate outcomes may enter public reports. New default tests failed at 8 and pass
     at 20, including an explicit override test; the focused parallel/check suites are 9 tests OK.
+
+208. **Roadmap changed into a work-allocation queue.** It now lists open scopes with issue IDs and
+    TBD status, plus an active owner/branch table to prevent duplicate work. Interrupted workers do
+    not leave a claim. Detailed measurements, completed batches and local runner quantities move out
+    of the roadmap: current results belong in `docs/dev-build.md`, and experiments in this working log.
+    The clean-room, parity, privacy and release gates remain, with no private identifiers published.
