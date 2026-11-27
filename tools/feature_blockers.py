@@ -104,7 +104,7 @@ def summarize(groups, dimensions_only=False):
         if len(kinds) == 1:
             only[next(iter(kinds))] += 1
         elif not kinds:
-            only["(nothing: dimensions retained)" if dimensions_only else "(nothing: fully decoded)"] += 1
+            only["(nothing: no detected dimension loss)" if dimensions_only else "(nothing: fully decoded)"] += 1
     return only, anyc
 
 

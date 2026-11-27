@@ -1841,3 +1841,35 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     running across all private models; no frequencies are claimed until it completes. Focused tooling
     tests cover unread-versus-unwritten classification and the existing parallel defaults. No private
     filenames, paths or per-model results are included.
+
+
+222. **B-028 census drives the shared point-distance fix.** The completed dimension census returned
+    3,998 records. Any-part blockers: 1,434 `sgPntPntDist`, 1,064 `sgCircleDim`, 1,048 saved-but-
+    unread, 852 `sgLLDist`, 712 `sgPntLineDist`, 312 angular, 211 horizontal, 181 offset and 171
+    vertical. The largest single-dimension-blocker group is 195 point-distance cases. The 1,867
+    no-detected-loss records include dimension-free models and are not presented as conversion success.
+
+    Three models with only point-distance loss and no other structural blocker were compared. The
+    common writer error was mixing ID+1 and direct-ID candidates, producing false ambiguity. It now
+    uses the established ID+1 reading first, direct IDs only when that has no match, then zero-based
+    record positions (supported by the approved clean-room reference) only when neither ID reading
+    matches. A single exact constraint is required. The first two models recover all their saved point
+    distances. The third has unresolved arc-only handles with no two distinct matching centres and is
+    deliberately not changed. Tests cover ordered preference, position fallback, direct fallback and
+    rejection of coordinate/vertical substitutes. The original shared-sketch case still rebuilds with
+    its restored dimensions. Full Python suite: **140 tests OK (5 skipped)**. Native release tests and
+    all three model rebuilds are running under memory limits. No private names, paths, dimensions or
+    per-file results are published.
+
+
+223. **Ordered point-distance results: two rebuilds, one host limitation.** The first targeted model
+    rebuilds from two features on the first try and passes the real host with both expected dimensions.
+    The second rebuilds from four features, including a revolve, on the first native try and delivers
+    all three expected dimensions natively. Its real-host face check rejects a non-analytic face with
+    no plane/cylinder descriptor; installed and current-checkout inspection disagree on that face even
+    though the solid's volume, area and bounds agree. This is recorded as B-030 and the tolerance is
+    unchanged. The third targeted model still falls back with unresolved arc-only dimensions and a
+    separate missing-material mismatch. B-028 remains active for the shared dimension layouts. The
+    temporary local diagnostic test and face debug output were removed; no private geometry or model
+    details are published. Native release tests: all 35 Rust tests OK. Full Python suite: 140 OK
+    (5 skipped). Continuous private cycles remain active.

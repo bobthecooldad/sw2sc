@@ -16,6 +16,8 @@ class BlockerSummaryTests(unittest.TestCase):
         self.assertEqual(only["(nothing: fully decoded)"], 1)
         self.assertEqual(anyc["feature A"], 2)
         self.assertEqual(anyc["sketch plane"], 1)
+        only, _ = feature_blockers.summarize([set()], dimensions_only=True)
+        self.assertEqual(only["(nothing: no detected dimension loss)"], 1)
 
     def test_dimension_mode_separates_unread_and_unwritten_dimensions(self):
         from sw2sc import features

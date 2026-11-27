@@ -3029,6 +3029,7 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
     named after the SolidWorks one. A dimension whose stored value doesn't match a reading of its
     points or curve is left out (its meaning isn't decoded) and noted in sk.problems_soft."""
     P = dict(sk.points)
+    order = list(sk.points)
     P.setdefault(0, (0.0, 0.0))   # point handle 0 can name the origin directly
     cindex = {c["id"]: n for n, c in enumerate(curves)}
     cons, params = [], []
@@ -3042,10 +3043,15 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
             return 0
         return index.get(pid)
 
-    def point_options(handles):
+    def point_options(handles, mode):
         out = []
         for c, h in dict.fromkeys((c, h) for c, h in handles if c == "sgPointHandle"):
-            out.append(list(dict.fromkeys(([0] if h == 0 else []) + [p for p in (h, h + 1) if p in P])))
+            if mode == "offset":
+                out.append([h + 1] if h + 1 in P else [])
+            elif mode == "position":
+                out.append([order[h]] if h < len(order) else [])
+            else:
+                out.append(([0] if h == 0 else [h]) if h in P or h == 0 else [])
         return out
 
     def point_distance(cls, a, b):
@@ -3068,19 +3074,24 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
         return None
 
     for nm, cls, val, handles in sk.dims:
-        pts = point_options(handles)
+        pts = point_options(handles, "offset")
         crv = list(dict.fromkeys((("line" if c == "sgLineHandle" else "arc"), h)
                                  for c, h in handles if c in ("sgLineHandle", "sgArcHandle")))
         mm = val * 1000
         con = None
-        if cls in ("sgPntPntDist", "sgPntPntHorDist", "sgPntPntVertDist") and len(pts) == 2 and all(pts):
-            matches = {}
-            for a, b in ((a, b) for a in pts[0] for b in pts[1]):
-                candidate = point_distance(cls, a, b)
-                if candidate is not None:
-                    matches[json.dumps(candidate, sort_keys=True)] = candidate
-            if len(matches) == 1:
-                con = next(iter(matches.values()))
+        if cls in ("sgPntPntDist", "sgPntPntHorDist", "sgPntPntVertDist"):
+            for mode in ("offset", "direct", "position"):
+                pts = point_options(handles, mode)
+                matches = {}
+                if len(pts) == 2 and all(pts):
+                    for a, b in ((a, b) for a in pts[0] for b in pts[1]):
+                        candidate = point_distance(cls, a, b)
+                        if candidate is not None:
+                            matches[json.dumps(candidate, sort_keys=True)] = candidate
+                if len(matches) == 1:
+                    con = next(iter(matches.values()))
+                if matches:
+                    break
         elif cls == "sgCircleDim" and len(crv) == 1 and crv[0] in sk.curve_of:
             cid = sk.curve_of[crv[0]]
             c = curves[cindex[cid]]
@@ -3093,27 +3104,31 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
                 con = {"type": "radius", "c": cindex[cid]}
             elif r is not None and abs(2 * r - mm) < 1e-6:
                 con = {"type": "diameter", "c": cindex[cid]}
-        elif cls == "sgPntLineDist" and pts:
-            matches = {}
-            for options in pts:
-                for pid in options:
-                    for kind, hid in crv:
-                        if kind != "line" or (kind, hid) not in sk.curve_of:
-                            continue
-                        cid = sk.curve_of[(kind, hid)]
-                        if cid not in cindex:
-                            continue
-                        a, b = sk.lines[int(cid[1:]) - 1]
-                        pa, pb = P[a], P[b]
-                        dx, dy = pb[0] - pa[0], pb[1] - pa[1]
-                        length = math.hypot(dx, dy)
-                        distance = abs((P[pid][0] - pa[0]) * dy - (P[pid][1] - pa[1]) * dx) / length if length else -1
-                        pi = pidx(pid)
-                        if pi is not None and abs(distance - val) < 1e-9:
-                            candidate = {"type": "point_line_distance", "p": pi, "l": cindex[cid]}
-                            matches[json.dumps(candidate, sort_keys=True)] = candidate
-            if len(matches) == 1:
-                con = next(iter(matches.values()))
+        elif cls == "sgPntLineDist":
+            for mode in ("offset", "direct", "position"):
+                pts = point_options(handles, mode)
+                matches = {}
+                for options in pts:
+                    for pid in options:
+                        for kind, hid in crv:
+                            if kind != "line" or (kind, hid) not in sk.curve_of:
+                                continue
+                            cid = sk.curve_of[(kind, hid)]
+                            if cid not in cindex:
+                                continue
+                            a, b = sk.lines[int(cid[1:]) - 1]
+                            pa, pb = P[a], P[b]
+                            dx, dy = pb[0] - pa[0], pb[1] - pa[1]
+                            length = math.hypot(dx, dy)
+                            distance = abs((P[pid][0] - pa[0]) * dy - (P[pid][1] - pa[1]) * dx) / length if length else -1
+                            pi = pidx(pid)
+                            if pi is not None and abs(distance - val) < 1e-9:
+                                candidate = {"type": "point_line_distance", "p": pi, "l": cindex[cid]}
+                                matches[json.dumps(candidate, sort_keys=True)] = candidate
+                if len(matches) == 1:
+                    con = next(iter(matches.values()))
+                if matches:
+                    break
         elif cls == "sgSkOffsetDim":
             pname = param_name(sk.name, nm)
             off, loop, sources = _offset_constraints(sk, index, cindex, val, pname, offset_done)

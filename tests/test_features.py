@@ -296,6 +296,15 @@ class SavedSketchGeometryTests(unittest.TestCase):
         features.sketch_feature(sk, 1)
         self.assertEqual(sk.params, [])
         self.assertEqual(sk.dims_skipped, ["D3 (sgPntPntDist)"])
+        preferred = sketch({1: (0, 0), 2: (10, 0), 3: (20, 0)})
+        preferred.dims = [("D1", "sgPntPntDist", 0.010, [("sgPointHandle", 1), ("sgPointHandle", 2)])]
+        written = features.sketch_feature(preferred, 1)
+        self.assertEqual([p["name"] for p in preferred.params], ["S_D1"])
+        self.assertEqual((written["sketch"]["constraints"][0]["p"], written["sketch"]["constraints"][0]["q"]), (1, 2))
+        positioned = sketch({1: (0, 0), 2: (99, 0), 4: (20, 0), 5: (30, 0), 6: (10, 0)})
+        positioned.dims = [("D2", "sgPntPntDist", 0.010, [("sgPointHandle", 4), ("sgPointHandle", 0)])]
+        features.sketch_feature(positioned, 1)
+        self.assertEqual([p["name"] for p in positioned.params], ["S_D2"])
         for cls, value in [("sgPntPntDist", 0.010), ("sgPntPntVertDist", math.hypot(10, 10) / 1000)]:
             diagonal = sketch({1: (0, 0), 2: (10, 10)})
             diagonal.dims = [("D9", cls, value, [("sgPointHandle", 0), ("sgPointHandle", 1)])]

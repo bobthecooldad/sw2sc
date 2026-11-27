@@ -111,7 +111,7 @@ fn curve_key(kind: &str, h: u32) -> (String, u16) {
     (kind.to_string(), h as u16)
 }
 
-fn dimension_point_options(handles: &[Handle], p: &IndexMap<u32, (f64, f64)>) -> Vec<Vec<u32>> {
+fn dimension_point_options(handles: &[Handle], p: &IndexMap<u32, (f64, f64)>, mode: &str) -> Vec<Vec<u32>> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for h in handles {
@@ -119,12 +119,20 @@ fn dimension_point_options(handles: &[Handle], p: &IndexMap<u32, (f64, f64)>) ->
             continue;
         }
         let mut options = Vec::new();
-        if h.id == 0 {
-            options.push(0);
-        }
-        for pid in [Some(h.id), h.id.checked_add(1)].into_iter().flatten() {
-            if p.contains_key(&pid) && !options.contains(&pid) {
+        if mode == "offset" {
+            if let Some(pid) = h.id.checked_add(1).filter(|pid| p.contains_key(pid)) {
                 options.push(pid);
+            }
+        } else if mode == "direct" {
+            if h.id == 0 || p.contains_key(&h.id) {
+                options.push(h.id);
+            }
+        } else {
+            let raw_count = p.len() - usize::from(p.keys().last() == Some(&0));
+            if (h.id as usize) < raw_count {
+                if let Some((pid, _)) = p.get_index(h.id as usize) {
+                    options.push(*pid);
+                }
             }
         }
         out.push(options);
@@ -170,7 +178,6 @@ fn sketch_constraints(sk: &mut Sketch, index: &IndexMap<u32, usize>, curves: &[V
     origin.extend(p.iter().filter(|(pid, (u, v))| **pid == 1 && u.abs() < 1e-12 && v.abs() < 1e-12).map(|(k, _)| *k));
     let pidx = |pid: u32| -> Option<usize> { if origin.contains(&pid) { Some(0) } else { index.get(&pid).copied() } };
     for d in sk.dims.clone() {
-        let pts = dimension_point_options(&d.handles, &p);
         let mut curve_seen = HashSet::new();
         let crv: Vec<(String, u16)> = d
             .handles
@@ -182,19 +189,28 @@ fn sketch_constraints(sk: &mut Sketch, index: &IndexMap<u32, usize>, curves: &[V
         let (val, cls) = (d.value, d.cls.as_str());
         let mm = val * 1000.0;
         let mut con: Option<Map<String, Value>> = None;
-        if ["sgPntPntDist", "sgPntPntHorDist", "sgPntPntVertDist"].contains(&cls) && pts.len() == 2 && pts.iter().all(|options| !options.is_empty()) {
-            let mut matches = IndexMap::new();
-            for &a in &pts[0] {
-                for &b in &pts[1] {
-                    if let Some(candidate) = point_distance(cls, val, a, b, &p, pidx) {
-                        if let Ok(key) = serde_json::to_string(&candidate) {
-                            matches.entry(key).or_insert(candidate);
+        if ["sgPntPntDist", "sgPntPntHorDist", "sgPntPntVertDist"].contains(&cls) {
+            for mode in ["offset", "direct", "position"] {
+                let pts = dimension_point_options(&d.handles, &p, mode);
+                let mut matches = IndexMap::new();
+                if pts.len() == 2 && pts.iter().all(|options| !options.is_empty()) {
+                    for &a in &pts[0] {
+                        for &b in &pts[1] {
+                            if let Some(candidate) = point_distance(cls, val, a, b, &p, pidx) {
+                                if let Ok(key) = serde_json::to_string(&candidate) {
+                                    matches.entry(key).or_insert(candidate);
+                                }
+                            }
                         }
                     }
                 }
-            }
-            if matches.len() == 1 {
-                con = matches.into_iter().next().map(|(_, value)| value);
+                let matched = !matches.is_empty();
+                if matches.len() == 1 {
+                    con = matches.into_iter().next().map(|(_, value)| value);
+                }
+                if matched {
+                    break;
+                }
             }
         } else if cls == "sgCircleDim" && crv.len() == 1 && sk.curve_of.contains_key(&crv[0]) {
             let cid = sk.curve_of[&crv[0]].clone();
@@ -217,34 +233,41 @@ fn sketch_constraints(sk: &mut Sketch, index: &IndexMap<u32, usize>, curves: &[V
                     con = Some(obj(json!({"type": "diameter", "c": cindex[&cid]})));
                 }
             }
-        } else if cls == "sgPntLineDist" && !pts.is_empty() {
-            let mut matches = IndexMap::new();
-            for options in &pts {
-                for &pid in options {
-                    for curve in &crv {
-                        if curve.0 != "line" {
-                            continue;
-                        }
-                        let Some(cid) = sk.curve_of.get(curve) else { continue };
-                        let Some(&ci) = cindex.get(cid) else { continue };
-                        let Some(&(a, b)) = cid[1..].parse::<usize>().ok().and_then(|n| sk.lines.get(n.saturating_sub(1))) else { continue };
-                        let (pa, pb) = (p[&a], p[&b]);
-                        let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
-                        let length = dx.hypot(dy);
-                        let distance = if length > 0.0 { ((p[&pid].0 - pa.0) * dy - (p[&pid].1 - pa.1) * dx).abs() / length } else { -1.0 };
-                        if let Some(pi) = pidx(pid) {
-                            if (distance - val).abs() < 1e-9 {
-                                let candidate = obj(json!({"type": "point_line_distance", "p": pi, "l": ci}));
-                                if let Ok(key) = serde_json::to_string(&candidate) {
-                                    matches.entry(key).or_insert(candidate);
+        } else if cls == "sgPntLineDist" {
+            for mode in ["offset", "direct", "position"] {
+                let pts = dimension_point_options(&d.handles, &p, mode);
+                let mut matches = IndexMap::new();
+                for options in &pts {
+                    for &pid in options {
+                        for curve in &crv {
+                            if curve.0 != "line" {
+                                continue;
+                            }
+                            let Some(cid) = sk.curve_of.get(curve) else { continue };
+                            let Some(&ci) = cindex.get(cid) else { continue };
+                            let Some(&(a, b)) = cid[1..].parse::<usize>().ok().and_then(|n| sk.lines.get(n.saturating_sub(1))) else { continue };
+                            let (pa, pb) = (p[&a], p[&b]);
+                            let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
+                            let length = dx.hypot(dy);
+                            let distance = if length > 0.0 { ((p[&pid].0 - pa.0) * dy - (p[&pid].1 - pa.1) * dx).abs() / length } else { -1.0 };
+                            if let Some(pi) = pidx(pid) {
+                                if (distance - val).abs() < 1e-9 {
+                                    let candidate = obj(json!({"type": "point_line_distance", "p": pi, "l": ci}));
+                                    if let Ok(key) = serde_json::to_string(&candidate) {
+                                        matches.entry(key).or_insert(candidate);
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            if matches.len() == 1 {
-                con = matches.into_iter().next().map(|(_, value)| value);
+                let matched = !matches.is_empty();
+                if matches.len() == 1 {
+                    con = matches.into_iter().next().map(|(_, value)| value);
+                }
+                if matched {
+                    break;
+                }
             }
         } else if cls == "sgSkOffsetDim" {
             let pname = param_name(&sk.name, &d.name);
@@ -1352,5 +1375,22 @@ mod tests {
             let _d = sketch_feature(&mut diagonal, 1, true);
             assert!(diagonal.params.is_empty());
         }
+
+        let mut preferred = Sketch::new("S", 0);
+        preferred.points.extend([(1, (0.0, 0.0)), (2, (0.010, 0.0)), (3, (0.020, 0.0))]);
+        preferred.add_plane(&(crate::features::FRONT, [0.0; 3]), "test", false);
+        preferred.dims = vec![crate::features::Dim { name: "D1".into(), cls: "sgPntPntDist".into(), value: 0.010,
+            handles: vec![Handle { cls: "sgPointHandle".into(), id: 1 }, Handle { cls: "sgPointHandle".into(), id: 2 }] }];
+        let d = sketch_feature(&mut preferred, 1, true);
+        assert_eq!(preferred.params[0]["name"], "S_D1");
+        assert_eq!((d["sketch"]["constraints"][0]["p"].as_u64(), d["sketch"]["constraints"][0]["q"].as_u64()), (Some(1), Some(2)));
+
+        let mut positioned = Sketch::new("S", 0);
+        positioned.points.extend([(1, (0.0, 0.0)), (2, (0.099, 0.0)), (4, (0.020, 0.0)), (5, (0.030, 0.0)), (6, (0.010, 0.0))]);
+        positioned.add_plane(&(crate::features::FRONT, [0.0; 3]), "test", false);
+        positioned.dims = vec![crate::features::Dim { name: "D2".into(), cls: "sgPntPntDist".into(), value: 0.010,
+            handles: vec![Handle { cls: "sgPointHandle".into(), id: 4 }, Handle { cls: "sgPointHandle".into(), id: 0 }] }];
+        let _d = sketch_feature(&mut positioned, 1, true);
+        assert_eq!(positioned.params[0]["name"], "S_D2");
     }
 }

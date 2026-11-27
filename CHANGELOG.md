@@ -33,7 +33,9 @@ Each release has a survey log in `logs/survey-<version>.md`.
   are renumbered, required reference lines stay construction geometry, and unrelated points are
   removed. Point/point and point/line dimensions are written only when their geometry agrees with
   the saved value, without substituting horizontal, vertical and Euclidean meanings for one another.
-  Remaining references, line-to-line dimensions and offsets are tracked in B-028.
+  Point references use ordered ID+1, direct-ID and record-position readings only when each has a
+  unique geometric match, rather than mixing interpretations and rejecting the dimension. Arc-only
+  unresolved references, line-to-line dimensions and offsets remain tracked in B-028.
 
 ## [0.18.0] - 2026-11-27
 

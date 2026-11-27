@@ -21,7 +21,7 @@ different row without editing the same feature region.
 
 | Issues | Exact scope | Owner / branch | Status |
 |---|---|---|---|
-| B-028, F-038 | Population-wide dimension recovery: current records, references, correct meanings and delivered constraints | `kimi/public-dev` | In progress |
+| B-028, F-038 | Resolve the shared `sgPntPntDist` loss first: 195 single-dimension-blocker and 1,434 any-part cases in the private census; verify values and references, then continue down the dimension classes | `kimi/public-dev` | In progress |
 
 - **TBD** means available to claim. **In progress** requires an owner/branch and a current scope.
 - Do not start work in another row's active scope. Split broad issues by record layout or operation.
@@ -60,6 +60,7 @@ code and `tools/rebuild_triage.py`. Preserve every previously matching regressio
 | F-006 | NIST FTC 08: fully decoded but times out. Profile the search and prune impossible prefixes; do not call a larger timeout a fix. | TBD |
 | F-006, F-035 | NIST CTC 04: all 105 evaluated builds miss. Recheck after end-condition work, then compare holes and cuts against the saved solid. | TBD |
 | F-006 | General no-build cases: use `FACE_ID_2001`, mismatch signatures and prefix pruning for reproducible diagnoses instead of longer blind searches. Three newly decoded private fillet cases time out before a complete candidate and need prefix profiling, not a larger timeout. | TBD |
+| B-030 | Native-matching revolved geometry rejected by the read-only host's face comparison. Obtain exact non-analytic surface evidence or host support; do not relax the threshold. | TBD |
 
 ## Priority 3: operations and kernel-bound geometry
 
