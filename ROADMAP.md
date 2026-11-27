@@ -23,7 +23,7 @@ project success; an imported-solid fallback does not count.**
 | Public 35-part feature check (separate baseline) | 10 / 35 match | Not rerun | Must not regress |
 | Rebuild regression set | 21 / 22 match | 20 / 22 on 0.50.0 at 300 seconds | One recovered; PartT8 remains 0.1265% off (B-023) |
 | Python/Rust parity on public samples | 0 new differences | 0 differences on 54 files, 35 designs | No new difference |
-| Private external structural batch | No baseline | 6 / 40 exact rebuilds (15%) | First measured batch |
+| Full 356-part GrabCAD structural batch | No baseline | 26 / 356 exact rebuilds (7.3%) | First full baseline; zero memory-limit terminations |
 
 The current dev batch contains the SolidWorks 2012 parameter reader, missing standard sketch
 planes, revolve rebuild ordering, body/face colours, and eight-job feature checks/triage. The full

@@ -45,6 +45,14 @@ Latest full eight-job run: **0 of 19 converted; 12 of 19 fully decoded and attem
 
 Sketch text can't match exactly, because SolidWorks keeps the words but not the letter shapes.
 
+## Full GrabCAD structural batch
+
+All 356 parts in the example folder were checked with 12 workers and a 2 GiB per-process watchdog.
+**26 exact feature-tree rebuilds (7.3%)**, 30 built without a match, 100 no-builds, 62 TBD,
+117 without feature history, 8 unnumbered streams, 12 crashes and 1 error. No process hit the
+memory limit. The previous-feature underflow behind the 12 crashes is fixed; they now return
+normal timeout/build results. The completed JSONL is the next regression baseline.
+
 ## Additional private structural sample
 
 A separate rotating 40-part batch from a private model folder was run locally on SolidCraft 0.50.0.

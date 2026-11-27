@@ -1523,3 +1523,11 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     feature, so `sh.order[i - 1]` underflowed. Both previous-feature paths now require `i > 0`.
     A regression test reproduces the exact panic and passes. The first affected file now returns a
     normal timeout instead of a crash.
+
+
+196. **Full 356-part GrabCAD baseline.** The 12-worker batch completed with a 2 GiB per-process
+    watchdog and no memory-limit terminations. Exact feature-tree rebuilds: **26 (7.3%)**. Other
+    outcomes: 30 built without a match, 100 no-builds, 62 TBD, 117 without feature history, 8
+    unnumbered streams, 12 crashes and 1 error. The crashes were the previous-feature underflow,
+    fixed as B-025. The completed JSONL is now the regression baseline. Success is counted only
+    from exact structural rebuilds, not from files that opened as imported solids.
