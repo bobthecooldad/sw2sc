@@ -1811,22 +1811,40 @@ def _kw_sketch_dimensions(kw: str) -> dict:
 
 
 def _recover_radius_dimensions(b: bytes, tags: dict, sk: Sketch, kw: str, shown: list) -> None:
-    """Recover a missing R/Ø dimension only where its shown value, one raw parameter and one
-    existing curve all agree. Other repeated entity parameters are not dimension evidence."""
+    """Recover a missing or misclassified R/Ø dimension only where its shown value, one raw
+    parameter and one existing curve all agree. Other entity parameters are not dimension evidence."""
     unit = _sketch_unit(kw, sk)
     if unit is None:
         return
     parameters = _parameter_records(b, sk.offset, sk.end)
-    existing = {d[0] for d in sk.dims}
+    def radius(curve):
+        cid = sk.curve_of.get(curve, "")
+        if cid.startswith("c"):
+            return sk.circles[int(cid[1:]) - 1][1]
+        if cid.startswith("a"):
+            a, _b, centre = sk.arcs[int(cid[1:]) - 1]
+            return math.dist(sk.points[a], sk.points[centre])
+        return None
+
     for nm, text in shown:
         kind = "radius" if text.lstrip().upper().startswith("R") else "diameter" if text.lstrip().startswith("Ø") else None
         x = re.search(r"\d+(?:\.(\d+))?", text)
         if kind is None and (text.lstrip().upper().startswith("DIA") or "MOD-DIAM" in text.upper()):
             kind = "diameter"
-        if kind is None or not x or nm in existing:
+        if kind is None or not x:
             continue
         target = float(x.group()) * unit / 1000
         tolerance = (0.5 * 10 ** -len(x.group(1) or "")) * unit / 1000 + 1e-12
+        valid_existing = False
+        for existing in sk.dims:
+            if existing[0] != nm or existing[1] != "sgCircleDim":
+                continue
+            for curve in dict.fromkeys(("arc", h) for c, h in existing[3] if c == "sgArcHandle"):
+                r = radius(curve)
+                if r is not None and abs((r if kind == "radius" else 2 * r) - target) <= tolerance:
+                    valid_existing = True
+        if valid_existing:
+            continue
         accepted = []
         for j, name in parameters:
             value = _param_value(b, max(0, j - 2)) if name == nm else None
@@ -1835,17 +1853,17 @@ def _recover_radius_dimensions(b: bytes, tags: dict, sk: Sketch, kw: str, shown:
             handles = list(dict.fromkeys(_dimension_handles(b, tags, j, sk.end, parameters)))
             curves = list(dict.fromkeys(("arc", h) for c, h in handles if c == "sgArcHandle" and ("arc", h) in sk.curve_of))
             for curve in curves:
-                cid = sk.curve_of[curve]
-                if cid.startswith("c"):
-                    radius = sk.circles[int(cid[1:]) - 1][1]
-                else:
-                    a, _b, centre = sk.arcs[int(cid[1:]) - 1]
-                    radius = math.dist(sk.points[a], sk.points[centre])
-                if abs((radius if kind == "radius" else 2 * radius) - target) <= tolerance:
+                r = radius(curve)
+                if r is not None and abs((r if kind == "radius" else 2 * r) - target) <= tolerance:
                     accepted.append((curve, value, handles))
         distinct = {(curve, round(value, 15)) for curve, value, _handles in accepted}
         if len(distinct) == 1:
-            sk.dims.append((nm, "sgCircleDim", accepted[0][1], accepted[0][2]))
+            recovered = (nm, "sgCircleDim", accepted[0][1], accepted[0][2])
+            index = next((i for i, d in enumerate(sk.dims) if d[0] == nm), None)
+            if index is None:
+                sk.dims.append(recovered)
+            else:
+                sk.dims[index] = recovered
 
 
 # --- the tree ---------------------------------------------------------------------------------
@@ -3029,12 +3047,16 @@ def sketch_constraints(sk: Sketch, index: dict, curves: list) -> tuple[list, lis
         pi, qi = pidx(a), pidx(b)
         if pi is None or qi is None:
             return None
-        if cls != "sgPntPntVertDist" and abs(abs(bx - ax) - val) < 1e-9 and (cls == "sgPntPntHorDist" or abs(by - ay) > 1e-9):
-            p, q = (pi, qi) if bx >= ax else (qi, pi)
-            return {"type": "distance_x", "p": p, "q": q}
-        if cls != "sgPntPntHorDist" and abs(abs(by - ay) - val) < 1e-9 and (cls == "sgPntPntVertDist" or abs(bx - ax) > 1e-9):
-            p, q = (pi, qi) if by >= ay else (qi, pi)
-            return {"type": "distance_y", "p": p, "q": q}
+        if cls == "sgPntPntHorDist":
+            if abs(abs(bx - ax) - val) < 1e-9:
+                p, q = (pi, qi) if bx >= ax else (qi, pi)
+                return {"type": "distance_x", "p": p, "q": q}
+            return None
+        if cls == "sgPntPntVertDist":
+            if abs(abs(by - ay) - val) < 1e-9:
+                p, q = (pi, qi) if by >= ay else (qi, pi)
+                return {"type": "distance_y", "p": p, "q": q}
+            return None
         if abs(math.hypot(bx - ax, by - ay) - val) < 1e-9:
             return {"type": "distance", "p": pi, "q": qi}
         return None

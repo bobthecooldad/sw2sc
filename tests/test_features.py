@@ -296,6 +296,11 @@ class SavedSketchGeometryTests(unittest.TestCase):
         features.sketch_feature(sk, 1)
         self.assertEqual(sk.params, [])
         self.assertEqual(sk.dims_skipped, ["D3 (sgPntPntDist)"])
+        for cls, value in [("sgPntPntDist", 0.010), ("sgPntPntVertDist", math.hypot(10, 10) / 1000)]:
+            diagonal = sketch({1: (0, 0), 2: (10, 10)})
+            diagonal.dims = [("D9", cls, value, [("sgPointHandle", 0), ("sgPointHandle", 1)])]
+            features.sketch_feature(diagonal, 1)
+            self.assertEqual(diagonal.params, [])
 
     def test_radius_recovery_requires_raw_value_and_curve_agreement(self):
         raw = parameter_record("D5", 0.024) + parameter_record("D5", 0.008) + handle(0x80C9, 8)
@@ -306,6 +311,9 @@ class SavedSketchGeometryTests(unittest.TestCase):
         sk.curve_of = {("arc", 8): "a1"}
         sk.dims = [("D8", "sgSkOffsetDim", 0.010, [])]
         kw = '<Sketch id="1" Name="S"><Dimension Name="D5">R8</Dimension><Dimension Name="D8">10</Dimension></Sketch>'
+        features._recover_radius_dimensions(raw, {0x80C9: "sgArcHandle"}, sk, kw, [("D5", "R8"), ("D8", "10")])
+        self.assertEqual(sk.dims[-1], ("D5", "sgCircleDim", 0.008, [("sgArcHandle", 8)]))
+        sk.dims[1] = ("D5", "sgPntPntDist", 0.021, [])
         features._recover_radius_dimensions(raw, {0x80C9: "sgArcHandle"}, sk, kw, [("D5", "R8"), ("D8", "10")])
         self.assertEqual(sk.dims[-1], ("D5", "sgCircleDim", 0.008, [("sgArcHandle", 8)]))
         sk.arcs = [(2, 2, 2)]

@@ -18,7 +18,8 @@ Each release has a survey log in `logs/survey-<version>.md`.
   handles stop at the next parameter, validated radius/diameter records are recovered, references
   are renumbered, required reference lines stay construction geometry, and unrelated points are
   removed. Point/point and point/line dimensions are written only when their geometry agrees with
-  the saved value. Remaining unresolved references and offsets are tracked in B-028.
+  the saved value, without substituting horizontal, vertical and Euclidean meanings for one another.
+  Remaining references, line-to-line dimensions and offsets are tracked in B-028.
 
 ## [0.18.0] - 2026-11-27
 

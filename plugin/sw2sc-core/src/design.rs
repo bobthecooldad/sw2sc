@@ -135,13 +135,19 @@ fn dimension_point_options(handles: &[Handle], p: &IndexMap<u32, (f64, f64)>) ->
 fn point_distance(cls: &str, val: f64, a: u32, b: u32, p: &IndexMap<u32, (f64, f64)>, pidx: impl Fn(u32) -> Option<usize>) -> Option<Map<String, Value>> {
     let ((ax, ay), (bx, by)) = (p[&a], p[&b]);
     let (pi, qi) = (pidx(a)?, pidx(b)?);
-    if cls != "sgPntPntVertDist" && ((bx - ax).abs() - val).abs() < 1e-9 && (cls == "sgPntPntHorDist" || (by - ay).abs() > 1e-9) {
-        let (a, b) = if bx >= ax { (pi, qi) } else { (qi, pi) };
-        return Some(obj(json!({"type": "distance_x", "p": a, "q": b})));
+    if cls == "sgPntPntHorDist" {
+        if ((bx - ax).abs() - val).abs() < 1e-9 {
+            let (a, b) = if bx >= ax { (pi, qi) } else { (qi, pi) };
+            return Some(obj(json!({"type": "distance_x", "p": a, "q": b})));
+        }
+        return None;
     }
-    if cls != "sgPntPntHorDist" && ((by - ay).abs() - val).abs() < 1e-9 && (cls == "sgPntPntVertDist" || (bx - ax).abs() > 1e-9) {
-        let (a, b) = if by >= ay { (pi, qi) } else { (qi, pi) };
-        return Some(obj(json!({"type": "distance_y", "p": a, "q": b})));
+    if cls == "sgPntPntVertDist" {
+        if ((by - ay).abs() - val).abs() < 1e-9 {
+            let (a, b) = if by >= ay { (pi, qi) } else { (qi, pi) };
+            return Some(obj(json!({"type": "distance_y", "p": a, "q": b})));
+        }
+        return None;
     }
     if ((bx - ax).hypot(by - ay) - val).abs() < 1e-9 {
         return Some(obj(json!({"type": "distance", "p": pi, "q": qi})));
@@ -1336,5 +1342,15 @@ mod tests {
         let d = sketch_feature(&mut sk, 1, true);
         assert_eq!(sk.params[0]["name"], "S_D4");
         assert_eq!(d["sketch"]["constraints"][0]["type"], "point_line_distance");
+
+        for (cls, value) in [("sgPntPntDist", 0.010), ("sgPntPntVertDist", 10.0f64.hypot(10.0) / 1000.0)] {
+            let mut diagonal = Sketch::new("S", 0);
+            diagonal.points.extend([(1, (0.0, 0.0)), (2, (0.010, 0.010))]);
+            diagonal.add_plane(&(crate::features::FRONT, [0.0; 3]), "test", false);
+            diagonal.dims = vec![crate::features::Dim { name: "D9".into(), cls: cls.into(), value,
+                handles: vec![Handle { cls: "sgPointHandle".into(), id: 0 }, Handle { cls: "sgPointHandle".into(), id: 1 }] }];
+            let _d = sketch_feature(&mut diagonal, 1, true);
+            assert!(diagonal.params.is_empty());
+        }
     }
 }

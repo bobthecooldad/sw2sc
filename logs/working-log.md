@@ -1773,3 +1773,21 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     face evidence still rejects. Tests cover both the face-backed acceptance and the prohibition on
     overriding a measured mismatch. The stopped full private scan and public-model investigations
     were not restarted; no NIST improvement is claimed.
+
+
+217. **B-028 broadened to other private models, without overclaiming.** Two further models showed
+    unit conversion, generic/horizontal/vertical distance substitution, unsupported line-to-line
+    dimensions and unresolved handles. Generic point distances now require Euclidean agreement;
+    horizontal and vertical classes accept only their own component. This makes a unique reference
+    possible in the boss/cut example rather than accepting several false candidates. Circle recovery
+    can replace an existing misclassified dimension only when the shown value, raw parameter and an
+    existing curve agree; otherwise it stays skipped.
+
+    The real host now opens the boss/cut example as two sketches and two extrudes, with all four
+    sketch dimensions and no imported-solid feature, in about one second. The revolve example still
+    falls back after about 166 seconds; an additional vertical dimension reads in its writer, but the
+    other unresolved dimensions and feature-rebuild blockers are not fixed. These are separate results,
+    not a blanket dimension or NIST success claim. The original shared-sketch case retains its restored
+    dimensions, and the six previous private matches remain six of six with structure-only images and
+    zero errors. Private model names, paths and measurements remain local. Remaining reference layouts,
+    `sgLLDist` and offsets stay in B-028 as TBD.

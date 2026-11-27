@@ -198,12 +198,23 @@ fn sketch_unit(kw: &str, sk: &Sketch) -> Option<f64> {
     None
 }
 
-/// Recover a missing R/Ø/MOD-DIAM only when its shown value, raw parameter and one existing
-/// curve all agree. Repeated entity parameters with other values or targets are not evidence.
+/// Recover a missing or misclassified R/Ø/MOD-DIAM only when its shown value, raw parameter and
+/// one existing curve agree. Repeated entity parameters with other values or targets are not evidence.
 fn recover_radius_dimensions(b: &[u8], tags: &Tags, sk: &mut Sketch, kw: &str, shown: &[(String, String)]) {
     let Some(unit) = sketch_unit(kw, sk) else { return };
     let parameters = parameter_records(b, sk.offset, sk.end);
-    let existing: HashSet<String> = sk.dims.iter().map(|d| d.name.clone()).collect();
+    let radius_of = |sk: &Sketch, curve: &(String, u16)| -> Option<f64> {
+        let cid = sk.curve_of.get(curve)?;
+        if cid.starts_with('c') {
+            cid[1..].parse::<usize>().ok().and_then(|n| sk.circles.get(n.saturating_sub(1)).map(|c| c.1))
+        } else {
+            cid[1..].parse::<usize>().ok().and_then(|n| sk.arcs.get(n.saturating_sub(1))).and_then(|&(a, _b, centre)| {
+                let pa = sk.points.get(&a)?;
+                let pc = sk.points.get(&centre)?;
+                Some((pa.0 - pc.0).hypot(pa.1 - pc.1))
+            })
+        }
+    };
     for (nm, text) in shown {
         let trimmed = text.trim_start();
         let upper = trimmed.to_uppercase();
@@ -215,11 +226,20 @@ fn recover_radius_dimensions(b: &[u8], tags: &Tags, sk: &mut Sketch, kw: &str, s
             continue;
         };
         let Some((shown, dec)) = shown_number(trimmed) else { continue };
-        if existing.contains(nm.as_str()) {
-            continue;
-        }
         let target = shown * unit / 1000.0;
         let tolerance = 0.5 * 10f64.powi(-dec) * unit / 1000.0 + 1e-12;
+        let valid_existing = sk.dims.iter().filter(|d| d.name == *nm && d.cls == "sgCircleDim").any(|d| {
+            d.handles.iter().filter(|h| h.cls == "sgArcHandle").any(|h| {
+                let curve = ("arc".to_string(), h.id as u16);
+                radius_of(sk, &curve).is_some_and(|r| {
+                    let measured = if kind == "radius" { r } else { 2.0 * r };
+                    (measured - target).abs() <= tolerance
+                })
+            })
+        });
+        if valid_existing {
+            continue;
+        }
         let mut accepted = Vec::new();
         for (j, name) in &parameters {
             if name != nm {
@@ -236,16 +256,7 @@ fn recover_radius_dimensions(b: &[u8], tags: &Tags, sk: &mut Sketch, kw: &str, s
                 .filter_map(|h| u16::try_from(h.id).ok().map(|id| ("arc".to_string(), id)))
                 .filter(|key| sk.curve_of.contains_key(key) && curve_seen.insert(key.clone())).collect();
             for curve in curves {
-                let cid = &sk.curve_of[&curve];
-                let radius = if cid.starts_with('c') {
-                    cid[1..].parse::<usize>().ok().and_then(|n| sk.circles.get(n.saturating_sub(1)).map(|c| c.1))
-                } else {
-                    cid[1..].parse::<usize>().ok().and_then(|n| sk.arcs.get(n.saturating_sub(1))).and_then(|&(a, _b, centre)| {
-                        let pa = sk.points.get(&a)?;
-                        let pc = sk.points.get(&centre)?;
-                        Some((pa.0 - pc.0).hypot(pa.1 - pc.1))
-                    })
-                };
+                let radius = radius_of(sk, &curve);
                 if radius.is_some_and(|r| {
                     let measured = if kind == "radius" { r } else { 2.0 * r };
                     (measured - target).abs() <= tolerance
@@ -257,7 +268,12 @@ fn recover_radius_dimensions(b: &[u8], tags: &Tags, sk: &mut Sketch, kw: &str, s
         let distinct: HashSet<((String, u16), u64)> = accepted.iter().map(|(curve, value, _)| (curve.clone(), value.to_bits())).collect();
         if distinct.len() == 1 {
             let (_curve, value, handles) = accepted.remove(0);
-            sk.dims.push(Dim { name: nm.clone(), cls: "sgCircleDim".into(), value, handles });
+            let recovered = Dim { name: nm.clone(), cls: "sgCircleDim".into(), value, handles };
+            if let Some(existing) = sk.dims.iter_mut().find(|d| d.name == *nm) {
+                *existing = recovered;
+            } else {
+                sk.dims.push(recovered);
+            }
         }
     }
 }
