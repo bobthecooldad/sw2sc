@@ -783,7 +783,7 @@ def _sequential(name, feats, choices, planes, constraints, cli, tmp, ref=None, p
             flips = [False, True] if f.kind == "cut" and not first and not getattr(f, "thin_mm", None) else [False]
             unchanged = None
             for opt, op, to, side, sp, st, dr, fl in ((o, p, t, sd, s_, s2, d2, fs) for fs in flips for sd in sides for t in tos for p in ops
-                                                  for o in ("positive", "negative", "symmetric")
+                                                  for o in (("symmetric",) if f.mid_plane else ("positive", "negative", "symmetric"))
                                                   for s_ in ([None] + ([spans[o]] if o in spans and spans[o] > 1e-6 else []))
                                                   for s2 in [None] + starts for d2 in drops):
                 if fl and (to is not None or dr is not None):

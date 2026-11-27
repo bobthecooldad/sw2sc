@@ -249,6 +249,8 @@ pub struct Feature {
     pub frame: Option<Frame>,
     /// An extrude with no distance in the file.
     pub through_all: bool,
+    /// End type 6: the depth is the total distance about the sketch plane.
+    pub mid_plane: bool,
     /// A revolve's angle.
     pub angle_deg: f64,
     /// SolidWorks' id of the feature (what face references name).

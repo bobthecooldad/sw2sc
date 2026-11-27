@@ -121,6 +121,15 @@ Record each new finding here.
   group: its supposed first reference begins inside the 8-byte header itself. Reading four sequential
   references with gaps of at most 72 bytes yields 46 distinct edges for CTC 02 Fillet3 and 18 for
   FTC 06 Fillet2. Found from the public sample files; no external implementation was used.
+- **Extrude end type, mid-plane only (F-035):** `moEndSpec_c` stores its type as a u32 sixteen bytes
+  into the object (after the class declaration for its first object, or after its class token later).
+  The record starts `00 00 01 00` in the checked mid-plane cases, followed by 12 zero bytes and
+  `06 00 00 00`. Type 6 is mid-plane: the listed depth is the total distance about the sketch plane,
+  so it becomes SolidCraft's `direction: symmetric`, `convention: total_distance`. Checked directly
+  against the raw records of NIST FTC 10 (75 mm) and public sample extrudes of 55, 20, 6, 4 and 3 mm;
+  their type-0 blind counterparts store zero at the same offset. Other end types are not decoded by
+  this reading. Layout identified with help from cadkit-kernel `crates/ck-sldprt/src/sketch.rs`
+  (`object_word`, MIT OR Apache-2.0), then checked against these public files.
 - **Linear-pattern `FIX_n` dimensions:** some patterns have no `D1` count or `D3` spacing in
   `swXmlContents/KeyWords`; they have exactly two dimensions named `FIX_n` instead. In ten linear
   patterns across two public saves of the same design family, the lower consecutive number is the

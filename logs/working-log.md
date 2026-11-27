@@ -1560,3 +1560,15 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     verified rerun above. Targeted Python/Rust parity on both parts: 2 / 2 feature trees and
     2 / 2 default designs identical. The 22-part regression is 20 / 22 with zero new losses: only
     the already documented B-023 PartT8 area-only mismatch differs from its older baseline.
+
+199. **Mid-plane extrude end type (F-035), with help from cadkit-kernel.** Its
+    `crates/ck-sldprt/src/sketch.rs` identified the end type as the u32 sixteen bytes into
+    `moEndSpec_c`. Direct public-file checks confirmed type 6 on NIST FTC 10 and seven other
+    mid-plane extrudes across six public sample files; type-0 blind extrudes store zero there.
+    Python and Rust now read only this supported case, write a symmetric total-distance extrude
+    even if handed a one-sided choice, and offer only the symmetric direction to the rebuild search.
+    Focused regressions failed before the change (three Python directions instead of one; no Rust
+    reader or field) and pass after it. Worker-isolated verification: 110 Python tests (30 skips),
+    14 Rust tests, and 42 files / 36 designs with zero Python/Rust differences. The 55 mm mid-plane
+    shaft rebuild matches in 2 seconds; another affected sample keeps its previously reported -7.1%
+    mismatch. Other end conditions remain undecoded. Combined-branch verification follows below.

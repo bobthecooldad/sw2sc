@@ -513,6 +513,28 @@ fn depth(b: &[u8], recs: &[Record], k: usize, end: usize) -> Option<f64> {
     None
 }
 
+/// An extrude's `moEndSpec_c` type: the u32 sixteen bytes into the object. The fixed object
+/// prefix and small enum reject drifted records that only carry the estimated class tag.
+fn end_type(b: &[u8], recs: &[Record], k: usize, end: usize) -> Option<u32> {
+    for r in &recs[k + 1..] {
+        if r.offset >= end {
+            break;
+        }
+        if r.cls != "moEndSpec_c" {
+            continue;
+        }
+        let s = data_start(b, r);
+        if s + 20 > end || b[s..s + 2] != [0, 0] || !matches!(&b[s + 2..s + 4], [0, 0] | [1, 0]) {
+            continue;
+        }
+        let value = u32_at(b, s + 16);
+        if value < 16 {
+            return Some(value);
+        }
+    }
+    None
+}
+
 fn first_face(b: &[u8], from: usize, end: usize, fids: &HashSet<u32>, own: u32) -> Option<FaceRef> {
     let hi = end.min(from + 2000);
     let mut i = from;
@@ -651,6 +673,7 @@ pub fn read(sw: &SwFile) -> Option<Vec<Feature>> {
         } else if cls == BOSS || cls == CUT || cls == "moCut_c" {
             f = Feature::new(if cls == BOSS { "boss" } else { "cut" }, nm, r.offset, cls);
             f.profile = last_name;
+            f.mid_plane = end_type(b, &recs, k.unwrap(), end) == Some(6);
             // where the numbering drifts, a boss can read as a cut: a default name that says the
             // other kind is tried too
             if f.kind == "cut" && (nm.starts_with("Boss") || nm.starts_with("Бобышка")) {
@@ -1814,6 +1837,21 @@ fn body_move(b: &[u8], s: usize, e: usize) -> Option<([f64; 9], [f64; 3])> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn end_spec_type_is_the_word_sixteen_bytes_into_the_object() {
+        let name = b"moEndSpec_c";
+        let mut b = vec![0xff, 0xff, 1, 0, name.len() as u8, 0];
+        b.extend_from_slice(name);
+        b.extend_from_slice(&[0, 0, 1, 0]);
+        b.extend_from_slice(&[0; 12]);
+        b.extend_from_slice(&6u32.to_le_bytes());
+        let recs = vec![
+            Record { offset: 0, number: 1, cls: BOSS.into(), new_class: false },
+            Record { offset: 0, number: 3, cls: "moEndSpec_c".into(), new_class: true },
+        ];
+        assert_eq!(end_type(&b, &recs, 0, b.len()), Some(6));
+    }
 
     #[test]
     fn fixed_dimensions_supply_spacing_then_count() {

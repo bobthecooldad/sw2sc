@@ -42,7 +42,7 @@ def py_feature(f):
     return {
         "kind": f.kind, "name": f.name, "offset": f.offset, "cls": f.cls, "sketch": sk,
         "depth_mm": f.depth_mm, "profile": f.profile, "reason": f.reason, "frame": frame(f.frame) if f.frame else None,
-        "through_all": f.through_all, "angle_deg": f.angle_deg, "fid": f.fid, "radius_mm": f.radius_mm,
+        "through_all": f.through_all, "mid_plane": f.mid_plane, "angle_deg": f.angle_deg, "fid": f.fid, "radius_mm": f.radius_mm,
         "chamfer_deg": f.chamfer_deg, "chamfer_mm2": f.chamfer_mm2, "hole": dict(f.hole), "alt_kind": f.alt_kind, "from_face": f.from_face,
         "edge_lines": f.edge_lines, "round_axes": f.round_axes,
         "mirror_face": face(f.mirror_face), "mirror_planes": [frame(p) for p in f.mirror_planes],

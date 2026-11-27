@@ -158,6 +158,7 @@ class Feature:
     reason: str = ""
     frame: tuple | None = None   # a plane feature's placement
     through_all: bool = False    # an extrude with no distance in the file
+    mid_plane: bool = False      # end type 6: the depth is the total distance about the sketch plane
     angle_deg: float = 360.0     # a revolve's angle
     fid: int = 0                 # SolidWorks' id of the feature (what face references name)
     radius_mm: float | None = None   # a fillet's radius, a chamfer's distance
@@ -1595,6 +1596,23 @@ def _depth(b: bytes, recs: list, k: int, end: int) -> float | None:
     return None
 
 
+def _end_type(b: bytes, recs: list, k: int, end: int) -> int | None:
+    """An extrude's `moEndSpec_c` type: the u32 sixteen bytes into the object. The fixed object
+    prefix and small enum reject drifted records that only carry the estimated class tag."""
+    for r in recs[k + 1:]:
+        if r.offset >= end:
+            break
+        if r.cls != "moEndSpec_c":
+            continue
+        s = _data_start(b, r)
+        if s + 20 > end or b[s:s + 2] != bytes(2) or b[s + 2:s + 4] not in (b"\x00\x00", b"\x01\x00"):
+            continue
+        value = struct.unpack_from("<I", b, s + 16)[0]
+        if value < 16:
+            return value
+    return None
+
+
 def _handle_tags_file(b: bytes, tags: dict, recs: list) -> dict:
     """Curve-handle tags for a file whose numbering has drifted before its first sketch, so that
     no sketch brings the handle classes in inline to learn them from (NIST FTC 06: lines tagged
@@ -1719,6 +1737,7 @@ def read(sw) -> list[Feature] | None:
         elif r.cls in (BOSS, CUT, "moCut_c"):   # moCut_c: KeyWords lists it as <Cut>
             f = Feature("boss" if r.cls == BOSS else "cut", nm, r.offset, r.cls,
                         depth_mm=None, profile=last_sketch.name if last_sketch else None)
+            f.mid_plane = _end_type(b, recs, k, end) == 6
             # where the stream's numbering drifts, a boss can read as a cut: a default name that
             # says the other kind is tried too (names can be changed, so it doesn't decide)
             if f.kind == "cut" and re.match(r"(Boss|Бобышка)", nm):
@@ -3007,6 +3026,7 @@ FLIP_SQUARE = 10000.0   # mm: half the side of the square a flipped cut takes fr
 
 def extrude_feature(f: Feature, fid: int, sketch_id: int, direction: str, operation: str,
                     loops: list | None = None, to: list | None = None) -> dict:
+    direction = "symmetric" if f.mid_plane else direction
     prof = {"type": "curves", "loops": loops} if loops else {"type": "all"}
     if to is not None:    # up to a face (SolidWorks' up to next / up to surface): a point on it
         return {"id": fid, "name": f.name, "type": "extrude", "sketch": sketch_id, "suppressed": False,

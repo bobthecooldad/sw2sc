@@ -644,6 +644,7 @@ pub fn profile_loops_skip(sk: &Sketch, skip: &[String]) -> Vec<Vec<String>> {
 
 /// An extrude: `to` up to a face (a point on it), else through all or the feature's depth.
 pub fn extrude_feature(f: &Feature, fid: i64, sketch_id: i64, direction: &str, operation: &str, lps: &[Vec<String>], to: Option<&Value>) -> Value {
+    let direction = if f.mid_plane { "symmetric" } else { direction };
     let prof = if lps.is_empty() { json!({"type": "all"}) } else { json!({"type": "curves", "loops": lps}) };
     let extent = if let Some(to) = to {
         json!({"convention": "total_distance", "direction": direction, "distance": "0", "to": to})
@@ -1172,4 +1173,19 @@ pub fn design_tail(name: &str, feats: &[Feature], mut out: Vec<Value>, nid: i64)
         }
     }
     json!({"format": "solidcraft/55", "name": name, "units": "mm", "params": params, "features": out, "next_id": nid})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mid_plane_extrude_is_symmetric_even_with_a_one_sided_choice() {
+        let mut f = Feature::new("boss", "Boss-Extrude1", 0, crate::features::BOSS);
+        f.depth_mm = Some(55.0);
+        f.mid_plane = true;
+        let g = extrude_feature(&f, 2, 1, "positive", "new_body", &[], None);
+        assert_eq!(g["extent"]["direction"], "symmetric");
+        assert_eq!(g["extent"]["distance"], "55.0");
+    }
 }

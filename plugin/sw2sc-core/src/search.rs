@@ -874,6 +874,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                 }
             }
             let sides: Vec<Option<&str>> = if f.thin_mm.is_some_and(|t| t != 0.0) { vec![Some("center"), Some("inside"), Some("outside")] } else { vec![None] };
+            let directions: &[&str] = if f.mid_plane { &["symmetric"] } else { &["positive", "negative", "symmetric"] };
             let mut unchanged: Option<(Choices, Picks, Option<f64>)> = None;
             // a cut may keep its profile and take the rest (SolidWorks' flip side to cut): tried last
             let flips: Vec<bool> = if f.kind == "cut" && !first && !f.thin_mm.is_some_and(|t| t != 0.0) { vec![false, true] } else { vec![false] };
@@ -881,7 +882,7 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
                 for side in &sides {
                     for to in &tos {
                         for op in &ops {
-                            for opt in ["positive", "negative", "symmetric"] {
+                            for &opt in directions {
                                 let mut sps: Vec<Option<f64>> = vec![None];
                                 if let Some(&s) = spans.get(opt).filter(|s| **s > 1e-6) {
                                     sps.push(Some(s));

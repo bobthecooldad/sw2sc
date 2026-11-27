@@ -170,6 +170,24 @@ class ScaleTests(unittest.TestCase):
         self.assertEqual((g["factor"], [round(c, 6) for c in g["origin"]]), ("1.06", [round(c, 6) for c in com]))
 
 
+class EndConditionTests(unittest.TestCase):
+    def test_mid_plane_has_no_one_sided_search_branches(self):
+        from unittest import mock
+        from sw2sc import verify
+        sk = sketch({1: (0, 0), 2: (10, 0), 3: (10, 10), 4: (0, 10)},
+                    lines=[(1, 2), (2, 3), (3, 4), (4, 1)])
+        sk.name = "Sketch1"
+        boss = features.Feature("boss", "Boss-Extrude1", 1, features.BOSS,
+                                profile="Sketch1", depth_mm=55.0)
+        boss.mid_plane = True
+        feats = [features.Feature("sketch", "Sketch1", 0, features.SKETCH, sketch=sk), boss]
+        result = {"volume": 100.0, "area": 100.0, "errors": [], "lo": None, "hi": None}
+        with mock.patch("sw2sc.verify._prefix", return_value=({}, result)) as prefix:
+            list(verify._sequential("Part", feats, {}, {"Sketch1": 0}, True, "unused", "tmp"))
+        directions = [call.args[2][boss.name][0] for call in prefix.call_args_list]
+        self.assertEqual(directions, ["symmetric"])
+
+
 class PatternDimensionTests(unittest.TestCase):
     def test_fixed_dimensions_supply_spacing_then_count(self):
         dims = {"FIX_27": "2", "FIX_26": "20"}
@@ -187,6 +205,15 @@ class RealPartTests(unittest.TestCase):
             self.skipTest("sample part not on this PC")
         from sw2sc.swfile import SwFile
         return features.read(SwFile(path))
+
+    def test_mid_plane_end_spec_is_read_and_written_symmetrically(self):
+        f = self.read(os.path.join(SLIPPAD, "shaft_3x55mm.SLDPRT"))
+        boss = next(x for x in f if x.kind == "boss")
+        self.assertTrue(getattr(boss, "mid_plane", False))
+        d = features.design("t", f, {boss.name: ("positive", None)})
+        extent = next(x for x in d["features"] if x["type"] == "extrude")["extent"]
+        self.assertEqual(extent["direction"], "symmetric")
+        self.assertEqual(extent["distance"], "Boss_Extrude1_D1")
 
     def test_2015_part_with_arcs(self):
         f = self.read(os.path.join(DOCS, "Part K.SLDPRT"))
