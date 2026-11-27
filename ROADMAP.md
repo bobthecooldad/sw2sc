@@ -152,9 +152,9 @@ Core part conversion comes first; then:
 - **Lane A — readers:** one worker per feature class or record layout.
 - **Lane B — rebuild/search:** loop nesting, end-condition use, pruning and timeout diagnosis.
 - **Lane C — STEP/kernel:** geometry failures and minimal upstream reproductions.
-- **Lane D — automation:** regression tooling, NIST reports, blocker counts, full-folder conversion
-  batches and rotating private external samples. Only aggregate outcomes from private batches may
-  enter public logs.
+- **Lane D — automation:** regression tooling, NIST reports, blocker counts, memory-capped
+  full-folder conversion batches and rotating private external samples. Only aggregate outcomes
+  from private batches may enter public logs.
 
 A local model may summarize sanitized reports or review a bounded diff. It is not file-format
 evidence and never decides parity or acceptance. Deterministic tools and the main reviewer make

@@ -114,20 +114,42 @@ impl Ctx<'_> {
 type Sink<'s> = dyn FnMut(&mut Ctx, Value) -> bool + 's;
 
 /// Cartesian product of `sizes` (each index running 0..size), in itertools.product's order.
-fn product(sizes: &[usize]) -> Vec<Vec<usize>> {
-    let mut out = vec![vec![]];
-    for &n in sizes {
-        let mut next = Vec::new();
-        for p in &out {
-            for i in 0..n {
-                let mut q = p.clone();
-                q.push(i);
-                next.push(q);
+struct Product {
+    sizes: Vec<usize>,
+    current: Vec<usize>,
+    started: bool,
+    done: bool,
+}
+
+impl Product {
+    fn new(sizes: &[usize]) -> Self {
+        Self { sizes: sizes.to_vec(), current: vec![0; sizes.len()], started: false,
+               done: sizes.contains(&0) }
+    }
+}
+
+impl Iterator for Product {
+    type Item = Vec<usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done || (self.started && self.sizes.is_empty()) {
+            return None;
+        }
+        self.started = true;
+        let out = self.current.clone();
+        for i in (0..self.sizes.len()).rev() {
+            if self.current[i] + 1 < self.sizes[i] {
+                self.current[i] += 1;
+                return Some(out);
+            }
+            self.current[i] = 0;
+            if i == 0 {
+                self.done = true;
             }
         }
-        out = next;
+        self.done = true;
+        Some(out)
     }
-    out
 }
 
 /// The feature tree as a SolidCraft design whose rebuild matches `reference` (a design with the
@@ -238,16 +260,14 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
             ks
         })
         .collect();
-    let plane_sets: Vec<Vec<usize>> = product(&sk_list.iter().map(|s| s.1).collect::<Vec<_>>())
-        .into_iter()
-        .map(|pc| pc.iter().enumerate().map(|(j, k)| plane_orders[j][*k]).collect())
-        .collect();
-    let rev_sets = product(&rev_opts.iter().map(|o| o.len()).collect::<Vec<_>>());
+    let plane_sets = Product::new(&sk_list.iter().map(|s| s.1).collect::<Vec<_>>())
+        .map(|pc| pc.iter().enumerate().map(|(j, k)| plane_orders[j][*k]).collect::<Vec<usize>>());
+    // Revolve choices are iterated afresh for each sketch-plane choice.
     // built in sequence, each extrude's direction is chosen as it is built: one set is enough
-    let dir_sets = if seq { vec![vec![0; extr.len()]] } else { product(&vec![3; extr.len()]) };
-    for pc in &plane_sets {
+    let dir_sets = if seq { vec![vec![0; extr.len()]] } else { Product::new(&vec![3; extr.len()]).collect() };
+    for pc in plane_sets {
         for ac in &arc_opts {
-            for rc in &rev_sets {
+            for rc in Product::new(&rev_opts.iter().map(|o| o.len()).collect::<Vec<_>>()) {
                 for dc in &dir_sets {
                     if ctx.late() {
                         return None;
@@ -271,11 +291,11 @@ fn search(ctx: &mut Ctx) -> Option<Value> {
                     for (f, c) in extr.iter().zip(dc) {
                         choices.insert(f.clone(), json!([options[*c], null]));
                     }
-                    for ((f, i), opts) in revs.iter().zip(rc).zip(&rev_opts) {
+                    for ((f, i), opts) in revs.iter().zip(&rc).zip(&rev_opts) {
                         let (a, s) = opts[*i];
                         choices.insert(f.clone(), json!([a, s]));
                     }
-                    ctx.planes = sk_list.iter().zip(pc).map(|(s, i)| (s.0.clone(), *i)).collect();
+                    ctx.planes = sk_list.iter().zip(&pc).map(|(s, i)| (s.0.clone(), *i)).collect();
                     let mut found: Option<Value> = None;
                     let mut count = tries;
                     let mut sink = |c: &mut Ctx, d: Value| -> bool {
@@ -1330,5 +1350,25 @@ fn step(ctx: &mut Ctx, sh: &Shared, i: usize, choices: &Choices, picks: &Picks, 
             }
             false
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn product_is_lazy_and_ordered() {
+        let mut p = Product::new(&[2, 2]);
+        assert_eq!(p.next(), Some(vec![0, 0]));
+        assert_eq!(p.next(), Some(vec![0, 1]));
+        assert_eq!(p.next(), Some(vec![1, 0]));
+        assert_eq!(p.next(), Some(vec![1, 1]));
+        assert_eq!(p.next(), None);
+        assert_eq!(Product::new(&[0]).next(), None);
+        let mut empty = Product::new(&[]);
+        assert_eq!(empty.next(), Some(vec![]));
+        assert_eq!(empty.next(), None);
     }
 }

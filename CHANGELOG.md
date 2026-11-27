@@ -10,6 +10,9 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
 15). Per-part results are in `logs/feature-check-nist.md` and working log 180.
 
 ### Added
+- `tools/process_limit.py` adds a watchdog that checks working-set memory and terminates a
+  conversion and its process tree if `--memory-mb` is exceeded (default 8192 MiB). Timeout and
+  memory-limit results include the reason; large output is drained without deadlocking the watcher.
 - `tools/convert_sample.py` accepts a whole folder as well as a list, skips lock files, and takes
   `--timeout` for long per-part conversion runs. JSONL results are flushed after every part and
   aggregate progress prints every ten parts. Files over 250 MB run singly by default to limit
@@ -32,6 +35,9 @@ matches**, 10 of 19 fully decoded and attempting a rebuild, 9 still reader-block
   to the body are chosen in the rebuild. Python and Rust.
 
 ### Fixed
+- The Rust rebuild search no longer allocates every sketch-plane combination before starting:
+  combinations are iterated lazily, like Python's `itertools.product`. One NIST part had
+  293,932,800,000 combinations and previously exhausted memory in seconds.
 - The main rebuild search budget is now 300 seconds in Python and Rust (was 240), matching the
   triage default. One previously timed-out regression part matches again; PartT8 remains B-023.
 - Revolves and revolved cuts are included at their own place in the sequential rebuild, and the

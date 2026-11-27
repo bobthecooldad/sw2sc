@@ -46,7 +46,7 @@ class ConvertSampleTests(unittest.TestCase):
                 def map(self, fn, paths):
                     return [fn(p) for p in paths]
 
-            def result(path, timeout):
+            def result(path, timeout, memory_mb=8192):
                 return {"file": path, "seconds": 0, "summary": None, "error": None, "items": [], "rebuild": None}
 
             with mock.patch.object(convert_sample, "ThreadPoolExecutor", Pool), \
@@ -61,7 +61,7 @@ class ConvertSampleTests(unittest.TestCase):
         result.stdout = "{}"
         result.stderr = ""
         result.returncode = 0
-        with mock.patch.object(convert_sample.subprocess, "run", return_value=subprocess_result) as run:
+        with mock.patch.object(convert_sample.process_limit, "run", return_value=subprocess_result) as run:
             convert_sample.run("Part A.SLDPRT", timeout=3600)
         self.assertEqual(run.call_args.kwargs["timeout"], 3600)
 

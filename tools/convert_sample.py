@@ -1,7 +1,7 @@
 """Run the plugin's converter (`convert_one`, the Rust build) on a sample of parts in parallel,
 record each outcome, and compare with an earlier run.
 
-    python tools/convert_sample.py LIST_OR_FOLDER OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--timeout 900] [--large-mb 250] [--baseline OLD.jsonl]
+    python tools/convert_sample.py LIST_OR_FOLDER OUT.jsonl [--n 200] [--seed 1] [--jobs 20] [--timeout 900] [--large-mb 250] [--memory-mb 8192] [--baseline OLD.jsonl]
 
 LIST_OR_FOLDER is a text file with one part path per line or a folder searched recursively.
 Lock files are excluded; the same seed picks the same sample. Exit
@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 from feature_survey import parts as model_parts  # noqa: E402
+import process_limit  # noqa: E402
 EXE = os.path.join(ROOT, "plugin", "target", "release", "examples", "convert_one" + (".exe" if os.name == "nt" else ""))
 
 
@@ -32,10 +33,10 @@ def paths_of(source: str) -> list[str]:
     return [ln.strip() for ln in open(source, encoding="utf-8") if ln.strip().lower().endswith(".sldprt")]
 
 
-def run(path: str, timeout: int = 900) -> dict:
+def run(path: str, timeout: int = 900, memory_mb: int = 8192) -> dict:
     t = time.time()
     try:
-        r = subprocess.run([EXE, path], capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+        r = process_limit.run([EXE, path], timeout=timeout, memory_mb=memory_mb)
         txt = r.stdout.strip()
         rep = json.loads(txt) if txt.startswith("{") else {"error": (txt or r.stderr)[-300:]}
     except subprocess.TimeoutExpired:
@@ -71,11 +72,11 @@ def split_large(paths, large_mb):
     return large, normal
 
 
-def run_batch(paths, jobs, timeout, fh, results):
+def run_batch(paths, jobs, timeout, fh, results, memory_mb=8192):
     if not paths:
         return
     with ThreadPoolExecutor(jobs) as pool:
-        for r in pool.map(lambda p: run(p, timeout), paths):
+        for r in pool.map(lambda p: run(p, timeout, memory_mb), paths):
             fh.write(json.dumps(r) + "\n")
             fh.flush()
             results.append(r)
@@ -90,6 +91,7 @@ def main(argv=None) -> int:
     ap.add_argument("--jobs", type=int, default=20)
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--large-mb", type=int, default=250)
+    ap.add_argument("--memory-mb", type=int, default=8192)
     ap.add_argument("--baseline")
     a = ap.parse_args(argv)
     paths = paths_of(a.list)
@@ -98,8 +100,8 @@ def main(argv=None) -> int:
     large, normal = split_large(paths, a.large_mb)
     with open(a.out, "w", encoding="utf-8") as fh:
         results = []
-        run_batch(large, 1, a.timeout, fh, results)
-        run_batch(normal, a.jobs, a.timeout, fh, results)
+        run_batch(large, 1, a.timeout, fh, results, a.memory_mb)
+        run_batch(normal, a.jobs, a.timeout, fh, results, a.memory_mb)
         if len(results) % 10 == 0:
             print(f"{len(results)} of {len(paths)} complete", flush=True)
     now = {r["file"]: outcome(r) for r in results}

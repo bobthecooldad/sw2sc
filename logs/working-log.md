@@ -1504,3 +1504,14 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     test observes one worker for a 2 MiB test file and two for a small file. The restarted batch
     uses two ordinary workers and one for large files, with no competing heavy jobs. Assemblies
     are not included in this Rust-plugin part runner; they need a separate conservative checker.
+
+
+194. **Rust Cartesian-product allocation caused the conversion memory spike (B-024).** One small
+    NIST part has sketch plane counts whose product is **293,932,800,000**. Rust's `product`
+    allocated every combination before trying the first; the same file now uses a lazy `Product`
+    iterator with ordering and empty-input tests. A 43 GB process was killed before another BSOD.
+    `tools/process_limit.py` adds a psapi working-set watchdog and process-tree kill. An attempted
+    Windows Job Object implementation failed with error 24 and was replaced by the watchdog, which
+    passes a real 512 MiB allocation test and drains stdout/stderr without deadlocking large reports.
+    The full 356-part GrabCAD batch is running with two ordinary workers, large files serial, and a
+    2048 MiB cap. It has not completed, so no final success rate is claimed yet.
