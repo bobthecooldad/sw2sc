@@ -11,7 +11,7 @@
 | nist_ctc_03_asme1_SW1201_rc.SLDPRT | mismatch | no build to compare |
 | nist_ctc_04_asme1_SW1201_rd.SLDPRT | mismatch | no build to compare |
 | nist_ctc_05_asme1_SW1201_rd.SLDPRT | mismatch | no build to compare |
-| nist_ctc_01_asme1_rd_sw1802.SLDPRT | mismatch | too much material (+2.3%): a loop is an island, or a cut didn't take |
+| nist_ctc_01_asme1_rd_sw1802.SLDPRT | mismatch | too much material (+1.8%): a loop is an island, or a cut didn't take |
 | nist_ctc_02_asme1_rc_sw1802.SLDPRT | not fully decoded | 3DSketch1: mo3DProfileFeature_c not converted yet |
 | nist_ctc_03_asme1_rc_sw1802.SLDPRT | mismatch | no build to compare |
 | nist_ctc_04_asme1_rd_sw1802.SLDPRT | mismatch | no build to compare |

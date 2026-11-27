@@ -30,7 +30,7 @@ Latest full eight-job run: **0 of 19 converted; 12 of 19 fully decoded and attem
 | CTC 03 | SW 2012 | rebuilds, no match | no build to compare |
 | CTC 04 | SW 2012 | rebuilds, no match | no build to compare |
 | CTC 05 | SW 2012 | rebuilds, no match | no build to compare |
-| CTC 01 | SW 2018 | rebuilds, no match | 2.3% too much material (a loop is an island, or a cut did not take) |
+| CTC 01 | SW 2018 | rebuilds, no match | 1.8% too much material in the latest run (a loop is an island, or a cut did not take) |
 | CTC 02 | SW 2018 | partly read | a 3D sketch |
 | CTC 03 | SW 2018 | rebuilds, no match | no build to compare |
 | CTC 04 | SW 2018 | rebuilds, no match | no build to compare |

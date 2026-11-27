@@ -1571,4 +1571,18 @@ found", copied to `~/.sw2sc-checks/work/sketchcurves`.
     reader or field) and pass after it. Worker-isolated verification: 110 Python tests (30 skips),
     14 Rust tests, and 42 files / 36 designs with zero Python/Rust differences. The 55 mm mid-plane
     shaft rebuild matches in 2 seconds; another affected sample keeps its previously reported -7.1%
-    mismatch. Other end conditions remain undecoded. Combined-branch verification follows below.
+    mismatch. Other end conditions remain undecoded. Combined integration: **112 Python tests OK
+    (5 skipped), all 16 Rust tests OK**, and full public parity of 54 files / 43 designs with zero
+    differences. The combined 22-part regression is 20 / 22 with zero new losses; only B-023 PartT8
+    differs from its older baseline. The 3D-sketch worker crashed twice without saving code or new
+    record evidence, so that bounded lane was stopped and F-006/F-036 remains open.
+
+
+200. **Full NIST check on the combined pattern and mid-plane readers.** All 19 parts were rerun on
+    SolidCraft 0.50.0. The result is unchanged: **0 / 19 exact feature-tree matches**, 12 / 19 fully
+    decoded and attempting a rebuild, and 7 / 19 reader-blocked. CTC 01 (2018) reports +1.8% material
+    as its closest mismatch this run, versus +2.3% in the previous report; both are failed matches,
+    so this is not counted as success or a completed fix. FTC 10's mid-plane extrude now reads
+    directly as symmetric, but its general 3D sketch still blocks a rebuild. A new full 356-part
+    GrabCAD run has started with 12 workers, a 300-second per-part budget and a 2 GiB watchdog;
+    no updated full-batch percentage is claimed until it completes.
